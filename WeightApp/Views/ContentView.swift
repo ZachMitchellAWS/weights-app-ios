@@ -18,6 +18,7 @@ class SelectedSetData: ObservableObject {
 }
 
 struct ContentView: View {
+    @ObservedObject var authViewModel: AuthViewModel
     @State private var selectedTab = 1
     @StateObject private var selectedSetData = SelectedSetData()
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
@@ -32,7 +33,7 @@ struct ContentView: View {
                 .tabItem { Label("Check In", systemImage: "plus.circle") }
                 .tag(1)
 
-            SettingsView()
+            SettingsView(authViewModel: authViewModel)
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(2)
         }

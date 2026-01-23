@@ -9,11 +9,16 @@ import SwiftUI
 import SwiftData
 
 struct SettingsView: View {
+    @ObservedObject var authViewModel: AuthViewModel
     @Environment(\.modelContext) private var modelContext
     @Query private var settingsItems: [AppSettings]
     @Query private var exercises: [Exercise]
     @State private var isAvailableIncrementsExpanded = false
     @State private var showDataPopulatedAlert = false
+    @State private var showLogoutConfirmation = false
+    @State private var showUserPropertiesAlert = false
+    @State private var userPropertiesAlertMessage = ""
+    @State private var isUpdatingProperties = false
 
     private var settings: AppSettings {
         if let s = settingsItems.first { return s }
@@ -108,10 +113,50 @@ struct SettingsView: View {
                                 .foregroundStyle(.cyan)
                         }
                     }
+
+                    Button {
+                        Task {
+                            await updateUserProperties()
+                        }
+                    } label: {
+                        HStack {
+                            Text("Update User Properties")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if isUpdatingProperties {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "person.crop.circle.badge.checkmark")
+                                    .foregroundStyle(.cyan)
+                            }
+                        }
+                    }
+                    .disabled(isUpdatingProperties)
                 } header: {
                     Text("Developer")
                 } footer: {
-                    Text("Generates realistic training data for the past 7 days for testing purposes.")
+                    Text("Generates realistic training data for the past 7 days for testing purposes. Update user properties sends a test API call.")
+                }
+
+                Section {
+                    Button(role: .destructive) {
+                        showLogoutConfirmation = true
+                    } label: {
+                        HStack {
+                            Text("Logout")
+                            Spacer()
+                            if authViewModel.isLoading {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "arrow.right.square")
+                            }
+                        }
+                    }
+                    .disabled(authViewModel.isLoading)
+                } header: {
+                    Text("Account")
+                } footer: {
+                    Text("Log out and return to the login screen.")
                 }
             }
             .navigationTitle("Settings")
@@ -119,6 +164,21 @@ struct SettingsView: View {
                 Button("OK") { }
             } message: {
                 Text("Successfully generated 7 days of training data.")
+            }
+            .alert("Logout", isPresented: $showLogoutConfirmation) {
+                Button("Cancel", role: .cancel) { }
+                Button("Logout", role: .destructive) {
+                    Task {
+                        await authViewModel.logout()
+                    }
+                }
+            } message: {
+                Text("Are you sure you want to logout?")
+            }
+            .alert("User Properties", isPresented: $showUserPropertiesAlert) {
+                Button("OK") { }
+            } message: {
+                Text(userPropertiesAlertMessage)
             }
         }
     }
@@ -209,5 +269,20 @@ struct SettingsView: View {
         }
 
         try? modelContext.save()
+    }
+
+    private func updateUserProperties() async {
+        isUpdatingProperties = true
+
+        do {
+            let response = try await APIService.shared.updateUserProperties()
+            userPropertiesAlertMessage = "Successfully updated user properties\n\nplaceholderBool: \(response.placeholderBool)"
+            showUserPropertiesAlert = true
+        } catch {
+            userPropertiesAlertMessage = "Failed: \(error.localizedDescription)"
+            showUserPropertiesAlert = true
+        }
+
+        isUpdatingProperties = false
     }
 }
