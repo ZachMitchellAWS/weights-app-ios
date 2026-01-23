@@ -11,6 +11,7 @@ import SwiftData
 @main
 struct WeightAppApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @StateObject private var authViewModel = AuthViewModel()
     @State private var showSplash = true
 
     init() {
@@ -21,9 +22,15 @@ struct WeightAppApp: App {
     var body: some Scene {
         WindowGroup {
             ZStack {
-                ContentView()
-                    .preferredColorScheme(.dark)
-                    .opacity(showSplash ? 0 : 1)
+                Group {
+                    if authViewModel.isAuthenticated {
+                        ContentView(authViewModel: authViewModel)
+                    } else {
+                        AuthView(authViewModel: authViewModel)
+                    }
+                }
+                .preferredColorScheme(.dark)
+                .opacity(showSplash ? 0 : 1)
 
                 if showSplash {
                     SplashView()
