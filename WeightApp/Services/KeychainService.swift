@@ -15,18 +15,24 @@ class KeychainService {
     private let refreshTokenKey = "com.weightapp.refreshToken"
     private let userIdKey = "com.weightapp.userId"
     private let expiresAtKey = "com.weightapp.expiresAt"
+    private let emailKey = "com.weightapp.email"
+    private let createdDatetimeKey = "com.weightapp.createdDatetime"
 
     private init() {}
 
     // MARK: - Save Tokens
 
-    func saveTokens(accessToken: String, refreshToken: String, userId: String, expiresIn: Int) {
+    func saveTokens(accessToken: String, refreshToken: String, userId: String, expiresIn: Int, email: String? = nil) {
         let expiresAt = Date().addingTimeInterval(TimeInterval(expiresIn))
 
         save(key: accessTokenKey, value: accessToken)
         save(key: refreshTokenKey, value: refreshToken)
         save(key: userIdKey, value: userId)
         save(key: expiresAtKey, value: ISO8601DateFormatter().string(from: expiresAt))
+
+        if let email = email {
+            save(key: emailKey, value: email)
+        }
     }
 
     func updateAccessToken(accessToken: String, userId: String, expiresIn: Int) {
@@ -51,6 +57,14 @@ class KeychainService {
         return get(key: userIdKey)
     }
 
+    func getEmail() -> String? {
+        return get(key: emailKey)
+    }
+
+    func getCreatedDatetime() -> String? {
+        return get(key: createdDatetimeKey)
+    }
+
     func getTokenStorage() -> TokenStorage? {
         guard let accessToken = getAccessToken(),
               let refreshToken = getRefreshToken(),
@@ -72,6 +86,12 @@ class KeychainService {
         return getAccessToken() != nil && getRefreshToken() != nil
     }
 
+    // MARK: - User Properties
+
+    func saveUserProperties(createdDatetime: String) {
+        save(key: createdDatetimeKey, value: createdDatetime)
+    }
+
     // MARK: - Clear Tokens
 
     func clearTokens() {
@@ -79,6 +99,8 @@ class KeychainService {
         delete(key: refreshTokenKey)
         delete(key: userIdKey)
         delete(key: expiresAtKey)
+        delete(key: emailKey)
+        delete(key: createdDatetimeKey)
     }
 
     // MARK: - Private Keychain Methods

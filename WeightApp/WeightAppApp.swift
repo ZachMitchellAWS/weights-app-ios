@@ -46,7 +46,7 @@ struct WeightAppApp: App {
                 }
             }
         }
-        .modelContainer(for: [Exercise.self, LiftSet.self, AppSettings.self, Estimated1RM.self])
+        .modelContainer(for: [Exercise.self, LiftSet.self, AppSettings.self, Estimated1RM.self, PlateModel.self])
     }
 }
 

@@ -136,12 +136,13 @@ class APIService {
             headers: APIConfig.commonHeaders
         )
 
-        // Store tokens
+        // Store tokens and email
         KeychainService.shared.saveTokens(
             accessToken: response.accessToken,
             refreshToken: response.refreshToken,
             userId: response.userId,
-            expiresIn: response.expiresIn
+            expiresIn: response.expiresIn,
+            email: response.emailAddress
         )
 
         return response
@@ -156,12 +157,13 @@ class APIService {
             headers: APIConfig.commonHeaders
         )
 
-        // Store tokens
+        // Store tokens and email
         KeychainService.shared.saveTokens(
             accessToken: response.accessToken,
             refreshToken: response.refreshToken,
             userId: response.userId,
-            expiresIn: response.expiresIn
+            expiresIn: response.expiresIn,
+            email: response.emailAddress
         )
 
         return response
@@ -216,6 +218,14 @@ class APIService {
             method: "POST",
             body: body,
             headers: APIConfig.commonHeaders
+        )
+    }
+
+    func getUserProperties() async throws -> UserPropertiesResponse {
+        return try await request(
+            endpoint: "/user/properties",
+            method: "GET",
+            requiresAuth: true
         )
     }
 

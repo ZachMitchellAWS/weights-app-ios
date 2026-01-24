@@ -41,6 +41,10 @@ class AuthViewModel: ObservableObject {
             let response = try await APIService.shared.login(email: email, password: password)
             isAuthenticated = true
             userId = response.userId
+
+            // Fetch and store user properties
+            await fetchUserProperties()
+
             isLoading = false
             return .success
         } catch {
@@ -58,6 +62,10 @@ class AuthViewModel: ObservableObject {
             let response = try await APIService.shared.createUser(email: email, password: password)
             isAuthenticated = true
             userId = response.userId
+
+            // Fetch and store user properties
+            await fetchUserProperties()
+
             isLoading = false
             return .success
         } catch let error as APIError {
@@ -118,6 +126,16 @@ class AuthViewModel: ObservableObject {
         } catch {
             // Silently fail and retry on next attempt
             // This allows recovery from temporary network issues
+        }
+    }
+
+    private func fetchUserProperties() async {
+        do {
+            let properties = try await APIService.shared.getUserProperties()
+            KeychainService.shared.saveUserProperties(createdDatetime: properties.createdDatetime)
+        } catch {
+            // Silently fail - user properties are not critical
+            print("Failed to fetch user properties: \(error.localizedDescription)")
         }
     }
 

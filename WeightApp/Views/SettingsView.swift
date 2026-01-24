@@ -13,12 +13,16 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var settingsItems: [AppSettings]
     @Query private var exercises: [Exercise]
-    @State private var isAvailableIncrementsExpanded = false
+    @Query private var liftSets: [LiftSet]
+    @Query private var estimated1RMs: [Estimated1RM]
     @State private var showDataPopulatedAlert = false
-    @State private var showLogoutConfirmation = false
     @State private var showUserPropertiesAlert = false
+    @State private var showAccountDetail = false
     @State private var userPropertiesAlertMessage = ""
     @State private var isUpdatingProperties = false
+    @State private var showPlateSelection = false
+    @State private var showDeleteConfirmation = false
+    @State private var showDataDeletedAlert = false
 
     private var settings: AppSettings {
         if let s = settingsItems.first { return s }
@@ -27,77 +31,26 @@ struct SettingsView: View {
         return s
     }
 
-    private var availableIncrements: [Double] {
-        settings.availableIncrements.isEmpty ? [2.5, 5.0] : settings.availableIncrements
-    }
-
     var body: some View {
         NavigationStack {
             Form {
-                Section("Two-Sided Load Increment") {
-                    Picker("Increment", selection: Binding(
-                        get: { settings.twoSidedIncrement },
-                        set: { settings.twoSidedIncrement = $0 }
-                    )) {
-                        ForEach(availableIncrements.sorted(), id: \.self) { inc in
-                            Text(inc.formatted(.number.precision(.fractionLength(2))))
-                                .tag(inc)
-                        }
-                    }
-                }
-
-                Section("One-Sided Load Increment") {
-                    Picker("Increment", selection: Binding(
-                        get: { settings.oneSidedIncrement },
-                        set: { settings.oneSidedIncrement = $0 }
-                    )) {
-                        ForEach(availableIncrements.sorted(), id: \.self) { inc in
-                            Text(inc.formatted(.number.precision(.fractionLength(2))))
-                                .tag(inc)
-                        }
-                    }
-                }
-
                 Section {
-                    DisclosureGroup(
-                        isExpanded: $isAvailableIncrementsExpanded,
-                        content: {
-                            ForEach(AppSettings.predefinedIncrements, id: \.self) { increment in
-                                Button {
-                                    toggleIncrement(increment)
-                                } label: {
-                                    HStack {
-                                        Text(increment.formatted(.number.precision(.fractionLength(2))))
-                                            .foregroundStyle(.primary)
-                                        Spacer()
-                                        if settings.availableIncrements.contains(increment) {
-                                            Image(systemName: "checkmark")
-                                                .foregroundStyle(.cyan)
-                                        }
-                                    }
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                            }
-
-                            Button("Reset to Defaults") {
-                                settings.availableIncrements = [2.5, 5.0]
-                                if !settings.availableIncrements.contains(settings.twoSidedIncrement) {
-                                    settings.twoSidedIncrement = 5.0
-                                }
-                                if !settings.availableIncrements.contains(settings.oneSidedIncrement) {
-                                    settings.oneSidedIncrement = 2.5
-                                }
-                            }
-                        },
-                        label: {
-                            Text("Available Increments")
+                    Button {
+                        showPlateSelection = true
+                    } label: {
+                        HStack {
+                            Text("Plate Selection")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(.white.opacity(0.3))
+                                .font(.system(size: 14))
                         }
-                    )
-                } footer: {
-                    if isAvailableIncrementsExpanded {
-                        Text("Select which weight increments are available for calculating progression options.")
                     }
+                } header: {
+                    Text("Equipment")
+                } footer: {
+                    Text("Configure available weight plates for your workouts.")
                 }
 
                 Section {
@@ -132,31 +85,39 @@ struct SettingsView: View {
                         }
                     }
                     .disabled(isUpdatingProperties)
+
+                    Button(role: .destructive) {
+                        showDeleteConfirmation = true
+                    } label: {
+                        HStack {
+                            Text("Delete All Workout Data")
+                                .foregroundStyle(.red)
+                            Spacer()
+                            Image(systemName: "trash")
+                                .foregroundStyle(.red)
+                        }
+                    }
                 } header: {
                     Text("Developer")
                 } footer: {
-                    Text("Generates realistic training data for the past 7 days for testing purposes. Update user properties sends a test API call.")
+                    Text("Generates realistic training data for the past 7 days for testing purposes. Update user properties sends a test API call. Delete all workout data removes all LiftSet and Estimated1RM entries.")
                 }
 
                 Section {
-                    Button(role: .destructive) {
-                        showLogoutConfirmation = true
+                    Button {
+                        showAccountDetail = true
                     } label: {
                         HStack {
-                            Text("Logout")
+                            Text("Account")
+                                .foregroundStyle(.primary)
                             Spacer()
-                            if authViewModel.isLoading {
-                                ProgressView()
-                            } else {
-                                Image(systemName: "arrow.right.square")
-                            }
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(.white.opacity(0.3))
+                                .font(.system(size: 14))
                         }
                     }
-                    .disabled(authViewModel.isLoading)
-                } header: {
-                    Text("Account")
                 } footer: {
-                    Text("Log out and return to the login screen.")
+                    Text("View account information and logout.")
                 }
             }
             .navigationTitle("Settings")
@@ -165,35 +126,31 @@ struct SettingsView: View {
             } message: {
                 Text("Successfully generated 7 days of training data.")
             }
-            .alert("Logout", isPresented: $showLogoutConfirmation) {
-                Button("Cancel", role: .cancel) { }
-                Button("Logout", role: .destructive) {
-                    Task {
-                        await authViewModel.logout()
-                    }
-                }
-            } message: {
-                Text("Are you sure you want to logout?")
-            }
             .alert("User Properties", isPresented: $showUserPropertiesAlert) {
                 Button("OK") { }
             } message: {
                 Text(userPropertiesAlertMessage)
             }
-        }
-    }
-
-    private func toggleIncrement(_ increment: Double) {
-        var increments = settings.availableIncrements
-        if let index = increments.firstIndex(of: increment) {
-            // Don't allow removing if it's the last one or if it's currently selected
-            if increments.count > 1 && increment != settings.twoSidedIncrement && increment != settings.oneSidedIncrement {
-                increments.remove(at: index)
+            .alert("Delete All Workout Data?", isPresented: $showDeleteConfirmation) {
+                Button("Cancel", role: .cancel) { }
+                Button("Delete", role: .destructive) {
+                    deleteAllWorkoutData()
+                }
+            } message: {
+                Text("This will permanently delete all LiftSet and Estimated1RM entries. This action cannot be undone.")
             }
-        } else {
-            increments.append(increment)
+            .alert("Data Deleted", isPresented: $showDataDeletedAlert) {
+                Button("OK") { }
+            } message: {
+                Text("Successfully deleted all workout data.")
+            }
+            .fullScreenCover(isPresented: $showPlateSelection) {
+                PlateSelectionView()
+            }
+            .fullScreenCover(isPresented: $showAccountDetail) {
+                AccountDetailView(authViewModel: authViewModel)
+            }
         }
-        settings.availableIncrements = increments
     }
 
     private func populateSimulatedData() {
@@ -284,5 +241,22 @@ struct SettingsView: View {
         }
 
         isUpdatingProperties = false
+    }
+
+    private func deleteAllWorkoutData() {
+        // Delete all LiftSet items
+        for liftSet in liftSets {
+            modelContext.delete(liftSet)
+        }
+
+        // Delete all Estimated1RM items
+        for estimated1RM in estimated1RMs {
+            modelContext.delete(estimated1RM)
+        }
+
+        // Save the changes
+        try? modelContext.save()
+
+        showDataDeletedAlert = true
     }
 }
