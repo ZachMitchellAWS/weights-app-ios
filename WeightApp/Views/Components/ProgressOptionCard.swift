@@ -19,7 +19,7 @@ struct ProgressOptionCard: View {
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(Color.appLabel)
                 Text(formatWeight(suggestion.weight.rounded1()))
-                    .font(.title2.weight(.bold))
+                    .font(.title3.weight(.bold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -28,7 +28,7 @@ struct ProgressOptionCard: View {
 
             Divider()
                 .background(.white.opacity(0.2))
-                .frame(height: 50)
+                .frame(height: 36)
 
             // Reps
             VStack(spacing: 2) {
@@ -36,14 +36,14 @@ struct ProgressOptionCard: View {
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(Color.appLabel)
                 Text("\(suggestion.reps)")
-                    .font(.title2.weight(.bold))
+                    .font(.title3.weight(.bold))
                     .foregroundStyle(.white)
             }
             .frame(width: 50)
 
             Divider()
                 .background(.white.opacity(0.2))
-                .frame(height: 50)
+                .frame(height: 36)
 
             // Projected 1RM
             VStack(spacing: 2) {
@@ -51,7 +51,7 @@ struct ProgressOptionCard: View {
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(Color.appLabel)
                 Text(formatWeight(suggestion.projected1RM.rounded1()))
-                    .font(.title2.weight(.bold))
+                    .font(.title3.weight(.bold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -60,7 +60,7 @@ struct ProgressOptionCard: View {
 
             Divider()
                 .background(.white.opacity(0.2))
-                .frame(height: 50)
+                .frame(height: 36)
 
             // Gain
             let delta = suggestion.delta
@@ -69,7 +69,7 @@ struct ProgressOptionCard: View {
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(Color.appLabel)
                 Text("\(delta >= 0 ? "+" : "")\(delta.formatted(.number.precision(.fractionLength(2))))")
-                    .font(.title2.weight(.bold))
+                    .font(.title3.weight(.bold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                     .foregroundStyle(delta > 0 ? .green : .white.opacity(0.7))
@@ -77,7 +77,7 @@ struct ProgressOptionCard: View {
             .frame(width: 65)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 14)
+        .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color(white: 0.12))

@@ -178,9 +178,9 @@ struct ExerciseGroupRow: View {
     let allSets: [LiftSet]
 
     private func colorForPercentage(_ percentage: Double, isPR: Bool) -> Color {
-        // If it's a PR, use gold
+        // If it's a PR, use bright white to stand out from intensity colors
         if isPR {
-            return Color(red: 1.0, green: 0.84, blue: 0.0)
+            return Color.white
         }
 
         // Otherwise, color by percentage of current 1RM (difficulty)
@@ -251,7 +251,7 @@ struct ExerciseGroupRow: View {
                                 Text("PR")
                                     .font(.caption.weight(.semibold))
                             }
-                            .foregroundStyle(Color(red: 1.0, green: 0.84, blue: 0.0))
+                            .foregroundStyle(.white)
                         }
 
                         if isDeleteModeActive {

@@ -39,6 +39,7 @@ struct CheckInView: View {
     @State private var showCancelOverlay = false
     @State private var weightDelta: Double = 5.0
     @State private var showExerciseSelection = false
+    @State private var selectedGraphTab: Int = 0 // 0 = Set Intensity, 1 = 1RM Graph
 
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
 
@@ -369,34 +370,15 @@ struct CheckInView: View {
 
     private var weightPickerSheet: some View {
         VStack(spacing: 20) {
-            HStack {
-                Button("Clear") {
-                    weightInput = "0"
-                }
-                .foregroundStyle(Color.appAccent)
-
-                Spacer()
-
-                Text("Enter Weight")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-
-                Spacer()
-
-                Button("Done") {
-                    if let value = Double(weightInput), value > 0, value <= 1000 {
-                        weight = value
-                    }
-                    showWeightPicker = false
-                }
-                .foregroundStyle(Color.appAccent)
-            }
-            .padding(.horizontal)
-            .padding(.top)
+            // Title
+            Text("Enter Weight")
+                .font(.headline)
+                .foregroundStyle(.white)
+                .padding(.top)
 
             // Weight display
             VStack(spacing: 4) {
-                Text(weightInput.isEmpty ? "0" : weightInput)
+                Text(weightInput.isEmpty || weightInput == "0" ? "0" : weightInput)
                     .font(.system(size: 48, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(height: 60)
@@ -418,10 +400,7 @@ struct CheckInView: View {
                     HStack(spacing: 12) {
                         ForEach(row, id: \.self) { number in
                             Button {
-                                let testInput = weightInput + number
-                                if let value = Double(testInput), value <= 1000 {
-                                    weightInput += number
-                                }
+                                handleWeightInput(number)
                             } label: {
                                 Text(number)
                                     .font(.title2.weight(.semibold))
@@ -438,7 +417,11 @@ struct CheckInView: View {
                 HStack(spacing: 12) {
                     Button {
                         if !weightInput.contains(".") {
-                            weightInput += "."
+                            if weightInput == "0" {
+                                weightInput = "0."
+                            } else {
+                                weightInput += "."
+                            }
                         }
                     } label: {
                         Text(".")
@@ -451,10 +434,7 @@ struct CheckInView: View {
                     }
 
                     Button {
-                        let testInput = weightInput + "0"
-                        if let value = Double(testInput), value <= 1000 {
-                            weightInput += "0"
-                        }
+                        handleWeightInput("0")
                     } label: {
                         Text("0")
                             .font(.title2.weight(.semibold))
@@ -466,8 +446,11 @@ struct CheckInView: View {
                     }
 
                     Button {
-                        if !weightInput.isEmpty {
+                        if !weightInput.isEmpty && weightInput != "0" {
                             weightInput.removeLast()
+                            if weightInput.isEmpty {
+                                weightInput = "0"
+                            }
                         }
                     } label: {
                         Image(systemName: "delete.left")
@@ -481,6 +464,38 @@ struct CheckInView: View {
                 }
             }
             .padding(.horizontal)
+
+            // Bottom buttons
+            HStack(spacing: 12) {
+                Button {
+                    weightInput = "0"
+                } label: {
+                    Text("Clear")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 55)
+                        .background(Color.yellow)
+                        .cornerRadius(12)
+                }
+
+                Button {
+                    if let value = Double(weightInput), value > 0, value <= 1000 {
+                        weight = value
+                        hasSetInitialValues = true
+                    }
+                    showWeightPicker = false
+                } label: {
+                    Text("Done")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 55)
+                        .background(Color.appAccent)
+                        .cornerRadius(12)
+                }
+            }
+            .padding(.horizontal)
             .padding(.bottom)
         }
         .background(
@@ -491,40 +506,49 @@ struct CheckInView: View {
             )
         )
         .onAppear {
-            weightInput = "\(Int(weight))"
+            if weight > 0 {
+                weightInput = "\(Int(weight))"
+            } else {
+                weightInput = "0"
+            }
+        }
+    }
+
+    private func handleWeightInput(_ digit: String) {
+        // Check if we're at max digits (3 digits before decimal)
+        let parts = weightInput.split(separator: ".")
+        let wholePart = parts.first ?? ""
+
+        // If input is "0", replace it with the new digit (prevent leading zeros)
+        if weightInput == "0" {
+            weightInput = digit
+            return
+        }
+
+        // If we have 3 digits before decimal and no decimal point, overwrite with new digit
+        if wholePart.count >= 3 && !weightInput.contains(".") {
+            weightInput = digit
+            return
+        }
+
+        // Otherwise, append the digit if within limits
+        let testInput = weightInput + digit
+        if let value = Double(testInput), value <= 1000 {
+            weightInput += digit
         }
     }
 
     private var repsPickerSheet: some View {
         VStack(spacing: 20) {
-            HStack {
-                Button("Clear") {
-                    repsInput = "0"
-                }
-                .foregroundStyle(Color.appAccent)
-
-                Spacer()
-
-                Text("Enter Reps")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-
-                Spacer()
-
-                Button("Done") {
-                    if let value = Int(repsInput), value > 0, value <= 99 {
-                        reps = value
-                    }
-                    showRepsPicker = false
-                }
-                .foregroundStyle(Color.appAccent)
-            }
-            .padding(.horizontal)
-            .padding(.top)
+            // Title
+            Text("Enter Reps")
+                .font(.headline)
+                .foregroundStyle(.white)
+                .padding(.top)
 
             // Reps display
             VStack(spacing: 4) {
-                Text(repsInput.isEmpty ? "0" : repsInput)
+                Text(repsInput.isEmpty || repsInput == "0" ? "0" : repsInput)
                     .font(.system(size: 48, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(height: 60)
@@ -546,10 +570,7 @@ struct CheckInView: View {
                     HStack(spacing: 12) {
                         ForEach(row, id: \.self) { number in
                             Button {
-                                let testInput = repsInput + number
-                                if let value = Int(testInput), value <= 99 {
-                                    repsInput += number
-                                }
+                                handleRepsInput(number)
                             } label: {
                                 Text(number)
                                     .font(.title2.weight(.semibold))
@@ -570,10 +591,7 @@ struct CheckInView: View {
                         .frame(height: 60)
 
                     Button {
-                        let testInput = repsInput + "0"
-                        if let value = Int(testInput), value <= 99 {
-                            repsInput += "0"
-                        }
+                        handleRepsInput("0")
                     } label: {
                         Text("0")
                             .font(.title2.weight(.semibold))
@@ -585,8 +603,11 @@ struct CheckInView: View {
                     }
 
                     Button {
-                        if !repsInput.isEmpty {
+                        if !repsInput.isEmpty && repsInput != "0" {
                             repsInput.removeLast()
+                            if repsInput.isEmpty {
+                                repsInput = "0"
+                            }
                         }
                     } label: {
                         Image(systemName: "delete.left")
@@ -600,6 +621,37 @@ struct CheckInView: View {
                 }
             }
             .padding(.horizontal)
+
+            // Bottom buttons
+            HStack(spacing: 12) {
+                Button {
+                    repsInput = "0"
+                } label: {
+                    Text("Clear")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 55)
+                        .background(Color.yellow)
+                        .cornerRadius(12)
+                }
+
+                Button {
+                    if let value = Int(repsInput), value > 0, value <= 99 {
+                        reps = value
+                    }
+                    showRepsPicker = false
+                } label: {
+                    Text("Done")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 55)
+                        .background(Color.appAccent)
+                        .cornerRadius(12)
+                }
+            }
+            .padding(.horizontal)
             .padding(.bottom)
         }
         .background(
@@ -610,7 +662,31 @@ struct CheckInView: View {
             )
         )
         .onAppear {
-            repsInput = "\(reps)"
+            if reps > 0 {
+                repsInput = "\(reps)"
+            } else {
+                repsInput = "0"
+            }
+        }
+    }
+
+    private func handleRepsInput(_ digit: String) {
+        // If input is "0", replace it with the new digit (prevent leading zeros)
+        if repsInput == "0" {
+            repsInput = digit
+            return
+        }
+
+        // If we have 2 digits already, overwrite with new digit
+        if repsInput.count >= 2 {
+            repsInput = digit
+            return
+        }
+
+        // Otherwise, append the digit if within limits
+        let testInput = repsInput + digit
+        if let value = Int(testInput), value <= 99 {
+            repsInput += digit
         }
     }
 
@@ -743,7 +819,7 @@ struct CheckInView: View {
                 .foregroundStyle(.white)
             Spacer()
             Text(current1RM > 0 ? current1RM.rounded1().formatted(.number.precision(.fractionLength(2))) : "--")
-                .font(.title2.weight(.bold))
+                .font(.title3.weight(.bold))
                 .foregroundStyle(.white)
         }
     }
@@ -755,12 +831,12 @@ struct CheckInView: View {
                 Chart {
                     // Create sample bars with different RIR values to showcase colors
                     let sampleData: [(height: Double, color: [Color])] = [
-                        (60, [Color(red: 0.3, green: 0.8, blue: 0.3), Color(red: 0.2, green: 0.6, blue: 0.2)]), // Green (RIR 5+)
-                        (75, [Color(red: 0.3, green: 0.8, blue: 0.3), Color(red: 0.2, green: 0.6, blue: 0.2)]), // Green
-                        (85, [Color(red: 1.0, green: 0.9, blue: 0.2), Color(red: 0.9, green: 0.7, blue: 0.0)]), // Yellow (RIR 4)
-                        (95, [Color(red: 1.0, green: 0.6, blue: 0.2), Color(red: 1.0, green: 0.4, blue: 0.0)]), // Orange (RIR 2-3)
-                        (110, [Color(red: 1.0, green: 0.84, blue: 0.0), Color(red: 1.0, green: 0.6, blue: 0.0)]), // Gold (PR)
-                        (100, [Color(red: 0.9, green: 0.2, blue: 0.2), Color(red: 0.7, green: 0.1, blue: 0.1)]), // Red (RIR 0-1)
+                        (60, [Color(red: 0.3, green: 0.8, blue: 0.3), Color(red: 0.2, green: 0.6, blue: 0.2)]), // Green (easy)
+                        (75, [Color(red: 1.0, green: 0.9, blue: 0.2), Color(red: 0.9, green: 0.7, blue: 0.0)]), // Yellow (moderate)
+                        (85, [Color(red: 1.0, green: 0.6, blue: 0.2), Color(red: 1.0, green: 0.4, blue: 0.0)]), // Orange (hard)
+                        (95, [Color(red: 0.9, green: 0.2, blue: 0.2), Color(red: 0.7, green: 0.1, blue: 0.1)]), // Red (very hard)
+                        (110, [Color.white, Color(white: 0.9)]), // White (PR)
+                        (100, [Color(red: 0.9, green: 0.2, blue: 0.2), Color(red: 0.7, green: 0.1, blue: 0.1)]), // Red
                         (90, [Color(red: 1.0, green: 0.6, blue: 0.2), Color(red: 1.0, green: 0.4, blue: 0.0)]), // Orange
                         (105, [Color(red: 0.9, green: 0.2, blue: 0.2), Color(red: 0.7, green: 0.1, blue: 0.1)]), // Red
                     ]
@@ -833,9 +909,9 @@ struct CheckInView: View {
         }
 
         private func colorForPercentage(_ percentage: Double, isPR: Bool) -> [Color] {
-            // If it's a PR, use gold gradient
+            // If it's a PR, use bright white gradient to stand out from intensity colors
             if isPR {
-                return [Color(red: 1.0, green: 0.84, blue: 0.0), Color(red: 1.0, green: 0.6, blue: 0.0)]
+                return [Color.white, Color(white: 0.9)]
             }
 
             // Otherwise, color by percentage of current 1RM (difficulty)
@@ -1142,26 +1218,73 @@ struct CheckInView: View {
                 )
             }
         }
-        .frame(width: UIScreen.main.bounds.width - 24)
-        .padding(16)
+        .frame(maxWidth: .infinity)
     }
 
     private var estimated1RMGraphWidget: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        VStack(spacing: 0) {
+            // Tab Selector
             HStack(spacing: 0) {
-                // Set Comparison View
-                setComparisonView
-
-                // Estimated 1RM Graph
-                VStack(alignment: .leading, spacing: 12) {
-                    graphHeaderView
-                    graphContentView
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedGraphTab = 0
+                    }
+                    hapticFeedback.impactOccurred()
+                } label: {
+                    Text("Set Intensity")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(selectedGraphTab == 0 ? .white : .white.opacity(0.5))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(
+                            selectedGraphTab == 0 ?
+                            Color.appAccent.opacity(0.4) : Color.clear
+                        )
                 }
-                .frame(width: 280)
-                .padding(16)
+                .buttonStyle(.plain)
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedGraphTab = 1
+                    }
+                    hapticFeedback.impactOccurred()
+                } label: {
+                    Text("Estimated 1RM")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(selectedGraphTab == 1 ? .white : .white.opacity(0.5))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(
+                            selectedGraphTab == 1 ?
+                            Color.appAccent.opacity(0.4) : Color.clear
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            .background(Color(white: 0.1))
+            .cornerRadius(6)
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
+
+            // Content
+            Group {
+                if selectedGraphTab == 0 {
+                    setComparisonView
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 16)
+                } else {
+                    VStack(alignment: .leading, spacing: 12) {
+                        graphHeaderView
+                        graphContentView
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 16)
+                }
             }
         }
-        .frame(height: 145)
+        .frame(height: 215)
         .background(
             LinearGradient(
                 colors: [Color(white: 0.18), Color(white: 0.14)],
@@ -1232,23 +1355,39 @@ struct CheckInView: View {
                 // No data state
                 ProgressOptionsEmptyState()
                     .frame(maxWidth: .infinity)
-                    .frame(height: 260)
+                    .frame(height: 160)
             } else {
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 12) {
-                        ForEach(Array(topThreeSuggestions.enumerated()), id: \.element.id) { index, suggestion in
-                            ProgressOptionCard(
-                                suggestion: suggestion,
-                                isSelected: isOptionSelected(suggestion)
-                            )
-                            .onTapGesture {
-                                hapticFeedback.impactOccurred()
-                                selectOption(suggestion)
+                ZStack(alignment: .bottom) {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 12) {
+                            ForEach(Array(topThreeSuggestions.enumerated()), id: \.element.id) { index, suggestion in
+                                ProgressOptionCard(
+                                    suggestion: suggestion,
+                                    isSelected: isOptionSelected(suggestion)
+                                )
+                                .onTapGesture {
+                                    hapticFeedback.impactOccurred()
+                                    selectOption(suggestion)
+                                }
                             }
                         }
+                        .padding(.bottom, 8)
                     }
+                    .frame(height: 160)
+
+                    // Gradient fade indicator for scrollable content
+                    LinearGradient(
+                        colors: [
+                            Color(white: 0.14).opacity(0),
+                            Color(white: 0.14).opacity(0.8),
+                            Color(white: 0.14)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 40)
+                    .allowsHitTesting(false)
                 }
-                .frame(height: 260)
             }
         }
         .padding(16)
@@ -1610,6 +1749,7 @@ struct CheckInView: View {
     private func selectOption(_ suggestion: OneRMCalculator.Suggestion) {
         reps = suggestion.reps
         weight = suggestion.weight
+        hasSetInitialValues = true
     }
 
     private func logSet() {
@@ -1881,7 +2021,7 @@ struct SetSquareView: View {
 
         let color: Color
         if isPR {
-            color = Color(red: 1.0, green: 0.84, blue: 0.0)
+            color = Color.white
         } else {
             switch percentage {
             case 95...:

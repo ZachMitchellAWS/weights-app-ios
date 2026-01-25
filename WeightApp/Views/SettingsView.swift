@@ -162,12 +162,20 @@ struct SettingsView: View {
             return
         }
 
+        // Helper function to round weight to nearest attainable increment (2.5 lbs)
+        func roundToAttainable(_ weight: Double) -> Double {
+            return (weight / 2.5).rounded() * 2.5
+        }
+
         // Training plan: alternate between push/pull/legs over 7 days
         let workoutPlans: [[String]] = [
             ["Bench Press", "Overhead Press", "Dip"], // Push
             ["Deadlifts", "Barbell Row", "Pull-Up"], // Pull
             ["Squat"], // Legs
         ]
+
+        // Track max 1RM per exercise for progression
+        var exerciseMaxes: [String: Double] = [:]
 
         for daysAgo in (1...7).reversed() {
             guard let workoutDate = calendar.date(byAdding: .day, value: -daysAgo, to: now) else { continue }
@@ -184,37 +192,53 @@ struct SettingsView: View {
             for exerciseName in exerciseNames {
                 guard let exercise = exercises.first(where: { $0.name == exerciseName }) else { continue }
 
-                // Number of sets per exercise (3-5)
-                let numSets = Int.random(in: 3...5)
+                // Starting 1RM for this exercise (if not already tracked)
+                if exerciseMaxes[exerciseName] == nil {
+                    exerciseMaxes[exerciseName] = {
+                        switch exerciseName {
+                        case "Deadlifts": return 225.0
+                        case "Squat": return 200.0
+                        case "Bench Press": return 165.0
+                        case "Barbell Row": return 145.0
+                        case "Overhead Press": return 100.0
+                        case "Pull-Up": return 30.0
+                        case "Dip": return 40.0
+                        default: return 100.0
+                        }
+                    }()
+                }
 
-                // Base weight for this exercise (varies by exercise type)
-                let baseWeight: Double = {
-                    switch exerciseName {
-                    case "Deadlifts": return 200.0
-                    case "Squat": return 185.0
-                    case "Bench Press": return 155.0
-                    case "Barbell Row": return 135.0
-                    case "Overhead Press": return 95.0
-                    case "Pull-Up": return 25.0
-                    case "Dip": return 35.0
-                    default: return 100.0
-                    }
-                }()
+                let currentMax = exerciseMaxes[exerciseName]!
+
+                // Number of sets: 4 (progressing Green -> Yellow -> Orange -> Red) + 1 PR set
+                let numSets = 5
+
+                // Intensity percentages for each set (percentage of current 1RM)
+                // Green (75%), Yellow (85%), Orange (91%), Red (96%), PR (102%)
+                let intensities: [Double] = [0.75, 0.85, 0.91, 0.96, 1.02]
 
                 for setNum in 0..<numSets {
-                    // Simulate progressive fatigue
-                    let weightVariation = Double(numSets - setNum - 1) * 5.0
-                    let weight = baseWeight + weightVariation + Double.random(in: -2.5...2.5)
+                    let intensity = intensities[setNum]
+                    let target1RM = currentMax * intensity
 
-                    // Reps typically 5-10 for compound movements
-                    let reps = Int.random(in: 5...10)
+                    // Choose reps (typically 5-8 for strength work)
+                    let reps = [6, 6, 5, 4, 3][setNum]
+
+                    // Calculate weight needed to hit target 1RM with these reps
+                    // Using Brzycki formula: 1RM = weight * (36 / (37 - reps))
+                    let weight = roundToAttainable(target1RM * (37.0 - Double(reps)) / 36.0)
 
                     // RIR: earlier sets have more RIR, later sets closer to failure
-                    let rir = setNum < 2 ? Int.random(in: 3...4) : Int.random(in: 0...2)
+                    let rir = [4, 3, 2, 1, 0][setNum]
 
                     let set = LiftSet(exercise: exercise, reps: reps, weight: weight, rir: rir)
                     set.createdAt = currentTime
                     modelContext.insert(set)
+
+                    // Update max if this is a PR
+                    if setNum == numSets - 1 {
+                        exerciseMaxes[exerciseName] = target1RM
+                    }
 
                     // Add some time between sets (2-4 minutes)
                     currentTime = calendar.date(byAdding: .minute, value: Int.random(in: 2...4), to: currentTime) ?? currentTime
