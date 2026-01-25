@@ -13,7 +13,6 @@ class SelectedSetData: ObservableObject {
     @Published var exerciseId: UUID?
     @Published var reps: Int?
     @Published var weight: Double?
-    @Published var rir: Int?
     @Published var shouldPopulate: Bool = false
 }
 

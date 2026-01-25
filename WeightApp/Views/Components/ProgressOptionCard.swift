@@ -17,7 +17,7 @@ struct ProgressOptionCard: View {
             VStack(spacing: 2) {
                 Text("WEIGHT")
                     .font(.caption2.weight(.bold))
-                    .foregroundStyle(.cyan.opacity(0.7))
+                    .foregroundStyle(Color.appLabel)
                 Text(formatWeight(suggestion.weight.rounded1()))
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.white)
@@ -34,7 +34,7 @@ struct ProgressOptionCard: View {
             VStack(spacing: 2) {
                 Text("REPS")
                     .font(.caption2.weight(.bold))
-                    .foregroundStyle(.cyan.opacity(0.7))
+                    .foregroundStyle(Color.appLabel)
                 Text("\(suggestion.reps)")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.white)
@@ -49,7 +49,7 @@ struct ProgressOptionCard: View {
             VStack(spacing: 2) {
                 Text("EST. 1RM")
                     .font(.caption2.weight(.bold))
-                    .foregroundStyle(.cyan.opacity(0.7))
+                    .foregroundStyle(Color.appLabel)
                 Text(formatWeight(suggestion.projected1RM.rounded1()))
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.white)
@@ -67,7 +67,7 @@ struct ProgressOptionCard: View {
             VStack(spacing: 2) {
                 Text("GAIN")
                     .font(.caption2.weight(.bold))
-                    .foregroundStyle(.cyan.opacity(0.7))
+                    .foregroundStyle(Color.appLabel)
                 Text("\(delta >= 0 ? "+" : "")\(delta.formatted(.number.precision(.fractionLength(2))))")
                     .font(.title2.weight(.bold))
                     .lineLimit(1)
@@ -83,7 +83,7 @@ struct ProgressOptionCard: View {
                 .fill(Color(white: 0.12))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(isSelected ? Color.cyan : Color.white.opacity(0.15), lineWidth: isSelected ? 2 : 1)
+                        .strokeBorder(isSelected ? Color.appAccent : Color.white.opacity(0.15), lineWidth: isSelected ? 2 : 1)
                 )
         )
     }

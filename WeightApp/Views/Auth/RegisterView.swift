@@ -39,7 +39,7 @@ struct RegisterView: View {
                     VStack(spacing: 12) {
                         Image(systemName: "person.crop.circle.badge.plus")
                             .font(.system(size: 60))
-                            .foregroundStyle(.cyan)
+                            .foregroundStyle(Color.appAccent)
 
                         Text("Create Account")
                             .font(.largeTitle.weight(.bold))
@@ -170,7 +170,7 @@ struct RegisterView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
-                            .background(.cyan)
+                            .background(Color.appAccent)
                             .cornerRadius(12)
                             .foregroundStyle(.black)
                         }
@@ -188,7 +188,7 @@ struct RegisterView: View {
                         } label: {
                             Text("Login")
                                 .fontWeight(.semibold)
-                                .foregroundStyle(.cyan)
+                                .foregroundStyle(Color.appAccent)
                         }
                     }
                     .font(.subheadline)
@@ -204,7 +204,7 @@ struct RegisterView: View {
                     dismiss()
                 } label: {
                     Image(systemName: "chevron.left")
-                        .foregroundStyle(.cyan)
+                        .foregroundStyle(Color.appAccent)
                 }
             }
         }

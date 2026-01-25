@@ -104,7 +104,7 @@ class PlateModel {
             case .yellow: return .yellow
             case .orange: return .orange
             case .purple: return .purple
-            case .cyan: return .cyan
+            case .cyan: return Color.appAccent
             case .gray: return .gray
             case .black: return .black
             case .darkGray: return Color(white: 0.3)
@@ -214,16 +214,16 @@ struct PlateSelectionView: View {
                             ZStack {
                                 RoundedRectangle(cornerRadius: 12)
                                     .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
-                                    .foregroundStyle(.cyan.opacity(0.6))
+                                    .foregroundStyle(Color.appAccent.opacity(0.6))
 
                                 VStack(spacing: 8) {
                                     Image(systemName: "plus.circle.fill")
                                         .font(.system(size: 50))
-                                        .foregroundStyle(.cyan)
+                                        .foregroundStyle(Color.appAccent)
 
                                     Text("Add New")
                                         .font(.subheadline.weight(.semibold))
-                                        .foregroundStyle(.cyan)
+                                        .foregroundStyle(Color.appAccent)
                                 }
                             }
                             .frame(height: 160)
@@ -270,7 +270,7 @@ struct PlateSelectionView: View {
 
                                                 Text("×\(plate.quantity)")
                                                     .font(.caption2.weight(.semibold))
-                                                    .foregroundStyle(.cyan)
+                                                    .foregroundStyle(Color.appAccent)
                                             }
                                         }
                                     }
@@ -507,7 +507,7 @@ struct PlateEditorView: View {
                                                 // Border
                                                 Circle()
                                                     .strokeBorder(
-                                                        selectedTextColor == textColor ? Color.cyan : Color.white.opacity(0.4),
+                                                        selectedTextColor == textColor ? Color.appAccent : Color.white.opacity(0.4),
                                                         lineWidth: selectedTextColor == textColor ? 2 : 1
                                                     )
                                                     .frame(width: 40, height: 40)
@@ -539,7 +539,7 @@ struct PlateEditorView: View {
                                     } label: {
                                         Image(systemName: "minus.circle.fill")
                                             .font(.title3)
-                                            .foregroundStyle(selectedQuantity > 0 ? Color.cyan : Color.gray)
+                                            .foregroundStyle(selectedQuantity > 0 ? Color.appAccent : Color.gray)
                                     }
                                     .buttonStyle(.plain)
                                     .disabled(selectedQuantity <= 0)
@@ -556,7 +556,7 @@ struct PlateEditorView: View {
                                     } label: {
                                         Image(systemName: "plus.circle.fill")
                                             .font(.title3)
-                                            .foregroundStyle(selectedQuantity < 99 ? Color.cyan : Color.gray)
+                                            .foregroundStyle(selectedQuantity < 99 ? Color.appAccent : Color.gray)
                                     }
                                     .buttonStyle(.plain)
                                     .disabled(selectedQuantity >= 99)
@@ -573,7 +573,7 @@ struct PlateEditorView: View {
                                 Spacer()
                                 Text(selectedDiameter.displayName)
                                     .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.cyan)
+                                    .foregroundStyle(Color.appAccent)
                             }
 
                             HStack(spacing: 10) {
@@ -596,7 +596,7 @@ struct PlateEditorView: View {
                                     in: 0...Double(PlateModel.PlateDiameter.allCases.count - 1),
                                     step: 1
                                 )
-                                .tint(.cyan)
+                                .tint(Color.appAccent)
 
                                 Image(systemName: "circle.fill")
                                     .font(.subheadline)
@@ -613,7 +613,7 @@ struct PlateEditorView: View {
                                 Spacer()
                                 Text(selectedThickness.displayName)
                                     .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.cyan)
+                                    .foregroundStyle(Color.appAccent)
                             }
 
                             HStack(spacing: 10) {
@@ -637,7 +637,7 @@ struct PlateEditorView: View {
                                     in: 0...Double(PlateModel.PlateThickness.allCases.count - 1),
                                     step: 1
                                 )
-                                .tint(.cyan)
+                                .tint(Color.appAccent)
 
                                 Rectangle()
                                     .frame(width: 18, height: 10)
@@ -663,7 +663,7 @@ struct PlateEditorView: View {
                                             .overlay(
                                                 Circle()
                                                     .strokeBorder(
-                                                        selectedColor == plateColor ? Color.cyan : Color.white.opacity(0.3),
+                                                        selectedColor == plateColor ? Color.appAccent : Color.white.opacity(0.3),
                                                         lineWidth: selectedColor == plateColor ? 3 : 1
                                                     )
                                             )
@@ -694,7 +694,7 @@ struct PlateEditorView: View {
                             .foregroundStyle(.black)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
-                            .background(.cyan)
+                            .background(Color.appAccent)
                             .cornerRadius(10)
                     }
                     .padding(.horizontal, 20)

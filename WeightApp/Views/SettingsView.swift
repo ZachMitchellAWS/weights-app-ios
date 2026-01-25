@@ -63,7 +63,7 @@ struct SettingsView: View {
                                 .foregroundStyle(.primary)
                             Spacer()
                             Image(systemName: "wand.and.stars")
-                                .foregroundStyle(.cyan)
+                                .foregroundStyle(Color.appAccent)
                         }
                     }
 
@@ -80,7 +80,7 @@ struct SettingsView: View {
                                 ProgressView()
                             } else {
                                 Image(systemName: "person.crop.circle.badge.checkmark")
-                                    .foregroundStyle(.cyan)
+                                    .foregroundStyle(Color.appAccent)
                             }
                         }
                     }

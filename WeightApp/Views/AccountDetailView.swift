@@ -109,7 +109,7 @@ struct AccountDetailView: View {
                         dismiss()
                     } label: {
                         Text("Done")
-                            .foregroundStyle(.cyan)
+                            .foregroundStyle(Color.appAccent)
                     }
                 }
             }

@@ -27,7 +27,7 @@ struct LoginView: View {
                         VStack(spacing: 12) {
                             Image(systemName: "dumbbell.fill")
                                 .font(.system(size: 60))
-                                .foregroundStyle(.cyan)
+                                .foregroundStyle(Color.appAccent)
 
                             Text("WeightApp")
                                 .font(.largeTitle.weight(.bold))
@@ -90,7 +90,7 @@ struct LoginView: View {
                             } label: {
                                 Text("Forgot Password?")
                                     .font(.subheadline)
-                                    .foregroundStyle(.cyan)
+                                    .foregroundStyle(Color.appAccent)
                             }
                             .frame(maxWidth: .infinity, alignment: .trailing)
 
@@ -120,7 +120,7 @@ struct LoginView: View {
                                 }
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 16)
-                                .background(.cyan)
+                                .background(Color.appAccent)
                                 .cornerRadius(12)
                                 .foregroundStyle(.black)
                             }
@@ -138,7 +138,7 @@ struct LoginView: View {
                             } label: {
                                 Text("Sign Up")
                                     .fontWeight(.semibold)
-                                    .foregroundStyle(.cyan)
+                                    .foregroundStyle(Color.appAccent)
                             }
                         }
                         .font(.subheadline)

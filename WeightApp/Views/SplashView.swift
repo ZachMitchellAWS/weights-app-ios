@@ -21,7 +21,7 @@ struct SplashView: View {
                     .font(.system(size: 80))
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [.cyan, .cyan.opacity(0.6)],
+                            colors: [Color.appAccent, .appAccent.opacity(0.6)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )

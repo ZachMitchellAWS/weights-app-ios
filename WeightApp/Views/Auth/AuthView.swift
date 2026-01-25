@@ -50,7 +50,7 @@ struct AuthView: View {
                             VStack(spacing: 12) {
                                 Image(systemName: "dumbbell.fill")
                                     .font(.system(size: 60))
-                                    .foregroundStyle(.cyan)
+                                    .foregroundStyle(Color.appAccent)
 
                                 Text("WeightApp")
                                     .font(.largeTitle.weight(.bold))
@@ -75,7 +75,7 @@ struct AuthView: View {
                                     .font(.headline)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 12)
-                                    .background(authMode == .signUp ? Color.cyan : Color.clear)
+                                    .background(authMode == .signUp ? Color.appAccent : Color.clear)
                                     .foregroundStyle(authMode == .signUp ? .black : .white.opacity(0.6))
                             }
 
@@ -88,7 +88,7 @@ struct AuthView: View {
                                     .font(.headline)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 12)
-                                    .background(authMode == .login ? Color.cyan : Color.clear)
+                                    .background(authMode == .login ? Color.appAccent : Color.clear)
                                     .foregroundStyle(authMode == .login ? .black : .white.opacity(0.6))
                             }
                         }
@@ -166,7 +166,7 @@ struct AuthView: View {
                                 } label: {
                                     Text("Forgot Password?")
                                         .font(.subheadline)
-                                        .foregroundStyle(.cyan)
+                                        .foregroundStyle(Color.appAccent)
                                 }
                                 .frame(maxWidth: .infinity)
                             }
@@ -197,7 +197,7 @@ struct AuthView: View {
                                 }
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 16)
-                                .background(.cyan)
+                                .background(Color.appAccent)
                                 .cornerRadius(12)
                                 .foregroundStyle(.black)
                             }
@@ -219,7 +219,7 @@ struct AuthView: View {
                             } label: {
                                 Text(authMode == .signUp ? "Login" : "Sign Up")
                                     .fontWeight(.semibold)
-                                    .foregroundStyle(.cyan)
+                                    .foregroundStyle(Color.appAccent)
                             }
                         }
                         .font(.subheadline)

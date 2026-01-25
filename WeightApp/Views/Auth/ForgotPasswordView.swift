@@ -45,7 +45,7 @@ struct ForgotPasswordView: View {
                     VStack(spacing: 12) {
                         Image(systemName: "lock.rotation")
                             .font(.system(size: 60))
-                            .foregroundStyle(.cyan)
+                            .foregroundStyle(Color.appAccent)
 
                         Text("Reset Password")
                             .font(.largeTitle.weight(.bold))
@@ -112,7 +112,7 @@ struct ForgotPasswordView: View {
                         Text("Back to Login")
                             .font(.subheadline)
                             .fontWeight(.semibold)
-                            .foregroundStyle(.cyan)
+                            .foregroundStyle(Color.appAccent)
                     }
 
                     Spacer(minLength: 40)
@@ -126,7 +126,7 @@ struct ForgotPasswordView: View {
                     dismiss()
                 } label: {
                     Image(systemName: "chevron.left")
-                        .foregroundStyle(.cyan)
+                        .foregroundStyle(Color.appAccent)
                 }
             }
         }
@@ -168,7 +168,7 @@ struct ForgotPasswordView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
-                .background(.cyan)
+                .background(Color.appAccent)
                 .cornerRadius(12)
                 .foregroundStyle(.black)
             }
@@ -213,7 +213,7 @@ struct ForgotPasswordView: View {
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(.cyan)
+                    .background(Color.appAccent)
                     .cornerRadius(12)
                     .foregroundStyle(.black)
             }
@@ -227,7 +227,7 @@ struct ForgotPasswordView: View {
             } label: {
                 Text("Resend Code")
                     .font(.subheadline)
-                    .foregroundStyle(.cyan)
+                    .foregroundStyle(Color.appAccent)
             }
             .disabled(isLoading)
         }
@@ -323,7 +323,7 @@ struct ForgotPasswordView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
-                .background(.cyan)
+                .background(Color.appAccent)
                 .cornerRadius(12)
                 .foregroundStyle(.black)
             }

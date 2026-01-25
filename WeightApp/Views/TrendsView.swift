@@ -63,7 +63,7 @@ struct TrendsView: View {
                     VStack(spacing: 20) {
                         Image(systemName: "clock.arrow.circlepath")
                             .font(.system(size: 60))
-                            .foregroundStyle(.cyan.opacity(0.6))
+                            .foregroundStyle(Color.appAccent.opacity(0.6))
 
                         Text("No History Yet")
                             .font(.title2.weight(.semibold))
@@ -93,10 +93,10 @@ struct TrendsView: View {
                                             selectedSetData.exerciseId = set.exercise?.id
                                             selectedSetData.reps = set.reps
                                             selectedSetData.weight = set.weight
-                                            selectedSetData.rir = set.rir
                                             selectedSetData.shouldPopulate = true
                                             selectedTab = 1
-                                        }
+                                        },
+                                        allSets: allSets
                                     )
                                 }
                             } header: {
@@ -120,7 +120,7 @@ struct TrendsView: View {
                             isDeleteModeActive.toggle()
                         } label: {
                             Image(systemName: isDeleteModeActive ? "minus.circle.fill" : "minus.circle")
-                                .foregroundStyle(isDeleteModeActive ? .red : .cyan)
+                                .foregroundStyle(isDeleteModeActive ? .red : Color.appAccent)
                         }
                     }
                 }
@@ -175,18 +175,48 @@ struct ExerciseGroupRow: View {
     let isDeleteModeActive: Bool
     let onDelete: (LiftSet) -> Void
     let onSelect: (LiftSet) -> Void
+    let allSets: [LiftSet]
 
-    private func colorForRIR(_ rir: Int) -> Color {
-        switch rir {
-        case 0...1:
+    private func colorForPercentage(_ percentage: Double, isPR: Bool) -> Color {
+        // If it's a PR, use gold
+        if isPR {
+            return Color(red: 1.0, green: 0.84, blue: 0.0)
+        }
+
+        // Otherwise, color by percentage of current 1RM (difficulty)
+        switch percentage {
+        case 95...:
+            // 95%+ of current - Very hard sets - Red
             return Color(red: 0.9, green: 0.2, blue: 0.2)
-        case 2...3:
+        case 90..<95:
+            // 90-95% of current - Hard sets - Orange
             return Color(red: 1.0, green: 0.6, blue: 0.2)
-        case 4:
+        case 80..<90:
+            // 80-90% of current - Moderate sets - Yellow
             return Color(red: 1.0, green: 0.9, blue: 0.2)
         default:
+            // < 80% of current - Easy sets - Green
             return Color(red: 0.3, green: 0.8, blue: 0.3)
         }
+    }
+
+    private func calculatePercentageAndPR(for set: LiftSet) -> (percentage: Double, isPR: Bool) {
+        // Get all sets for this exercise that came before this set
+        let previousSets = allSets
+            .filter { $0.exercise?.id == set.exercise?.id && $0.createdAt < set.createdAt }
+            .sorted { $0.createdAt < $1.createdAt }
+
+        var currentMax: Double = 0
+        for prevSet in previousSets {
+            let estimated = OneRMCalculator.estimate1RM(weight: prevSet.weight, reps: prevSet.reps)
+            currentMax = max(currentMax, estimated)
+        }
+
+        let setEstimated1RM = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
+        let isPR = setEstimated1RM > currentMax
+        let percentage = currentMax > 0 ? (setEstimated1RM / currentMax) * 100 : 100.0
+
+        return (percentage: percentage, isPR: isPR)
     }
 
     var body: some View {
@@ -194,15 +224,16 @@ struct ExerciseGroupRow: View {
             // Exercise name header
             Text(exerciseGroup.exerciseName)
                 .font(.body.weight(.semibold))
-                .foregroundStyle(.cyan)
+                .foregroundStyle(Color.appAccent)
 
             // Sets
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(exerciseGroup.sets) { set in
+                    let result = calculatePercentageAndPR(for: set)
                     HStack(spacing: 12) {
                         // Color indicator
                         RoundedRectangle(cornerRadius: 4)
-                            .fill(colorForRIR(set.rir))
+                            .fill(colorForPercentage(result.percentage, isPR: result.isPR))
                             .frame(width: 8, height: 24)
 
                         Text("\(set.reps) × \(set.weight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
@@ -213,11 +244,15 @@ struct ExerciseGroupRow: View {
 
                         Spacer()
 
-                        Text("RIR \(set.rir >= 5 ? "5+" : "\(set.rir)")")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.7))
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
+                        if result.isPR {
+                            HStack(spacing: 4) {
+                                Image(systemName: "star.fill")
+                                    .font(.caption2)
+                                Text("PR")
+                                    .font(.caption.weight(.semibold))
+                            }
+                            .foregroundStyle(Color(red: 1.0, green: 0.84, blue: 0.0))
+                        }
 
                         if isDeleteModeActive {
                             Button {
