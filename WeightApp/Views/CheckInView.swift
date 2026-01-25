@@ -370,13 +370,9 @@ struct CheckInView: View {
 
     private var weightPickerSheet: some View {
         VStack(spacing: 20) {
-            // Title
-            Text("Enter Weight")
-                .font(.headline)
-                .foregroundStyle(.white)
-                .padding(.top)
-
             // Weight display
+            Spacer()
+                .frame(height: 20)
             VStack(spacing: 4) {
                 Text(weightInput.isEmpty || weightInput == "0" ? "0" : weightInput)
                     .font(.system(size: 48, weight: .bold))
@@ -472,10 +468,10 @@ struct CheckInView: View {
                 } label: {
                     Text("Clear")
                         .font(.title3.weight(.semibold))
-                        .foregroundStyle(.black)
+                        .foregroundStyle(.black.opacity(0.6))
                         .frame(maxWidth: .infinity)
                         .frame(height: 55)
-                        .background(Color.yellow)
+                        .background(Color.yellow.opacity(0.5))
                         .cornerRadius(12)
                 }
 
@@ -491,7 +487,7 @@ struct CheckInView: View {
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 55)
-                        .background(Color.appAccent)
+                        .background(Color.green)
                         .cornerRadius(12)
                 }
             }
@@ -540,13 +536,9 @@ struct CheckInView: View {
 
     private var repsPickerSheet: some View {
         VStack(spacing: 20) {
-            // Title
-            Text("Enter Reps")
-                .font(.headline)
-                .foregroundStyle(.white)
-                .padding(.top)
-
             // Reps display
+            Spacer()
+                .frame(height: 20)
             VStack(spacing: 4) {
                 Text(repsInput.isEmpty || repsInput == "0" ? "0" : repsInput)
                     .font(.system(size: 48, weight: .bold))
@@ -629,10 +621,10 @@ struct CheckInView: View {
                 } label: {
                     Text("Clear")
                         .font(.title3.weight(.semibold))
-                        .foregroundStyle(.black)
+                        .foregroundStyle(.black.opacity(0.6))
                         .frame(maxWidth: .infinity)
                         .frame(height: 55)
-                        .background(Color.yellow)
+                        .background(Color.yellow.opacity(0.5))
                         .cornerRadius(12)
                 }
 
@@ -647,7 +639,7 @@ struct CheckInView: View {
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 55)
-                        .background(Color.appAccent)
+                        .background(Color.green)
                         .cornerRadius(12)
                 }
             }
@@ -857,8 +849,11 @@ struct CheckInView: View {
                 .chartXAxis(.hidden)
                 .chartYAxis(.hidden)
                 .chartXScale(domain: 0...Double(8))
-                .frame(height: 95)
+                .frame(height: 85)
                 .opacity(0.4)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 // Overlay text
                 VStack(spacing: 8) {
@@ -1102,9 +1097,9 @@ struct CheckInView: View {
 
     private var setComparisonView: some View {
         ZStack {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 12) {
                 // Today's Sets (now on top)
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Today")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.7))
@@ -1154,7 +1149,7 @@ struct CheckInView: View {
                 }
 
                 // Last Day Sets (now on bottom)
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Last Day")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.7))
@@ -1195,7 +1190,11 @@ struct CheckInView: View {
 
             // Dim overlay for demo visualization
             if lastDaySets.isEmpty && todaysSets.isEmpty {
-                Color.black.opacity(0.5)
+                LinearGradient(
+                    colors: [Color(white: 0.18), Color(white: 0.14)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
             }
 
             // Informative overlay when showing demo
@@ -1203,18 +1202,18 @@ struct CheckInView: View {
                 VStack(spacing: 2) {
                     Text("Set Intensity Tracker")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.appAccent)
                     Text("Colors show intensity")
                         .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.6))
+                        .foregroundStyle(Color.appAccent.opacity(0.6))
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(.ultraThinMaterial)
+                .background(Color(white: 0.12))
                 .cornerRadius(8)
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                        .stroke(Color.appAccent.opacity(0.3), lineWidth: 1)
                 )
             }
         }
@@ -1223,46 +1222,53 @@ struct CheckInView: View {
 
     private var estimated1RMGraphWidget: some View {
         VStack(spacing: 0) {
-            // Tab Selector
-            HStack(spacing: 0) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        selectedGraphTab = 0
-                    }
-                    hapticFeedback.impactOccurred()
-                } label: {
-                    Text("Set Intensity")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(selectedGraphTab == 0 ? .white : .white.opacity(0.5))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                        .background(
-                            selectedGraphTab == 0 ?
-                            Color.appAccent.opacity(0.4) : Color.clear
-                        )
-                }
-                .buttonStyle(.plain)
+            // Tab Selector - Segmented Picker Style
+            ZStack(alignment: .leading) {
+                // Background
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(white: 0.1))
+                    .frame(height: 32)
 
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        selectedGraphTab = 1
-                    }
-                    hapticFeedback.impactOccurred()
-                } label: {
-                    Text("Estimated 1RM")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(selectedGraphTab == 1 ? .white : .white.opacity(0.5))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                        .background(
-                            selectedGraphTab == 1 ?
-                            Color.appAccent.opacity(0.4) : Color.clear
-                        )
+                // Sliding indicator
+                GeometryReader { geometry in
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.appAccent)
+                        .frame(width: geometry.size.width / 2 - 4, height: 28)
+                        .offset(x: selectedGraphTab == 0 ? 2 : geometry.size.width / 2 + 2)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selectedGraphTab)
                 }
-                .buttonStyle(.plain)
+                .frame(height: 32)
+
+                // Tab buttons
+                HStack(spacing: 0) {
+                    Button {
+                        selectedGraphTab = 0
+                        hapticFeedback.impactOccurred()
+                    } label: {
+                        Text("Set Intensity")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(selectedGraphTab == 0 ? .white : .white.opacity(0.5))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .frame(height: 32)
+
+                    Button {
+                        selectedGraphTab = 1
+                        hapticFeedback.impactOccurred()
+                    } label: {
+                        Text("Estimated 1RM")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(selectedGraphTab == 1 ? .white : .white.opacity(0.5))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .frame(height: 32)
+                }
             }
-            .background(Color(white: 0.1))
-            .cornerRadius(6)
+            .frame(height: 32)
             .padding(.horizontal, 16)
             .padding(.top, 16)
             .padding(.bottom, 8)
@@ -1326,12 +1332,12 @@ struct CheckInView: View {
                     .disabled(weightDelta <= minWeightDelta)
 
                     VStack(spacing: 2) {
-                        Text("Δ LB")
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(Color.appLabel)
                         Text(weightDelta.formatted(.number.precision(.fractionLength(1))))
                             .font(.subheadline.weight(.bold))
                             .foregroundStyle(.white)
+                        Text("Δ LB")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(Color.appLabel)
                     }
                     .frame(width: 50)
 
