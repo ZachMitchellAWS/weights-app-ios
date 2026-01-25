@@ -775,15 +775,26 @@ struct CheckInView: View {
         Button {
             showExerciseSelection = true
         } label: {
-            HStack {
-                Spacer()
-                Text(selectedExercise?.name ?? "Select Exercise")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.white)
-                Spacer()
-                Image(systemName: "chevron.down")
-                    .foregroundStyle(.white.opacity(0.7))
-                    .font(.caption)
+            VStack(spacing: 4) {
+                HStack {
+                    Spacer()
+                    Text(selectedExercise?.name ?? "Select Exercise")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .foregroundStyle(.white.opacity(0.7))
+                        .font(.caption)
+                }
+
+                HStack {
+                    Text("Current Estimated 1RM:")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.6))
+                    Text(current1RM > 0 ? current1RM.rounded1().formatted(.number.precision(.fractionLength(2))) : "--")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.appAccent)
+                }
             }
             .padding(.vertical, 10)
             .padding(.horizontal, 16)
@@ -1096,26 +1107,32 @@ struct CheckInView: View {
     }
 
     private var setComparisonView: some View {
-        ZStack {
-            VStack(alignment: .leading, spacing: 12) {
+        Group {
+            if todaysSets.isEmpty && lastDaySets.isEmpty {
+                // Empty state matching the graph placeholder
+                VStack(spacing: 8) {
+                    Image(systemName: "square.grid.3x3.fill")
+                        .font(.system(size: 32))
+                        .foregroundStyle(Color.appAccent.opacity(0.3))
+
+                    Text("No Sets Yet")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+
+                    Text("Your set intensity will appear here")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
                 // Today's Sets (now on top)
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Today")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.7))
 
-                    if todaysSets.isEmpty && lastDaySets.isEmpty {
-                        // Demo visualization - only when both are empty
-                        HStack(spacing: 6) {
-                            DemoSetSquare(color: .green)
-                            DemoSetSquare(color: .yellow)
-                            DemoSetSquare(color: .orange)
-                            DemoSetSquare(color: .red)
-                            DemoSetSquare(color: .orange)
-                            Spacer()
-                        }
-                        .frame(height: 42)
-                    } else if todaysSets.isEmpty {
+                    if todaysSets.isEmpty {
                         // Empty state when there's no today's sets but history exists
                         RoundedRectangle(cornerRadius: 6)
                             .fill(
@@ -1154,18 +1171,7 @@ struct CheckInView: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.7))
 
-                    if lastDaySets.isEmpty && todaysSets.isEmpty {
-                        // Demo visualization - only when both are empty
-                        HStack(spacing: 6) {
-                            DemoSetSquare(color: .green)
-                            DemoSetSquare(color: .green)
-                            DemoSetSquare(color: .yellow)
-                            DemoSetSquare(color: .orange)
-                            DemoSetSquare(color: .green)
-                            Spacer()
-                        }
-                        .frame(height: 42)
-                    } else if lastDaySets.isEmpty {
+                    if lastDaySets.isEmpty {
                         // Truly empty - no visualization, just empty space
                         Spacer()
                             .frame(height: 42)
@@ -1186,38 +1192,12 @@ struct CheckInView: View {
                         .frame(height: 42)
                     }
                 }
-            }
 
-            // Dim overlay for demo visualization
-            if lastDaySets.isEmpty && todaysSets.isEmpty {
-                LinearGradient(
-                    colors: [Color(white: 0.18), Color(white: 0.14)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            }
-
-            // Informative overlay when showing demo
-            if lastDaySets.isEmpty && todaysSets.isEmpty {
-                VStack(spacing: 2) {
-                    Text("Set Intensity Tracker")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(Color.appAccent)
-                    Text("Colors show intensity")
-                        .font(.caption2)
-                        .foregroundStyle(Color.appAccent.opacity(0.6))
+                Spacer()
+                    .frame(height: 8)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Color(white: 0.12))
-                .cornerRadius(8)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.appAccent.opacity(0.3), lineWidth: 1)
-                )
             }
         }
-        .frame(maxWidth: .infinity)
     }
 
     private var estimated1RMGraphWidget: some View {
@@ -1270,27 +1250,25 @@ struct CheckInView: View {
             }
             .frame(height: 32)
             .padding(.horizontal, 16)
-            .padding(.top, 16)
-            .padding(.bottom, 8)
+            .padding(.top, 24)
+            .padding(.bottom, 4)
 
             // Content
-            Group {
+            VStack {
                 if selectedGraphTab == 0 {
                     setComparisonView
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 16)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    VStack(alignment: .leading, spacing: 12) {
-                        graphHeaderView
-                        graphContentView
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 16)
+                    graphContentView
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            .frame(height: 136)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 16)
         }
-        .frame(height: 215)
+        .frame(height: 220)
         .background(
             LinearGradient(
                 colors: [Color(white: 0.18), Color(white: 0.14)],
@@ -1310,9 +1288,22 @@ struct CheckInView: View {
         VStack(alignment: .leading, spacing: 12) {
             // Header with weight delta controls
             HStack {
-                Text("Progress Options")
-                    .font(.headline)
-                    .foregroundStyle(.white)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Progress Options")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                    HStack(spacing: 3) {
+                        Text("Sets to")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.6))
+                        Image(systemName: "arrow.up")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.6))
+                        Text("1 RM")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
+                }
 
                 Spacer()
 
@@ -1361,7 +1352,7 @@ struct CheckInView: View {
                 // No data state
                 ProgressOptionsEmptyState()
                     .frame(maxWidth: .infinity)
-                    .frame(height: 160)
+                    .frame(height: 140)
             } else {
                 ZStack(alignment: .bottom) {
                     ScrollView(.vertical, showsIndicators: false) {
@@ -1379,7 +1370,7 @@ struct CheckInView: View {
                         }
                         .padding(.bottom, 8)
                     }
-                    .frame(height: 160)
+                    .frame(height: 140)
 
                     // Gradient fade indicator for scrollable content
                     LinearGradient(
@@ -1391,7 +1382,7 @@ struct CheckInView: View {
                         startPoint: .top,
                         endPoint: .bottom
                     )
-                    .frame(height: 40)
+                    .frame(height: 50)
                     .allowsHitTesting(false)
                 }
             }
@@ -1413,7 +1404,7 @@ struct CheckInView: View {
     }
 
     private var logSetSection: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 8) {
             HStack(spacing: 12) {
                 // Weight with increment/decrement
                 HStack(spacing: 8) {
@@ -1464,7 +1455,7 @@ struct CheckInView: View {
                     }
                 }
                 .padding(.horizontal, 8)
-                .padding(.vertical, 6)
+                .padding(.vertical, 4)
                 .background(Color(white: 0.12))
                 .cornerRadius(10)
                 .frame(maxWidth: .infinity)
@@ -1513,7 +1504,7 @@ struct CheckInView: View {
                     }
                 }
                 .padding(.horizontal, 8)
-                .padding(.vertical, 6)
+                .padding(.vertical, 4)
                 .background(Color(white: 0.12))
                 .cornerRadius(10)
                 .frame(maxWidth: .infinity)
@@ -1528,14 +1519,14 @@ struct CheckInView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 11)
+                    .padding(.vertical, 8)
                     .background(Color.appAccent)
                     .cornerRadius(10)
             }
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 8)
         .background(
             LinearGradient(
                 colors: [Color(white: 0.18), Color(white: 0.14)],
