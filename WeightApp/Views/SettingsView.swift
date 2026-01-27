@@ -154,6 +154,14 @@ struct SettingsView: View {
     }
 
     private func populateSimulatedData() {
+        // Clear all existing LiftSet and Estimated1RM data first
+        for liftSet in liftSets {
+            modelContext.delete(liftSet)
+        }
+        for estimated1RM in estimated1RMs {
+            modelContext.delete(estimated1RM)
+        }
+
         let calendar = Calendar.current
         let now = Date()
 
@@ -169,8 +177,8 @@ struct SettingsView: View {
 
         // Training plan: alternate between push/pull/legs over 7 days
         let workoutPlans: [[String]] = [
-            ["Bench Press", "Overhead Press", "Dip"], // Push
-            ["Deadlifts", "Barbell Row", "Pull-Up"], // Pull
+            ["Bench Press", "Overhead Press", "Dips"], // Push
+            ["Deadlift", "Barbell Row", "Pull Ups"], // Pull
             ["Squat"], // Legs
         ]
 
@@ -196,13 +204,13 @@ struct SettingsView: View {
                 if exerciseMaxes[exerciseName] == nil {
                     exerciseMaxes[exerciseName] = {
                         switch exerciseName {
-                        case "Deadlifts": return 225.0
+                        case "Deadlift": return 225.0
                         case "Squat": return 200.0
                         case "Bench Press": return 165.0
                         case "Barbell Row": return 145.0
                         case "Overhead Press": return 100.0
-                        case "Pull-Up": return 30.0
-                        case "Dip": return 40.0
+                        case "Pull Ups": return 30.0
+                        case "Dips": return 40.0
                         default: return 100.0
                         }
                     }()
@@ -210,26 +218,45 @@ struct SettingsView: View {
 
                 let currentMax = exerciseMaxes[exerciseName]!
 
-                // Number of sets: 4 (progressing Green -> Yellow -> Orange -> Red) + 1 PR set
+                // Pattern: 2 Easy, 2 Varied (Moderate/Hard/Redline), 1 PR
                 let numSets = 5
 
                 // Intensity percentages for each set (percentage of current 1RM)
-                // Green (75%), Yellow (85%), Orange (91%), Red (96%), PR (102%)
-                let intensities: [Double] = [0.75, 0.85, 0.91, 0.96, 1.02]
+                // Easy (55%, 60%), then varied intensities, then PR (103%)
+                let intensities: [Double]
+                let dayPattern = daysAgo % 3
+                switch dayPattern {
+                case 0:
+                    // Easy, Easy, Moderate, Moderate, PR
+                    intensities = [0.55, 0.60, 0.68, 0.72, 1.03]
+                case 1:
+                    // Easy, Easy, Hard, Hard, PR
+                    intensities = [0.55, 0.60, 0.78, 0.82, 1.03]
+                default:
+                    // Easy, Easy, Redline, Redline, PR
+                    intensities = [0.55, 0.60, 0.88, 0.92, 1.03]
+                }
 
                 for setNum in 0..<numSets {
                     let intensity = intensities[setNum]
                     let target1RM = currentMax * intensity
 
-                    // Choose reps (typically 5-8 for strength work)
-                    let reps = [6, 6, 5, 4, 3][setNum]
+                    // Choose reps: higher reps for easier sets, lower for harder
+                    let reps: Int
+                    switch setNum {
+                    case 0, 1: reps = 8  // Easy sets
+                    case 2: reps = 6     // First varied set
+                    case 3: reps = 5     // Second varied set
+                    case 4: reps = 3     // PR set
+                    default: reps = 6
+                    }
 
                     // Calculate weight needed to hit target 1RM with these reps
                     // Using Brzycki formula: 1RM = weight * (36 / (37 - reps))
                     let weight = roundToAttainable(target1RM * (37.0 - Double(reps)) / 36.0)
 
                     // RIR: earlier sets have more RIR, later sets closer to failure
-                    let rir = [4, 3, 2, 1, 0][setNum]
+                    let rir = [5, 4, 3, 2, 0][setNum]
 
                     let set = LiftSet(exercise: exercise, reps: reps, weight: weight, rir: rir)
                     set.createdAt = currentTime

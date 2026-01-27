@@ -36,6 +36,7 @@ struct ContentView: View {
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(2)
         }
+        .tint(Color.appAccent)
         .onChange(of: selectedTab) { _, _ in
             hapticFeedback.impactOccurred()
         }

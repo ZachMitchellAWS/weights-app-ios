@@ -178,25 +178,25 @@ struct ExerciseGroupRow: View {
     let allSets: [LiftSet]
 
     private func colorForPercentage(_ percentage: Double, isPR: Bool) -> Color {
-        // If it's a PR, use bright white to stand out from intensity colors
+        // If it's a PR, use special cyan color
         if isPR {
-            return Color.white
+            return Color(red: 0x06/255, green: 0xB6/255, blue: 0xD4/255) // #06B6D4
         }
 
-        // Otherwise, color by percentage of current 1RM (difficulty)
+        // Otherwise, color by percentage of current 1RM (intensity)
         switch percentage {
-        case 95...:
-            // 95%+ of current - Very hard sets - Red
-            return Color(red: 0.9, green: 0.2, blue: 0.2)
-        case 90..<95:
-            // 90-95% of current - Hard sets - Orange
-            return Color(red: 1.0, green: 0.6, blue: 0.2)
-        case 80..<90:
-            // 80-90% of current - Moderate sets - Yellow
-            return Color(red: 1.0, green: 0.9, blue: 0.2)
+        case 85...:
+            // 85%+ - Near Failure - Red
+            return Color(red: 0xEF/255, green: 0x44/255, blue: 0x44/255) // #EF4444
+        case 75..<85:
+            // 75-85% - Hard - Orange
+            return Color(red: 0xF9/255, green: 0x73/255, blue: 0x16/255) // #F97316
+        case 65..<75:
+            // 65-75% - Moderate - Yellow
+            return Color(red: 0xEA/255, green: 0xB3/255, blue: 0x08/255) // #EAB308
         default:
-            // < 80% of current - Easy sets - Green
-            return Color(red: 0.3, green: 0.8, blue: 0.3)
+            // < 65% - Easy - Green
+            return Color(red: 0x84/255, green: 0xCC/255, blue: 0x16/255) // #84CC16
         }
     }
 
@@ -244,15 +244,9 @@ struct ExerciseGroupRow: View {
 
                         Spacer()
 
-                        if result.isPR {
-                            HStack(spacing: 4) {
-                                Image(systemName: "star.fill")
-                                    .font(.caption2)
-                                Text("PR")
-                                    .font(.caption.weight(.semibold))
-                            }
-                            .foregroundStyle(.white)
-                        }
+                        Text(formatTime(set.createdAt))
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.5))
 
                         if isDeleteModeActive {
                             Button {
@@ -286,5 +280,11 @@ struct ExerciseGroupRow: View {
                 endPoint: .bottom
             )
         )
+    }
+
+    private func formatTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 }
