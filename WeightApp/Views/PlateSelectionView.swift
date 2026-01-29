@@ -25,7 +25,7 @@ struct PlateSelectionView: View {
     }
 
     private var plates: [Double] {
-        userProperties.plateWeights.sorted { $0 > $1 }
+        userProperties.plateWeights.filter { $0 < 5 }.sorted { $0 > $1 }
     }
 
     var body: some View {
@@ -87,7 +87,7 @@ struct PlateSelectionView: View {
                     .padding(.bottom, 20)
                 }
             }
-            .navigationTitle("Plate Selection")
+            .navigationTitle("Available Plate Increments")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -141,7 +141,7 @@ struct AddWeightView: View {
     @State private var selectedWeight: Double = 45
     @State private var showDuplicateAlert = false
 
-    let availableWeights: [Double] = [0.25, 0.5, 0.75, 1, 1.25, 2.5, 5, 10, 15, 25, 35, 45, 55]
+    let availableWeights: [Double] = [0.25, 0.5, 0.75, 1, 1.25, 2.5]
 
     var body: some View {
         NavigationStack {

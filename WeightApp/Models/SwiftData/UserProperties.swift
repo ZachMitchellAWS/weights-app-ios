@@ -23,5 +23,5 @@ final class UserProperties {
         self.plateWeights = []
     }
 
-    static let defaultPlateWeights: [Double] = [2.5, 5, 10, 25, 45]
+    static let defaultPlateWeights: [Double] = [2.5]
 }

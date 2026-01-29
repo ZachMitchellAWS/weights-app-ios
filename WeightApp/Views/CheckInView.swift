@@ -6,9 +6,9 @@ struct CheckInView: View {
     @Environment(\.modelContext) private var modelContext
 
     @Query(sort: \Exercises.createdAt) private var exercises: [Exercises]
-    @Query(sort: \LiftSet.createdAt, order: .reverse) private var allSets: [LiftSet]
+    @Query(filter: #Predicate<LiftSet> { !$0.deleted }, sort: \LiftSet.createdAt, order: .reverse) private var allSets: [LiftSet]
     @Query private var userPropertiesItems: [UserProperties]
-    @Query(sort: \Estimated1RM.createdAt, order: .reverse) private var allEstimated1RMs: [Estimated1RM]
+    @Query(filter: #Predicate<Estimated1RM> { !$0.deleted }, sort: \Estimated1RM.createdAt, order: .reverse) private var allEstimated1RMs: [Estimated1RM]
 
     @ObservedObject var selectedSetData: SelectedSetData
 
@@ -43,7 +43,7 @@ struct CheckInView: View {
     @State private var logSetHighlighted = false
     @State private var selectedSquareId: UUID? = nil
     @State private var showBodyweightCapture = false
-    @State private var bodyweightInput: String = ""
+    @State private var tempBodyweight: Double = 0
     @State private var showExercisesNotes = false
     @State private var exerciseNotesInput: String = ""
 
@@ -264,6 +264,11 @@ struct CheckInView: View {
                         selectedSetData.shouldPopulate = false
                     }
                 }
+                .onChange(of: showBodyweightCapture) { _, isShowing in
+                    if isShowing {
+                        tempBodyweight = userProperties.bodyweight ?? 0
+                    }
+                }
                 .sheet(isPresented: $showingAddExercises) {
                     addExercisesSheet
                         .presentationDetents([.height(340)])
@@ -271,7 +276,7 @@ struct CheckInView: View {
                 }
                 .sheet(isPresented: $showWeightPicker) {
                     weightPickerSheet
-                        .presentationDetents([.height(480)])
+                        .presentationDetents([.height(600)])
                         .presentationDragIndicator(.visible)
                 }
                 .sheet(isPresented: $showRepsPicker) {
@@ -304,7 +309,7 @@ struct CheckInView: View {
                 }
                 .sheet(isPresented: $showBodyweightCapture) {
                     bodyweightCaptureSheet
-                        .presentationDetents([.height(480)])
+                        .presentationDetents([.height(500)])
                         .presentationDragIndicator(.visible)
                 }
                 .sheet(isPresented: $showExercisesNotes) {
@@ -470,10 +475,10 @@ struct CheckInView: View {
     }
 
     private var weightPickerSheet: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             // Weight display
             Spacer()
-                .frame(height: 20)
+                .frame(height: 8)
             VStack(spacing: 4) {
                 Text(weightInput.isEmpty || weightInput == "---" ? "---" : weightInput)
                     .font(.system(size: 48, weight: .bold))
@@ -808,179 +813,85 @@ struct CheckInView: View {
     }
 
     private var bodyweightCaptureSheet: some View {
-        VStack(spacing: 20) {
-            // Bodyweight display
-            Spacer()
-                .frame(height: 20)
-            VStack(spacing: 4) {
-                Text(bodyweightInput.isEmpty || bodyweightInput == "---" ? "---" : bodyweightInput)
-                    .font(.system(size: 48, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(height: 60)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.5)
-                Text("lbs")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.6))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(Color(white: 0.12))
-            .cornerRadius(12)
-            .padding(.horizontal)
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
 
-            Text("Enter your bodyweight")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.6))
+                VStack(spacing: 16) {
+                    Spacer()
+                        .frame(height: 8)
 
-            // Number pad
-            VStack(spacing: 12) {
-                ForEach([["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"]], id: \.self) { row in
-                    HStack(spacing: 12) {
-                        ForEach(row, id: \.self) { number in
-                            Button {
-                                handleBodyweightInput(number)
-                            } label: {
-                                Text(number)
-                                    .font(.title2.weight(.semibold))
-                                    .foregroundStyle(.white)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 60)
-                                    .background(Color(white: 0.18))
-                                    .cornerRadius(12)
-                            }
-                        }
-                    }
-                }
-
-                HStack(spacing: 12) {
-                    Button {
-                        if !bodyweightInput.contains(".") {
-                            if bodyweightInput == "---" {
-                                bodyweightInput = "0."
-                            } else if bodyweightInput == "0" {
-                                bodyweightInput = "0."
-                            } else {
-                                bodyweightInput += "."
-                            }
-                        }
-                    } label: {
-                        Text(".")
-                            .font(.title2.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 60)
-                            .background(Color(white: 0.18))
-                            .cornerRadius(12)
-                    }
-
-                    Button {
-                        handleBodyweightInput("0")
-                    } label: {
-                        Text("0")
-                            .font(.title2.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 60)
-                            .background(Color(white: 0.18))
-                            .cornerRadius(12)
-                    }
-
-                    Button {
-                        if !bodyweightInput.isEmpty && bodyweightInput != "---" {
-                            bodyweightInput.removeLast()
-                            if bodyweightInput.isEmpty {
-                                bodyweightInput = "---"
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "delete.left")
-                            .font(.title2)
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 60)
-                            .background(Color(white: 0.18))
-                            .cornerRadius(12)
-                    }
-                }
-            }
-            .padding(.horizontal)
-
-            // Bottom buttons
-            HStack(spacing: 12) {
-                Button {
-                    bodyweightInput = "---"
-                } label: {
-                    Text("Clear")
-                        .font(.title3.weight(.semibold))
+                    Text("Set Bodyweight")
+                        .font(.title2)
+                        .fontWeight(.semibold)
                         .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 55)
-                        .background(Color(white: 0.25))
-                        .cornerRadius(12)
-                }
 
-                Button {
-                    if bodyweightInput != "---", let value = Double(bodyweightInput), value > 0, value <= 1000 {
-                        userProperties.bodyweight = value
-                        try? modelContext.save()
+                    Text("Your bodyweight is used for calculating 1RM on bodyweight exercises")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+
+                    Spacer()
+                        .frame(height: 20)
+
+                    // Weight Picker
+                    HStack(spacing: 0) {
+                        Picker("Weight", selection: $tempBodyweight) {
+                            ForEach(Array(stride(from: 50.0, through: 500.0, by: 0.5)), id: \.self) { weight in
+                                Text("\(weight, specifier: "%.1f")")
+                                    .tag(weight)
+                            }
+                        }
+                        .pickerStyle(.wheel)
+                        .frame(maxWidth: .infinity)
+
+                        Text("lbs")
+                            .font(.title2)
+                            .foregroundStyle(.white.opacity(0.7))
+                            .padding(.trailing, 40)
                     }
-                    showBodyweightCapture = false
-                    showLogConfirmation = true
-                } label: {
-                    Text("Done")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 55)
-                        .background(Color.appAccent)
-                        .cornerRadius(12)
+                    .frame(height: 200)
+
+                    Spacer()
+
+                    // Buttons
+                    HStack(spacing: 16) {
+                        Button {
+                            tempBodyweight = 0
+                            userProperties.bodyweight = nil
+                            try? modelContext.save()
+                            showBodyweightCapture = false
+                            showLogConfirmation = true
+                        } label: {
+                            Text("Clear")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 50)
+                                .background(Color.white.opacity(0.1))
+                                .cornerRadius(12)
+                        }
+
+                        Button {
+                            userProperties.bodyweight = tempBodyweight
+                            try? modelContext.save()
+                            showBodyweightCapture = false
+                            showLogConfirmation = true
+                        } label: {
+                            Text("Done")
+                                .font(.headline)
+                                .foregroundStyle(.black)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 50)
+                                .background(Color.appAccent)
+                                .cornerRadius(12)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
                 }
             }
-            .padding(.horizontal)
-            .padding(.bottom)
-        }
-        .background(
-            LinearGradient(
-                colors: [Color(white: 0.18), Color(white: 0.14)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
-        .onAppear {
-            if let bw = userProperties.bodyweight {
-                bodyweightInput = bw.rounded1().formatted(.number.precision(.fractionLength(2)))
-            } else {
-                bodyweightInput = "---"
-            }
-        }
-    }
-
-    private func handleBodyweightInput(_ digit: String) {
-        // Similar logic to weight input
-        if bodyweightInput == "---" {
-            if digit != "0" {
-                bodyweightInput = digit
-            }
-            return
-        }
-
-        let parts = bodyweightInput.split(separator: ".")
-        let wholePart = parts.first ?? ""
-
-        if bodyweightInput == "0" {
-            bodyweightInput = digit
-            return
-        }
-
-        if wholePart.count >= 3 && !bodyweightInput.contains(".") {
-            bodyweightInput = digit
-            return
-        }
-
-        let testInput = bodyweightInput + digit
-        if let value = Double(testInput), value <= 1000 {
-            bodyweightInput += digit
         }
     }
 
@@ -1591,7 +1502,9 @@ struct CheckInView: View {
                                         currentWeight: weight,
                                         currentReps: reps,
                                         hasSetValues: hasSetInitialValues,
-                                        selectedSquareId: selectedSquareId
+                                        selectedSquareId: selectedSquareId,
+                                        userBodyweight: userProperties.bodyweight,
+                                        allEstimated1RMs: allEstimated1RMs
                                     )
                                     .onTapGesture {
                                         weight = set.weight
@@ -1643,7 +1556,9 @@ struct CheckInView: View {
                                         currentWeight: weight,
                                         currentReps: reps,
                                         hasSetValues: hasSetInitialValues,
-                                        selectedSquareId: selectedSquareId
+                                        selectedSquareId: selectedSquareId,
+                                        userBodyweight: userProperties.bodyweight,
+                                        allEstimated1RMs: allEstimated1RMs
                                     )
                                     .onTapGesture {
                                         weight = set.weight
@@ -2513,9 +2428,9 @@ struct CheckInView: View {
         let d = after - before
         let increased = d > 0.0001
 
-        // Create a new Estimated1RM record for every set
+        // Create a new Estimated1RM record for every set, tracking which set created it
         if after > 0 {
-            let estimated = Estimated1RM(exercise: ex, value: after)
+            let estimated = Estimated1RM(exercise: ex, value: after, setId: set.id)
             modelContext.insert(estimated)
         }
 
@@ -2749,12 +2664,15 @@ struct ExercisesCardButton: View {
 }
 
 struct SetSquareView: View {
+    @Environment(\.modelContext) private var modelContext
     let set: LiftSet
     let allSets: [LiftSet]
     let currentWeight: Double
     let currentReps: Int
     let hasSetValues: Bool
     let selectedSquareId: UUID?
+    let userBodyweight: Double?
+    let allEstimated1RMs: [Estimated1RM]
 
     private var isMatching: Bool {
         guard hasSetValues else { return false }
@@ -2771,13 +2689,20 @@ struct SetSquareView: View {
             .filter { $0.exercise?.id == set.exercise?.id && $0.createdAt < set.createdAt }
             .sorted { $0.createdAt < $1.createdAt }
 
+        let isBodyweight = set.exercise?.exerciseLoadType == .bodyweightPlusSingleLoad
+        let bodyweight = userBodyweight ?? 0.0
+
         var currentMax: Double = 0
         for prevSet in previousSets {
-            let estimated = OneRMCalculator.estimate1RM(weight: prevSet.weight, reps: prevSet.reps)
+            // For bodyweight exercises, add bodyweight to stored weight
+            let totalWeight = isBodyweight ? prevSet.weight + bodyweight : prevSet.weight
+            let estimated = OneRMCalculator.estimate1RM(weight: totalWeight, reps: prevSet.reps)
             currentMax = max(currentMax, estimated)
         }
 
-        let setEstimated1RM = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
+        // For bodyweight exercises, add bodyweight to this set's weight too
+        let setTotalWeight = isBodyweight ? set.weight + bodyweight : set.weight
+        let setEstimated1RM = OneRMCalculator.estimate1RM(weight: setTotalWeight, reps: set.reps)
         let isPR = setEstimated1RM > currentMax
         let percentage = currentMax > 0 ? (setEstimated1RM / currentMax) * 100 : 100.0
 
@@ -2827,6 +2752,27 @@ struct SetSquareView: View {
                 .animation(.easeInOut(duration: 0.15), value: isMatching)
                 .animation(.easeInOut(duration: 0.15), value: isSelected)
         )
+        .contextMenu {
+            Button(role: .destructive) {
+                deleteSet()
+            } label: {
+                Label("Delete Set", systemImage: "trash")
+            }
+        }
+    }
+
+    private func deleteSet() {
+        // Soft delete the set
+        set.deleted = true
+        set.deletedAt = Date()
+
+        // Find and soft delete associated Estimated1RM if it exists
+        if let associated1RM = allEstimated1RMs.first(where: { $0.setId == set.id }) {
+            associated1RM.deleted = true
+            associated1RM.deletedAt = Date()
+        }
+
+        try? modelContext.save()
     }
 }
 

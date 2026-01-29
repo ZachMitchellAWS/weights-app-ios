@@ -84,7 +84,7 @@ class AuthViewModel: ObservableObject {
         }
     }
 
-    func logout() async {
+    func logout(onDataCleanup: @escaping () -> Void) async {
         isLoading = true
         errorMessage = nil
 
@@ -93,6 +93,9 @@ class AuthViewModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+
+        // Perform hard delete of all local data
+        onDataCleanup()
 
         // Always clear tokens and log out, regardless of API success/failure
         KeychainService.shared.clearTokens()

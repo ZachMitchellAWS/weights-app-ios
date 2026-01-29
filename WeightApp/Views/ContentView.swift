@@ -29,11 +29,11 @@ struct ContentView: View {
                 .tag(0)
 
             CheckInView(selectedSetData: selectedSetData)
-                .tabItem { Label("Check In", systemImage: "plus.circle") }
+                .tabItem { Label("Log Set", systemImage: "plus.circle") }
                 .tag(1)
 
-            SettingsView(authViewModel: authViewModel)
-                .tabItem { Label("Settings", systemImage: "gearshape") }
+            MoreView(authViewModel: authViewModel)
+                .tabItem { Label("More", systemImage: "ellipsis.circle") }
                 .tag(2)
         }
         .tint(Color.appAccent)

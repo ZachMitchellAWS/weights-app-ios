@@ -6,11 +6,18 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct AccountDetailView: View {
     @ObservedObject var authViewModel: AuthViewModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @State private var showLogoutConfirmation = false
+
+    @Query private var allExercises: [Exercises]
+    @Query private var allLiftSets: [LiftSet]
+    @Query private var allEstimated1RMs: [Estimated1RM]
+    @Query private var allUserProperties: [UserProperties]
 
     private var email: String {
         KeychainService.shared.getEmail() ?? "Not available"
@@ -117,12 +124,38 @@ struct AccountDetailView: View {
                 Button("Cancel", role: .cancel) { }
                 Button("Logout", role: .destructive) {
                     Task {
-                        await authViewModel.logout()
+                        await authViewModel.logout {
+                            hardDeleteAllData()
+                        }
                     }
                 }
             } message: {
-                Text("Are you sure you want to logout?")
+                Text("Are you sure you want to logout? All local data will be deleted.")
             }
         }
+    }
+
+    private func hardDeleteAllData() {
+        // Hard delete all LiftSets
+        for liftSet in allLiftSets {
+            modelContext.delete(liftSet)
+        }
+
+        // Hard delete all Estimated1RMs
+        for estimated in allEstimated1RMs {
+            modelContext.delete(estimated)
+        }
+
+        // Hard delete all custom Exercises (keep built-in ones)
+        for exercise in allExercises where exercise.isCustom {
+            modelContext.delete(exercise)
+        }
+
+        // Hard delete UserProperties
+        for properties in allUserProperties {
+            modelContext.delete(properties)
+        }
+
+        try? modelContext.save()
     }
 }
