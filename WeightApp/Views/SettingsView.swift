@@ -11,8 +11,8 @@ import SwiftData
 struct SettingsView: View {
     @ObservedObject var authViewModel: AuthViewModel
     @Environment(\.modelContext) private var modelContext
-    @Query private var settingsItems: [AppSettings]
-    @Query private var exercises: [Exercise]
+    @Query private var userPropertiesItems: [UserProperties]
+    @Query private var exercises: [Exercises]
     @Query private var liftSets: [LiftSet]
     @Query private var estimated1RMs: [Estimated1RM]
     @State private var showDataPopulatedAlert = false
@@ -24,11 +24,11 @@ struct SettingsView: View {
     @State private var showDeleteConfirmation = false
     @State private var showDataDeletedAlert = false
 
-    private var settings: AppSettings {
-        if let s = settingsItems.first { return s }
-        let s = AppSettings()
-        modelContext.insert(s)
-        return s
+    private var userProperties: UserProperties {
+        if let props = userPropertiesItems.first { return props }
+        let props = UserProperties()
+        modelContext.insert(props)
+        return props
     }
 
     var body: some View {
@@ -162,6 +162,12 @@ struct SettingsView: View {
             modelContext.delete(estimated1RM)
         }
 
+        // Simulated user bodyweight for bodyweight exercises
+        let simulatedBodyweight: Double = 180.0
+
+        // Set the user's bodyweight for proper 1RM calculations
+        userProperties.bodyweight = simulatedBodyweight
+
         let calendar = Calendar.current
         let now = Date()
 
@@ -182,7 +188,7 @@ struct SettingsView: View {
             ["Squat"], // Legs
         ]
 
-        // Track max 1RM per exercise for progression
+        // Track max 1RM per exercise for progression (for bodyweight exercises, this is TOTAL load including bodyweight)
         var exerciseMaxes: [String: Double] = [:]
 
         for daysAgo in (1...7).reversed() {
@@ -201,6 +207,7 @@ struct SettingsView: View {
                 guard let exercise = exercises.first(where: { $0.name == exerciseName }) else { continue }
 
                 // Starting 1RM for this exercise (if not already tracked)
+                // For bodyweight exercises, this represents TOTAL load (bodyweight + added weight)
                 if exerciseMaxes[exerciseName] == nil {
                     exerciseMaxes[exerciseName] = {
                         switch exerciseName {
@@ -209,8 +216,8 @@ struct SettingsView: View {
                         case "Bench Press": return 165.0
                         case "Barbell Row": return 145.0
                         case "Overhead Press": return 100.0
-                        case "Pull Ups": return 30.0
-                        case "Dips": return 40.0
+                        case "Pull Ups": return simulatedBodyweight + 30.0  // 180 + 30 = 210 lbs total
+                        case "Dips": return simulatedBodyweight + 40.0      // 180 + 40 = 220 lbs total
                         default: return 100.0
                         }
                     }()
@@ -253,13 +260,15 @@ struct SettingsView: View {
 
                     // Calculate weight needed to hit target 1RM with these reps
                     // Using Brzycki formula: 1RM = weight * (36 / (37 - reps))
-                    let weight = roundToAttainable(target1RM * (37.0 - Double(reps)) / 36.0)
+                    let calculatedWeight = roundToAttainable(target1RM * (37.0 - Double(reps)) / 36.0)
 
-                    // RIR: earlier sets have more RIR, later sets closer to failure
-                    let rir = [5, 4, 3, 2, 0][setNum]
+                    // For bodyweight exercises, subtract bodyweight to get added weight only
+                    let isBodyweightExercises = exercise.exerciseLoadType == .bodyweightPlusSingleLoad
+                    let weightToStore = isBodyweightExercises ? max(0, calculatedWeight - simulatedBodyweight) : calculatedWeight
 
-                    let set = LiftSet(exercise: exercise, reps: reps, weight: weight, rir: rir)
+                    let set = LiftSet(exercise: exercise, reps: reps, weight: weightToStore)
                     set.createdAt = currentTime
+                    set.createdTimezone = TimeZone.current.identifier
                     modelContext.insert(set)
 
                     // Update max if this is a PR
@@ -283,8 +292,8 @@ struct SettingsView: View {
         isUpdatingProperties = true
 
         do {
-            let response = try await APIService.shared.updateUserProperties()
-            userPropertiesAlertMessage = "Successfully updated user properties\n\nplaceholderBool: \(response.placeholderBool)"
+            let response = try await APIService.shared.updateUserProperties(bodyweight: userProperties.bodyweight)
+            userPropertiesAlertMessage = "Successfully updated user properties\n\nbodyweight: \(response.bodyweight?.description ?? "nil")"
             showUserPropertiesAlert = true
         } catch {
             userPropertiesAlertMessage = "Failed: \(error.localizedDescription)"

@@ -1,5 +1,5 @@
 //
-//  Exercise.swift
+//  Exercises.swift
 //  WeightApp
 //
 //  Created by Zach Mitchell on 1/13/26.
@@ -15,11 +15,12 @@ enum ExerciseLoadType: String, Codable, CaseIterable {
 }
 
 @Model
-final class Exercise {
+final class Exercises {
     @Attribute(.unique) var id: UUID
+    var createdAt: Date
+    var createdTimezone: String
     var name: String
     var isCustom: Bool
-    var createdAt: Date
     var loadType: String // Store as String for SwiftData compatibility
     var notes: String?
 
@@ -28,6 +29,7 @@ final class Exercise {
         self.name = name
         self.isCustom = isCustom
         self.createdAt = Date()
+        self.createdTimezone = TimeZone.current.identifier
         self.loadType = loadType.rawValue
         self.notes = nil
     }

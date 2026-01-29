@@ -5,23 +5,22 @@ import Charts
 struct CheckInView: View {
     @Environment(\.modelContext) private var modelContext
 
-    @Query(sort: \Exercise.createdAt) private var exercises: [Exercise]
+    @Query(sort: \Exercises.createdAt) private var exercises: [Exercises]
     @Query(sort: \LiftSet.createdAt, order: .reverse) private var allSets: [LiftSet]
-    @Query private var settingsItems: [AppSettings]
-    @Query(sort: \Estimated1RM.timestamp, order: .reverse) private var allEstimated1RMs: [Estimated1RM]
-    @Query(sort: \PlateModel.weight, order: .reverse) private var availablePlates: [PlateModel]
+    @Query private var userPropertiesItems: [UserProperties]
+    @Query(sort: \Estimated1RM.createdAt, order: .reverse) private var allEstimated1RMs: [Estimated1RM]
 
     @ObservedObject var selectedSetData: SelectedSetData
 
-    @State private var selectedExerciseId: UUID?
-    @State private var showingAddExercise = false
+    @State private var selectedExercisesId: UUID?
+    @State private var showingAddExercises = false
 
     @State private var reps: Int = 8
     @State private var weight: Double = 20.0
     @State private var hasSetInitialValues = false
 
-    @State private var newExerciseName: String = ""
-    @State private var newExerciseLoadType: ExerciseLoadType = .barbell
+    @State private var newExercisesName: String = ""
+    @State private var newExercisesLoadType: ExerciseLoadType = .barbell
 
     @State private var showSubmitOverlay = false
     @State private var overlayDidIncrease = false
@@ -32,47 +31,58 @@ struct CheckInView: View {
     @State private var weightInput: String = ""
     @State private var showRepsPicker = false
     @State private var repsInput: String = ""
-    @State private var showExerciseDetails = false
-    @State private var editingExerciseName = ""
-    @State private var editingExerciseLoadType: ExerciseLoadType = .barbell
+    @State private var showExercisesDetails = false
+    @State private var editingExercisesName = ""
+    @State private var editingExercisesLoadType: ExerciseLoadType = .barbell
     @State private var showLogConfirmation = false
     @State private var showCancelOverlay = false
     @State private var showValidationMessage = false
     @State private var weightDelta: Double = 5.0
-    @State private var showExerciseSelection = false
+    @State private var showExercisesSelection = false
     @State private var selectedGraphTab: Int = 0 // 0 = Set Intensity, 1 = 1RM Graph
     @State private var logSetHighlighted = false
     @State private var selectedSquareId: UUID? = nil
     @State private var showBodyweightCapture = false
     @State private var bodyweightInput: String = ""
-    @State private var showExerciseNotes = false
+    @State private var showExercisesNotes = false
     @State private var exerciseNotesInput: String = ""
+
+    enum SortColumn {
+        case weight, reps, est1RM, gain
+    }
+    @State private var sortColumn: SortColumn = .gain
+    @State private var sortAscending: Bool = true
+    @State private var columnHighlighted = false
 
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
     private let maxNotesLength = 500
-    private let maxExerciseNameLength = 25
+    private let maxExercisesNameLength = 25
 
-    private var settings: AppSettings {
-        if let s = settingsItems.first { return s }
-        let s = AppSettings()
-        modelContext.insert(s)
-        return s
+    private var userProperties: UserProperties {
+        if let props = userPropertiesItems.first { return props }
+        let props = UserProperties()
+        modelContext.insert(props)
+        return props
     }
 
-    private var selectedExercise: Exercise? {
-        if let id = selectedExerciseId {
+    private var availablePlates: [Double] {
+        userProperties.plateWeights.sorted { $0 > $1 }
+    }
+
+    private var selectedExercises: Exercises? {
+        if let id = selectedExercisesId {
             return exercises.first(where: { $0.id == id })
         }
         return exercises.first
     }
 
     private var setsForSelected: [LiftSet] {
-        guard let ex = selectedExercise else { return [] }
+        guard let ex = selectedExercises else { return [] }
         return allSets.filter { $0.exercise?.id == ex.id }
     }
 
     private var estimated1RMsForSelected: [Estimated1RM] {
-        guard let ex = selectedExercise else { return [] }
+        guard let ex = selectedExercises else { return [] }
         return allEstimated1RMs.filter { $0.exercise?.id == ex.id }
     }
 
@@ -84,7 +94,7 @@ struct CheckInView: View {
     }
 
     private var setsWithPRInfo: [SetWithPR] {
-        guard let ex = selectedExercise else { return [] }
+        guard let ex = selectedExercises else { return [] }
         // Get all sets for this exercise in chronological order (oldest first)
         // Filter for valid sets (weight >= 0, reps >= 1)
         let sets = allSets
@@ -115,11 +125,12 @@ struct CheckInView: View {
         }
         // For bodyweight exercises, add bodyweight to each set's weight before calculating
         let adjustedSets: [LiftSet]
-        if selectedExercise?.exerciseLoadType == .bodyweightPlusSingleLoad, let bw = settings.userBodyweight {
+        if selectedExercises?.exerciseLoadType == .bodyweightPlusSingleLoad, let bw = userProperties.bodyweight {
             adjustedSets = setsForSelected.compactMap { set in
                 guard let ex = set.exercise else { return nil }
-                let adjusted = LiftSet(exercise: ex, reps: set.reps, weight: set.weight + bw, rir: set.rir)
+                let adjusted = LiftSet(exercise: ex, reps: set.reps, weight: set.weight + bw)
                 adjusted.createdAt = set.createdAt
+                adjusted.createdTimezone = set.createdTimezone
                 return adjusted
             }
         } else {
@@ -132,8 +143,8 @@ struct CheckInView: View {
         // Get the smallest available plate weight
         // For barbell: plate × 2 (both sides)
         // For single load / bodyweight+single load: plate × 1 (one side only)
-        let smallestPlate = availablePlates.min(by: { $0.weight < $1.weight })?.weight ?? 2.5
-        let multiplier = selectedExercise?.exerciseLoadType == .barbell ? 2.0 : 1.0
+        let smallestPlate = availablePlates.min() ?? 2.5
+        let multiplier = selectedExercises?.exerciseLoadType == .barbell ? 2.0 : 1.0
         return smallestPlate * multiplier
     }
 
@@ -142,9 +153,9 @@ struct CheckInView: View {
         // For barbell: plate × 2 (both sides)
         // For single load / bodyweight+single load: plate × 1 (one side only)
         var deltas = Set<Double>()
-        let multiplier = selectedExercise?.exerciseLoadType == .barbell ? 2.0 : 1.0
-        for plate in availablePlates {
-            let increment = plate.weight * multiplier
+        let multiplier = selectedExercises?.exerciseLoadType == .barbell ? 2.0 : 1.0
+        for plateWeight in availablePlates {
+            let increment = plateWeight * multiplier
             if increment <= 5.0 {
                 deltas.insert(increment)
             }
@@ -163,7 +174,7 @@ struct CheckInView: View {
     private var suggestions: [OneRMCalculator.Suggestion] {
         let rawSuggestions = OneRMCalculator.minimizedSuggestions(current1RM: current1RM, increment: weightDelta)
         // For bodyweight exercises, subtract bodyweight from suggested weights since we store only added weight
-        if selectedExercise?.exerciseLoadType == .bodyweightPlusSingleLoad, let bw = settings.userBodyweight {
+        if selectedExercises?.exerciseLoadType == .bodyweightPlusSingleLoad, let bw = userProperties.bodyweight {
             return rawSuggestions.map { suggestion in
                 OneRMCalculator.Suggestion(
                     reps: suggestion.reps,
@@ -177,11 +188,20 @@ struct CheckInView: View {
     }
 
     private var topThreeSuggestions: [OneRMCalculator.Suggestion] {
-        suggestions
-            .filter { $0.reps >= 5 && $0.reps <= 10 }
-            .sorted { $0.projected1RM < $1.projected1RM }
-            .prefix(5)
-            .map { $0 }
+        let filtered = suggestions.filter { $0.reps >= 5 && $0.reps <= 10 }
+
+        let sorted: [OneRMCalculator.Suggestion]
+        switch sortColumn {
+        case .weight:
+            sorted = filtered.sorted { sortAscending ? $0.weight < $1.weight : $0.weight > $1.weight }
+        case .reps:
+            sorted = filtered.sorted { sortAscending ? $0.reps < $1.reps : $0.reps > $1.reps }
+        case .est1RM, .gain:
+            // EST. 1RM and GAIN are correlated, so they share the same sorting
+            sorted = filtered.sorted { sortAscending ? $0.projected1RM < $1.projected1RM : $0.projected1RM > $1.projected1RM }
+        }
+
+        return Array(sorted.prefix(5))
     }
 
     private var weightOptions: [Double] {
@@ -198,8 +218,8 @@ struct CheckInView: View {
         NavigationStack {
             ZStack {
                 VStack(spacing: 12) {
-                    // Styled Exercise Selector
-                    styledExerciseSelector
+                    // Styled Exercises Selector
+                    styledExercisesSelector
                         .padding(.top, 12)
 
                     // Estimated 1RM Graph
@@ -220,8 +240,8 @@ struct CheckInView: View {
                 .padding(.horizontal, 12)
                 .onAppear {
                     seedIfNeeded()
-                    if selectedExerciseId == nil {
-                        selectedExerciseId = exercises.first?.id
+                    if selectedExercisesId == nil {
+                        selectedExercisesId = exercises.first?.id
                         resetToDefaults()
                     }
                     // Initialize weight delta to 2.5 if available, otherwise closest option
@@ -235,7 +255,7 @@ struct CheckInView: View {
                         }
                     }
                 }
-                .onChange(of: selectedExerciseId) { _, _ in
+                .onChange(of: selectedExercisesId) { _, _ in
                     resetToDefaults()
                 }
                 .onChange(of: selectedSetData.shouldPopulate) { _, shouldPopulate in
@@ -244,8 +264,8 @@ struct CheckInView: View {
                         selectedSetData.shouldPopulate = false
                     }
                 }
-                .sheet(isPresented: $showingAddExercise) {
-                    addExerciseSheet
+                .sheet(isPresented: $showingAddExercises) {
+                    addExercisesSheet
                         .presentationDetents([.height(340)])
                         .presentationDragIndicator(.visible)
                 }
@@ -259,24 +279,24 @@ struct CheckInView: View {
                         .presentationDetents([.height(480)])
                         .presentationDragIndicator(.visible)
                 }
-                .sheet(isPresented: $showExerciseDetails) {
+                .sheet(isPresented: $showExercisesDetails) {
                     exerciseDetailsSheet
-                        .presentationDetents([.height(selectedExercise?.isCustom == true ? 420 : 340)])
+                        .presentationDetents([.height(selectedExercises?.isCustom == true ? 420 : 340)])
                         .presentationDragIndicator(.visible)
                 }
-                .sheet(isPresented: $showExerciseSelection) {
-                    ExerciseSelectionView(
+                .sheet(isPresented: $showExercisesSelection) {
+                    ExercisesSelectionView(
                         exercises: exercises,
-                        selectedExerciseId: $selectedExerciseId,
-                        onAddExercise: {
-                            showExerciseSelection = false
-                            showingAddExercise = true
+                        selectedExercisesId: $selectedExercisesId,
+                        onAddExercises: {
+                            showExercisesSelection = false
+                            showingAddExercises = true
                         },
-                        onEditExercise: { exercise in
-                            showExerciseSelection = false
-                            editingExerciseName = exercise.name
-                            editingExerciseLoadType = exercise.exerciseLoadType
-                            showExerciseDetails = true
+                        onEditExercises: { exercise in
+                            showExercisesSelection = false
+                            editingExercisesName = exercise.name
+                            editingExercisesLoadType = exercise.exerciseLoadType
+                            showExercisesDetails = true
                         }
                     )
                     .presentationDetents([.fraction(0.95)])
@@ -287,7 +307,7 @@ struct CheckInView: View {
                         .presentationDetents([.height(480)])
                         .presentationDragIndicator(.visible)
                 }
-                .sheet(isPresented: $showExerciseNotes) {
+                .sheet(isPresented: $showExercisesNotes) {
                     exerciseNotesSheet
                         .presentationDetents([.height(300)])
                         .presentationDragIndicator(.visible)
@@ -320,11 +340,11 @@ struct CheckInView: View {
 
                 if showLogConfirmation {
                     ConfirmationOverlayView(
-                        exerciseName: selectedExercise?.name ?? "Exercise",
+                        exerciseName: selectedExercises?.name ?? "Exercises",
                         reps: reps,
                         weight: weight,
-                        userBodyweight: settings.userBodyweight,
-                        isBodyweightExercise: selectedExercise?.exerciseLoadType == .bodyweightPlusSingleLoad,
+                        userBodyweight: userProperties.bodyweight,
+                        isBodyweightExercises: selectedExercises?.exerciseLoadType == .bodyweightPlusSingleLoad,
                         onConfirm: {
                             hapticFeedback.impactOccurred()
                             showLogConfirmation = false
@@ -352,52 +372,52 @@ struct CheckInView: View {
         }
     }
 
-    private var addExerciseSheet: some View {
+    private var addExercisesSheet: some View {
         VStack(spacing: 24) {
             // Header
             HStack {
                 Button("Cancel") {
-                    newExerciseName = ""
-                    newExerciseLoadType = .barbell
-                    showingAddExercise = false
+                    newExercisesName = ""
+                    newExercisesLoadType = .barbell
+                    showingAddExercises = false
                 }
                 .foregroundStyle(Color.appAccent)
 
                 Spacer()
 
-                Text("Add Exercise")
+                Text("Add Exercises")
                     .font(.headline)
                     .foregroundStyle(.white)
 
                 Spacer()
 
                 Button("Add") {
-                    addExercise()
+                    addExercises()
                 }
                 .foregroundStyle(Color.appAccent)
-                .disabled(newExerciseName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .opacity(newExerciseName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1.0)
+                .disabled(newExercisesName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .opacity(newExercisesName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1.0)
             }
             .padding(.horizontal, 20)
             .padding(.top, 20)
 
             VStack(spacing: 16) {
-                // Exercise Name Field
+                // Exercises Name Field
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Exercise Name")
+                    Text("Exercises Name")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.7))
 
-                    TextField("e.g. Romanian Deadlift", text: $newExerciseName)
+                    TextField("e.g. Romanian Deadlift", text: $newExercisesName)
                         .textInputAutocapitalization(.words)
                         .font(.body)
                         .padding(14)
                         .background(Color(white: 0.12))
                         .cornerRadius(10)
                         .foregroundStyle(.white)
-                        .onChange(of: newExerciseName) { _, newValue in
-                            if newValue.count > maxExerciseNameLength {
-                                newExerciseName = String(newValue.prefix(maxExerciseNameLength))
+                        .onChange(of: newExercisesName) { _, newValue in
+                            if newValue.count > maxExercisesNameLength {
+                                newExercisesName = String(newValue.prefix(maxExercisesNameLength))
                             }
                         }
                 }
@@ -411,11 +431,11 @@ struct CheckInView: View {
                     Menu {
                         ForEach(ExerciseLoadType.allCases, id: \.self) { type in
                             Button {
-                                newExerciseLoadType = type
+                                newExercisesLoadType = type
                             } label: {
                                 HStack {
                                     Text(type.rawValue)
-                                    if newExerciseLoadType == type {
+                                    if newExercisesLoadType == type {
                                         Image(systemName: "checkmark")
                                     }
                                 }
@@ -423,7 +443,7 @@ struct CheckInView: View {
                         }
                     } label: {
                         HStack {
-                            Text(newExerciseLoadType.rawValue)
+                            Text(newExercisesLoadType.rawValue)
                                 .foregroundStyle(.white)
                             Spacer()
                             Image(systemName: "chevron.up.chevron.down")
@@ -902,7 +922,7 @@ struct CheckInView: View {
 
                 Button {
                     if bodyweightInput != "---", let value = Double(bodyweightInput), value > 0, value <= 1000 {
-                        settings.userBodyweight = value
+                        userProperties.bodyweight = value
                         try? modelContext.save()
                     }
                     showBodyweightCapture = false
@@ -928,7 +948,7 @@ struct CheckInView: View {
             )
         )
         .onAppear {
-            if let bw = settings.userBodyweight {
+            if let bw = userProperties.bodyweight {
                 bodyweightInput = bw.rounded1().formatted(.number.precision(.fractionLength(2)))
             } else {
                 bodyweightInput = "---"
@@ -969,24 +989,24 @@ struct CheckInView: View {
             // Header
             HStack {
                 Button("Cancel") {
-                    showExerciseNotes = false
+                    showExercisesNotes = false
                 }
                 .foregroundStyle(Color.appAccent)
 
                 Spacer()
 
-                Text("\(selectedExercise?.name ?? "Exercise") Notes")
+                Text("\(selectedExercises?.name ?? "Exercises") Notes")
                     .font(.headline)
                     .foregroundStyle(.white)
 
                 Spacer()
 
                 Button("Save") {
-                    if let ex = selectedExercise {
+                    if let ex = selectedExercises {
                         ex.notes = exerciseNotesInput.isEmpty ? nil : exerciseNotesInput
                         try? modelContext.save()
                     }
-                    showExerciseNotes = false
+                    showExercisesNotes = false
                 }
                 .foregroundStyle(Color.appAccent)
             }
@@ -1034,45 +1054,45 @@ struct CheckInView: View {
             // Header
             HStack {
                 Button("Cancel") {
-                    showExerciseDetails = false
+                    showExercisesDetails = false
                 }
                 .foregroundStyle(Color.appAccent)
 
                 Spacer()
 
-                Text("Exercise Details")
+                Text("Exercises Details")
                     .font(.headline)
                     .foregroundStyle(.white)
 
                 Spacer()
 
                 Button("Save") {
-                    saveExerciseDetails()
+                    saveExercisesDetails()
                 }
                 .foregroundStyle(Color.appAccent)
-                .disabled(editingExerciseName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .opacity(editingExerciseName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1.0)
+                .disabled(editingExercisesName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .opacity(editingExercisesName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1.0)
             }
             .padding(.horizontal, 20)
             .padding(.top, 20)
 
             VStack(spacing: 16) {
-                // Exercise Name Field
+                // Exercises Name Field
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Exercise Name")
+                    Text("Exercises Name")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.7))
 
-                    TextField("Exercise name", text: $editingExerciseName)
+                    TextField("Exercises name", text: $editingExercisesName)
                         .textInputAutocapitalization(.words)
                         .font(.body)
                         .padding(14)
                         .background(Color(white: 0.12))
                         .cornerRadius(10)
                         .foregroundStyle(.white)
-                        .onChange(of: editingExerciseName) { _, newValue in
-                            if newValue.count > maxExerciseNameLength {
-                                editingExerciseName = String(newValue.prefix(maxExerciseNameLength))
+                        .onChange(of: editingExercisesName) { _, newValue in
+                            if newValue.count > maxExercisesNameLength {
+                                editingExercisesName = String(newValue.prefix(maxExercisesNameLength))
                             }
                         }
                 }
@@ -1086,11 +1106,11 @@ struct CheckInView: View {
                     Menu {
                         ForEach(ExerciseLoadType.allCases, id: \.self) { type in
                             Button {
-                                editingExerciseLoadType = type
+                                editingExercisesLoadType = type
                             } label: {
                                 HStack {
                                     Text(type.rawValue)
-                                    if editingExerciseLoadType == type {
+                                    if editingExercisesLoadType == type {
                                         Image(systemName: "checkmark")
                                     }
                                 }
@@ -1098,7 +1118,7 @@ struct CheckInView: View {
                         }
                     } label: {
                         HStack {
-                            Text(editingExerciseLoadType.rawValue)
+                            Text(editingExercisesLoadType.rawValue)
                                 .foregroundStyle(.white)
                             Spacer()
                             Image(systemName: "chevron.up.chevron.down")
@@ -1112,13 +1132,13 @@ struct CheckInView: View {
                 }
 
                 // Delete button for custom exercises
-                if selectedExercise?.isCustom == true {
+                if selectedExercises?.isCustom == true {
                     Button {
-                        deleteExercise()
+                        deleteExercises()
                     } label: {
                         HStack {
                             Image(systemName: "trash")
-                            Text("Delete Exercise")
+                            Text("Delete Exercises")
                         }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.red)
@@ -1143,14 +1163,14 @@ struct CheckInView: View {
         )
     }
 
-    private var styledExerciseSelector: some View {
+    private var styledExercisesSelector: some View {
         Button {
-            showExerciseSelection = true
+            showExercisesSelection = true
         } label: {
             VStack(spacing: 4) {
                 HStack {
                     Spacer()
-                    Text(selectedExercise?.name ?? "Select Exercise")
+                    Text(selectedExercises?.name ?? "Select Exercises")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.white)
                     Spacer()
@@ -1187,10 +1207,10 @@ struct CheckInView: View {
         .buttonStyle(.plain)
         .overlay(alignment: .leading) {
             // Notes icon in left area
-            if selectedExercise != nil {
+            if selectedExercises != nil {
                 Button {
-                    exerciseNotesInput = selectedExercise?.notes ?? ""
-                    showExerciseNotes = true
+                    exerciseNotesInput = selectedExercises?.notes ?? ""
+                    showExercisesNotes = true
                 } label: {
                     HStack {
                         Image(systemName: "doc.plaintext")
@@ -1483,7 +1503,7 @@ struct CheckInView: View {
     }
 
     private var todaysSets: [LiftSet] {
-        guard let ex = selectedExercise else { return [] }
+        guard let ex = selectedExercises else { return [] }
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         return allSets.filter { set in
@@ -1493,7 +1513,7 @@ struct CheckInView: View {
     }
 
     private var lastDayDate: Date? {
-        guard let ex = selectedExercise else { return nil }
+        guard let ex = selectedExercises else { return nil }
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
 
@@ -1505,7 +1525,7 @@ struct CheckInView: View {
     }
 
     private var lastDaySets: [LiftSet] {
-        guard let ex = selectedExercise else { return [] }
+        guard let ex = selectedExercises else { return [] }
         guard let lastDay = lastDayDate else { return [] }
         let calendar = Calendar.current
 
@@ -1537,9 +1557,14 @@ struct CheckInView: View {
                 VStack(alignment: .leading, spacing: 10) {
                 // Today's Sets (now on top)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Today")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.7))
+                    HStack(spacing: 4) {
+                        Text("Today:")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.7))
+                        Text(formatShortDate(Date()))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
 
                     if todaysSets.isEmpty {
                         // Empty state when there's no today's sets but history exists
@@ -1584,8 +1609,10 @@ struct CheckInView: View {
                                     }
                                 }
                             }
+                            .padding(.vertical, 2)
+                            .padding(.horizontal, 2)
                         }
-                        .frame(height: 42)
+                        .frame(height: 46)
                     }
                 }
 
@@ -1634,8 +1661,10 @@ struct CheckInView: View {
                                     }
                                 }
                             }
+                            .padding(.vertical, 2)
+                            .padding(.horizontal, 2)
                         }
-                        .frame(height: 42)
+                        .frame(height: 46)
                     }
                 }
 
@@ -1671,7 +1700,7 @@ struct CheckInView: View {
                         selectedGraphTab = 0
                         hapticFeedback.impactOccurred()
                     } label: {
-                        Text("Set Intensity")
+                        Text("Sets")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(selectedGraphTab == 0 ? .black : .white.opacity(0.5))
                             .frame(maxWidth: .infinity)
@@ -1745,21 +1774,16 @@ struct CheckInView: View {
         VStack(alignment: .leading, spacing: 12) {
             // Header with weight delta controls
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Progress Options")
+                HStack(spacing: 3) {
+                    Text("Options to")
                         .font(.headline)
                         .foregroundStyle(.white)
-                    HStack(spacing: 3) {
-                        Text("Sets to")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.6))
-                        Image(systemName: "arrow.up")
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.6))
-                        Text("1RM")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.6))
-                    }
+                    Image(systemName: "arrow.up")
+                        .font(.caption)
+                        .foregroundStyle(.white)
+                    Text("Est. 1RM")
+                        .font(.headline)
+                        .foregroundStyle(.white)
                 }
 
                 Spacer()
@@ -1779,7 +1803,7 @@ struct CheckInView: View {
                     }
                     .disabled(weightDelta <= minWeightDelta)
 
-                    VStack(spacing: 2) {
+                    VStack(spacing: 0) {
                         Text(weightDelta.formatted(.number.precision(.fractionLength(1))))
                             .font(.subheadline.weight(.bold))
                             .foregroundStyle(.white)
@@ -1787,7 +1811,7 @@ struct CheckInView: View {
                             .font(.caption2.weight(.bold))
                             .foregroundStyle(Color.appLabel)
                     }
-                    .frame(width: 50)
+                    .frame(width: 55)
 
                     Button {
                         // Find next delta in availableWeightDeltas
@@ -1809,42 +1833,166 @@ struct CheckInView: View {
                 // No data state
                 ProgressOptionsEmptyState()
                     .frame(maxWidth: .infinity)
-                    .frame(height: 118)
+                    .frame(height: 135)
             } else {
-                ZStack(alignment: .bottom) {
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 12) {
-                            ForEach(Array(topThreeSuggestions.enumerated()), id: \.element.id) { index, suggestion in
-                                ProgressOptionCard(
-                                    suggestion: suggestion,
-                                    isSelected: isOptionSelected(suggestion)
-                                )
-                                .onTapGesture {
-                                    hapticFeedback.impactOccurred()
-                                    selectOption(suggestion)
+                VStack(spacing: 8) {
+                    // Fixed header row with labels
+                    HStack(spacing: 12) {
+                        Button {
+                            handleColumnTap(.weight)
+                        } label: {
+                            VStack(spacing: 0) {
+                                Text("WEIGHT")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(columnHighlighted && sortColumn == .weight ? Color.appAccent : Color.appLabel)
+                                    .animation(.easeInOut(duration: 0.15), value: columnHighlighted)
+                                if sortColumn == .weight {
+                                    Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(Color.appLabel)
+                                } else {
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(Color.clear)
+                                }
+                            }
+                            .frame(width: 65, height: 24)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        Spacer()
+                            .frame(width: 1)
+
+                        Button {
+                            handleColumnTap(.reps)
+                        } label: {
+                            VStack(spacing: 0) {
+                                Text("REPS")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(columnHighlighted && sortColumn == .reps ? Color.appAccent : Color.appLabel)
+                                    .animation(.easeInOut(duration: 0.15), value: columnHighlighted)
+                                if sortColumn == .reps {
+                                    Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(Color.appLabel)
+                                } else {
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(Color.clear)
+                                }
+                            }
+                            .frame(width: 50, height: 24)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        Spacer()
+                            .frame(width: 1)
+
+                        Button {
+                            handleColumnTap(.est1RM)
+                        } label: {
+                            VStack(spacing: 0) {
+                                Text("EST. 1RM")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(columnHighlighted && (sortColumn == .est1RM || sortColumn == .gain) ? Color.appAccent : Color.appLabel)
+                                    .animation(.easeInOut(duration: 0.15), value: columnHighlighted)
+                                if sortColumn == .est1RM || sortColumn == .gain {
+                                    Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(Color.appLabel)
+                                } else {
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(Color.clear)
+                                }
+                            }
+                            .frame(width: 60, height: 24)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        Spacer()
+                            .frame(width: 1)
+
+                        Button {
+                            handleColumnTap(.gain)
+                        } label: {
+                            VStack(spacing: 0) {
+                                Text("GAIN")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(columnHighlighted && (sortColumn == .gain || sortColumn == .est1RM) ? Color.appAccent : Color.appLabel)
+                                    .animation(.easeInOut(duration: 0.15), value: columnHighlighted)
+                                if sortColumn == .gain || sortColumn == .est1RM {
+                                    Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(Color.appLabel)
+                                } else {
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(Color.clear)
+                                }
+                            }
+                            .frame(width: 65, height: 24)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 12)
+
+                    ZStack(alignment: .bottom) {
+                        ScrollViewReader { proxy in
+                            ScrollView(.vertical, showsIndicators: false) {
+                                VStack(spacing: 8) {
+                                    ForEach(Array(topThreeSuggestions.enumerated()), id: \.element.id) { index, suggestion in
+                                        ProgressOptionCard(
+                                            suggestion: suggestion,
+                                            isSelected: isOptionSelected(suggestion),
+                                            sortColumn: sortColumn,
+                                            columnHighlighted: columnHighlighted
+                                        )
+                                        .onTapGesture {
+                                            hapticFeedback.impactOccurred()
+                                            selectOption(suggestion)
+                                        }
+                                        .id(index == 0 ? "top" : nil)
+                                    }
+                                }
+                                .padding(.bottom, 8)
+                            }
+                            .frame(height: 112)
+                            .onChange(of: sortColumn) { _, _ in
+                                withAnimation {
+                                    proxy.scrollTo("top", anchor: .top)
+                                }
+                            }
+                            .onChange(of: sortAscending) { _, _ in
+                                withAnimation {
+                                    proxy.scrollTo("top", anchor: .top)
                                 }
                             }
                         }
-                        .padding(.bottom, 8)
-                    }
-                    .frame(height: 118)
 
-                    // Gradient fade indicator for scrollable content
-                    LinearGradient(
-                        colors: [
-                            Color(white: 0.14).opacity(0),
-                            Color(white: 0.14).opacity(0.8),
-                            Color(white: 0.14)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: 40)
-                    .allowsHitTesting(false)
+                        // Gradient fade indicator for scrollable content
+                        LinearGradient(
+                            colors: [
+                                Color(white: 0.14).opacity(0),
+                                Color(white: 0.14).opacity(0.8),
+                                Color(white: 0.14)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(height: 8)
+                        .allowsHitTesting(false)
+                    }
                 }
             }
         }
-        .padding(16)
+        .padding(.top, 16)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 0)
         .background(
             LinearGradient(
                 colors: [Color(white: 0.18), Color(white: 0.14)],
@@ -1867,7 +2015,7 @@ struct CheckInView: View {
                 HStack(spacing: 8) {
                     Button {
                         if !hasSetInitialValues {
-                            weight = selectedExercise?.exerciseLoadType == .barbell ? 45.0 : 0.0
+                            weight = selectedExercises?.exerciseLoadType == .barbell ? 45.0 : 0.0
                         } else {
                             weight = max(0, weight - smallestPlateIncrement)
                         }
@@ -1883,7 +2031,7 @@ struct CheckInView: View {
                         showWeightPicker = true
                     } label: {
                         VStack(spacing: 1) {
-                            if selectedExercise?.exerciseLoadType == .bodyweightPlusSingleLoad {
+                            if selectedExercises?.exerciseLoadType == .bodyweightPlusSingleLoad {
                                 Text("Bodyweight +")
                                     .font(.system(size: 8))
                                     .foregroundStyle(.white.opacity(0.5))
@@ -1903,7 +2051,7 @@ struct CheckInView: View {
 
                     Button {
                         if !hasSetInitialValues {
-                            weight = selectedExercise?.exerciseLoadType == .barbell ? 45.0 : 0.0
+                            weight = selectedExercises?.exerciseLoadType == .barbell ? 45.0 : 0.0
                         } else {
                             weight = min(1000, weight + smallestPlateIncrement)
                         }
@@ -1985,7 +2133,7 @@ struct CheckInView: View {
                     }
                 } else {
                     // Check if bodyweight is needed
-                    if selectedExercise?.exerciseLoadType == .bodyweightPlusSingleLoad && settings.userBodyweight == nil {
+                    if selectedExercises?.exerciseLoadType == .bodyweightPlusSingleLoad && userProperties.bodyweight == nil {
                         showBodyweightCapture = true
                     } else {
                         showLogConfirmation = true
@@ -2019,7 +2167,7 @@ struct CheckInView: View {
         .overlay(
             RoundedRectangle(cornerRadius: 16)
                 .stroke(Color.appAccent, lineWidth: logSetHighlighted ? 3 : 0)
-                .animation(.easeInOut(duration: 0.15).repeatCount(1, autoreverses: true), value: logSetHighlighted)
+                .animation(.easeInOut(duration: 0.5).repeatCount(1, autoreverses: true), value: logSetHighlighted)
         )
         .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
     }
@@ -2047,6 +2195,7 @@ struct CheckInView: View {
                                 .font(.subheadline)
                             Text("+\(delta.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
                                 .font(.headline.weight(.bold))
+                                .foregroundStyle(Color.appAccent)
                         }
                     } else {
                         Text("Set Logged")
@@ -2145,19 +2294,19 @@ struct CheckInView: View {
         let reps: Int
         let weight: Double
         let userBodyweight: Double?
-        let isBodyweightExercise: Bool
+        let isBodyweightExercises: Bool
         let onConfirm: () -> Void
         let onCancel: () -> Void
 
         private var displayWeight: Double {
-            if isBodyweightExercise, let bw = userBodyweight {
+            if isBodyweightExercises, let bw = userBodyweight {
                 return bw + weight
             }
             return weight
         }
 
         private var weightText: String {
-            if isBodyweightExercise, let bw = userBodyweight {
+            if isBodyweightExercises, let bw = userBodyweight {
                 return "\(bw.rounded1().formatted(.number.precision(.fractionLength(2)))) (BW) + \(weight.rounded1().formatted(.number.precision(.fractionLength(2)))) = \(displayWeight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs"
             }
             return "\(weight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs"
@@ -2236,17 +2385,17 @@ struct CheckInView: View {
         }
     }
 
-    private func addExercise() {
-        let trimmed = newExerciseName.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func addExercises() {
+        let trimmed = newExercisesName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        let ex = Exercise(name: trimmed, isCustom: true, loadType: newExerciseLoadType)
+        let ex = Exercises(name: trimmed, isCustom: true, loadType: newExercisesLoadType)
         modelContext.insert(ex)
-        selectedExerciseId = ex.id
+        selectedExercisesId = ex.id
 
-        newExerciseName = ""
-        newExerciseLoadType = .barbell
-        showingAddExercise = false
+        newExercisesName = ""
+        newExercisesLoadType = .barbell
+        showingAddExercises = false
     }
 
     private func resetToDefaults() {
@@ -2261,7 +2410,7 @@ struct CheckInView: View {
 
     private func populateFromSelectedSet() {
         if let exerciseId = selectedSetData.exerciseId {
-            selectedExerciseId = exerciseId
+            selectedExercisesId = exerciseId
         }
         if let repsValue = selectedSetData.reps {
             reps = repsValue
@@ -2282,9 +2431,33 @@ struct CheckInView: View {
     private func highlightLogSet() {
         logSetHighlighted = true
         Task {
-            try? await Task.sleep(nanoseconds: 300_000_000)
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
             await MainActor.run {
                 logSetHighlighted = false
+            }
+        }
+    }
+
+    private func handleColumnTap(_ column: SortColumn) {
+        hapticFeedback.impactOccurred()
+
+        // If tapping the same column (or correlated columns), toggle direction
+        if (sortColumn == column) ||
+           (sortColumn == .est1RM && column == .gain) ||
+           (sortColumn == .gain && column == .est1RM) {
+            sortAscending.toggle()
+        } else {
+            // New column, start with ascending (up arrow)
+            sortColumn = column
+            sortAscending = true
+        }
+
+        // Trigger blink animation
+        columnHighlighted = true
+        Task {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            await MainActor.run {
+                columnHighlighted = false
             }
         }
     }
@@ -2311,24 +2484,25 @@ struct CheckInView: View {
     }
 
     private func logSet() {
-        guard let ex = selectedExercise else { return }
+        guard let ex = selectedExercises else { return }
 
         let before = current1RM
 
         // Store the added weight (not total) for all exercises
         // For bodyweight exercises, we'll add bodyweight when calculating 1RM
         let actualWeight = weight == 0.0 ? 1.0 : weight
-        let set = LiftSet(exercise: ex, reps: reps, weight: actualWeight, rir: 0)
+        let set = LiftSet(exercise: ex, reps: reps, weight: actualWeight)
         modelContext.insert(set)
 
         let simulatedSets = setsForSelected + [set]
         // For bodyweight exercises, add bodyweight before calculating 1RM
         let adjustedSets: [LiftSet]
-        if ex.exerciseLoadType == .bodyweightPlusSingleLoad, let bw = settings.userBodyweight {
+        if ex.exerciseLoadType == .bodyweightPlusSingleLoad, let bw = userProperties.bodyweight {
             adjustedSets = simulatedSets.compactMap { s in
                 guard let exercise = s.exercise else { return nil }
-                let adjusted = LiftSet(exercise: exercise, reps: s.reps, weight: s.weight + bw, rir: s.rir)
+                let adjusted = LiftSet(exercise: exercise, reps: s.reps, weight: s.weight + bw)
                 adjusted.createdAt = s.createdAt
+                adjusted.createdTimezone = s.createdTimezone
                 return adjusted
             }
         } else {
@@ -2363,20 +2537,20 @@ struct CheckInView: View {
         }
     }
 
-    private func saveExerciseDetails() {
-        guard let ex = selectedExercise else { return }
+    private func saveExercisesDetails() {
+        guard let ex = selectedExercises else { return }
 
-        let trimmed = editingExerciseName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = editingExercisesName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
         ex.name = trimmed
-        ex.exerciseLoadType = editingExerciseLoadType
+        ex.exerciseLoadType = editingExercisesLoadType
 
-        showExerciseDetails = false
+        showExercisesDetails = false
     }
 
-    private func deleteExercise() {
-        guard let ex = selectedExercise, ex.isCustom else { return }
+    private func deleteExercises() {
+        guard let ex = selectedExercises, ex.isCustom else { return }
 
         // Delete associated sets
         let setsToDelete = allSets.filter { $0.exercise?.id == ex.id }
@@ -2394,9 +2568,9 @@ struct CheckInView: View {
         modelContext.delete(ex)
 
         // Select a different exercise
-        selectedExerciseId = exercises.first(where: { $0.id != ex.id })?.id
+        selectedExercisesId = exercises.first(where: { $0.id != ex.id })?.id
 
-        showExerciseDetails = false
+        showExercisesDetails = false
     }
 
     private func seedIfNeeded() {
@@ -2412,20 +2586,24 @@ struct CheckInView: View {
             ("Dips", .bodyweightPlusSingleLoad)
         ]
         for (name, loadType) in defaults {
-            modelContext.insert(Exercise(name: name, isCustom: false, loadType: loadType))
+            let exercise = Exercises(name: name, isCustom: false, loadType: loadType)
+            modelContext.insert(exercise)
         }
 
-        if settingsItems.isEmpty {
-            modelContext.insert(AppSettings())
+        // Seed default plate weights
+        if userProperties.plateWeights.isEmpty {
+            userProperties.plateWeights = UserProperties.defaultPlateWeights
         }
+
+        try? modelContext.save()
     }
 }
 
-struct ExerciseSelectionView: View {
-    let exercises: [Exercise]
-    @Binding var selectedExerciseId: UUID?
-    let onAddExercise: () -> Void
-    let onEditExercise: (Exercise) -> Void
+struct ExercisesSelectionView: View {
+    let exercises: [Exercises]
+    @Binding var selectedExercisesId: UUID?
+    let onAddExercises: () -> Void
+    let onEditExercises: (Exercises) -> Void
     @Environment(\.dismiss) private var dismiss
 
     private let columns = [
@@ -2439,16 +2617,16 @@ struct ExerciseSelectionView: View {
 
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 12) {
-                    // Add Exercise Button (first item)
+                    // Add Exercises Button (first item)
                     Button {
-                        onAddExercise()
+                        onAddExercises()
                     } label: {
                         VStack(spacing: 12) {
                             Image(systemName: "plus.circle.fill")
                                 .font(.system(size: 36))
                                 .foregroundStyle(Color.appAccent)
 
-                            Text("Add Exercise")
+                            Text("Add Exercises")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.white)
                         }
@@ -2472,15 +2650,15 @@ struct ExerciseSelectionView: View {
                     .buttonStyle(.plain)
 
                     ForEach(exercises) { exercise in
-                        ExerciseCardButton(
+                        ExercisesCardButton(
                             exercise: exercise,
-                            isSelected: selectedExerciseId == exercise.id,
+                            isSelected: selectedExercisesId == exercise.id,
                             onSelect: {
-                                selectedExerciseId = exercise.id
+                                selectedExercisesId = exercise.id
                                 dismiss()
                             },
                             onEdit: {
-                                onEditExercise(exercise)
+                                onEditExercises(exercise)
                             }
                         )
                     }
@@ -2491,8 +2669,8 @@ struct ExerciseSelectionView: View {
     }
 }
 
-struct ExerciseCardButton: View {
-    let exercise: Exercise
+struct ExercisesCardButton: View {
+    let exercise: Exercises
     let isSelected: Bool
     let onSelect: () -> Void
     let onEdit: () -> Void
@@ -2547,7 +2725,7 @@ struct ExerciseCardButton: View {
         .buttonStyle(.plain)
     }
 
-    private func exerciseIcon(for exercise: Exercise) -> String {
+    private func exerciseIcon(for exercise: Exercises) -> String {
         // Map exercise names to SF Symbols icons
         switch exercise.name.lowercased() {
         case let name where name.contains("bench"):

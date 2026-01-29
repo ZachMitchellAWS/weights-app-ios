@@ -10,74 +10,56 @@ import SwiftUI
 struct ProgressOptionCard: View {
     let suggestion: OneRMCalculator.Suggestion
     let isSelected: Bool
+    let sortColumn: CheckInView.SortColumn
+    let columnHighlighted: Bool
 
     var body: some View {
         HStack(spacing: 12) {
             // Weight
-            VStack(spacing: 2) {
-                Text("WEIGHT")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(Color.appLabel)
-                Text(formatWeight(suggestion.weight.rounded1()))
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
-            .frame(width: 65)
+            Text(formatWeight(suggestion.weight.rounded1()))
+                .font(.body.weight(.semibold))
+                .foregroundStyle(columnHighlighted && sortColumn == .weight ? Color.appAccent : .white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(width: 65)
 
             Divider()
                 .background(.white.opacity(0.2))
-                .frame(height: 36)
+                .frame(height: 24)
 
             // Reps
-            VStack(spacing: 2) {
-                Text("REPS")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(Color.appLabel)
-                Text("\(suggestion.reps)")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 50)
+            Text("\(suggestion.reps)")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(columnHighlighted && sortColumn == .reps ? Color.appAccent : .white)
+                .frame(width: 50)
 
             Divider()
                 .background(.white.opacity(0.2))
-                .frame(height: 36)
+                .frame(height: 24)
 
             // Projected 1RM
-            VStack(spacing: 2) {
-                Text("EST. 1RM")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(Color.appLabel)
-                Text(formatWeight(suggestion.projected1RM.rounded1()))
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
-            .frame(width: 60)
+            Text(formatWeight(suggestion.projected1RM.rounded1()))
+                .font(.body.weight(.semibold))
+                .foregroundStyle(columnHighlighted && (sortColumn == .est1RM || sortColumn == .gain) ? Color.appAccent : .white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(width: 60)
 
             Divider()
                 .background(.white.opacity(0.2))
-                .frame(height: 36)
+                .frame(height: 24)
 
             // Gain
             let delta = suggestion.delta
-            VStack(spacing: 2) {
-                Text("GAIN")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(Color.appLabel)
-                Text("\(delta >= 0 ? "+" : "")\(delta.formatted(.number.precision(.fractionLength(2))))")
-                    .font(.title3.weight(.bold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .foregroundStyle(delta > 0 ? .green : .white.opacity(0.7))
-            }
-            .frame(width: 65)
+            Text("\(delta >= 0 ? "+" : "")\(delta.formatted(.number.precision(.fractionLength(2))))")
+                .font(.body.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .foregroundStyle(columnHighlighted && (sortColumn == .est1RM || sortColumn == .gain) ? Color.appAccent : (delta > 0 ? .green : .white.opacity(0.7)))
+                .frame(width: 65)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color(white: 0.12))

@@ -11,14 +11,16 @@ import SwiftData
 @Model
 final class Estimated1RM {
     @Attribute(.unique) var id: UUID
-    var exercise: Exercise?
+    var createdAt: Date
+    var createdTimezone: String
+    var exercise: Exercises?
     var value: Double
-    var timestamp: Date
 
-    init(exercise: Exercise, value: Double) {
+    init(exercise: Exercises, value: Double) {
         self.id = UUID()
         self.exercise = exercise
         self.value = value
-        self.timestamp = Date()
+        self.createdAt = Date()
+        self.createdTimezone = TimeZone.current.identifier
     }
 }

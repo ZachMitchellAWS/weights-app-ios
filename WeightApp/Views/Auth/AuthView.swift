@@ -64,36 +64,53 @@ struct AuthView: View {
                                 .frame(height: 20)
                         }
 
-                        // Tab Selector
-                        HStack(spacing: 0) {
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    authMode = .signUp
-                                }
-                            } label: {
-                                Text("Sign Up")
-                                    .font(.headline)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                    .background(authMode == .signUp ? Color.appAccent : Color.clear)
-                                    .foregroundStyle(authMode == .signUp ? .black : .white.opacity(0.6))
-                            }
+                        // Tab Selector - Segmented Picker Style
+                        ZStack(alignment: .center) {
+                            // Background
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color(white: 0.1))
+                                .frame(height: 48)
 
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    authMode = .login
+                            // Sliding indicator
+                            GeometryReader { geometry in
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(Color.appAccent)
+                                    .frame(width: geometry.size.width / 2 - 6, height: 42)
+                                    .offset(x: authMode == .signUp ? 3 : geometry.size.width / 2 + 3, y: 3)
+                                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: authMode)
+                            }
+                            .frame(height: 48)
+
+                            // Tab buttons
+                            HStack(spacing: 0) {
+                                Button {
+                                    authMode = .signUp
+                                    authViewModel.errorMessage = nil
+                                } label: {
+                                    Text("Sign Up")
+                                        .font(.headline)
+                                        .foregroundStyle(authMode == .signUp ? .black : .white.opacity(0.5))
+                                        .frame(maxWidth: .infinity)
+                                        .contentShape(Rectangle())
                                 }
-                            } label: {
-                                Text("Login")
-                                    .font(.headline)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                    .background(authMode == .login ? Color.appAccent : Color.clear)
-                                    .foregroundStyle(authMode == .login ? .black : .white.opacity(0.6))
+                                .buttonStyle(.plain)
+                                .frame(height: 48)
+
+                                Button {
+                                    authMode = .login
+                                    authViewModel.errorMessage = nil
+                                } label: {
+                                    Text("Login")
+                                        .font(.headline)
+                                        .foregroundStyle(authMode == .login ? .black : .white.opacity(0.5))
+                                        .frame(maxWidth: .infinity)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .frame(height: 48)
                             }
                         }
-                        .background(Color(white: 0.12))
-                        .cornerRadius(10)
+                        .frame(height: 48)
                         .padding(.horizontal, 32)
 
                         // Auth Form
@@ -205,24 +222,6 @@ struct AuthView: View {
                             .opacity((authViewModel.isLoading || !canSubmit) ? 0.6 : 1.0)
                         }
                         .padding(.horizontal, 32)
-
-                        // Bottom Text
-                        VStack(spacing: 8) {
-                            Text(authMode == .signUp ? "Already have an account?" : "Don't have an account?")
-                                .foregroundStyle(.white.opacity(0.7))
-
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    authMode = authMode == .signUp ? .login : .signUp
-                                    authViewModel.errorMessage = nil
-                                }
-                            } label: {
-                                Text(authMode == .signUp ? "Login" : "Sign Up")
-                                    .fontWeight(.semibold)
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-                        .font(.subheadline)
 
                         Spacer(minLength: 40)
                     }

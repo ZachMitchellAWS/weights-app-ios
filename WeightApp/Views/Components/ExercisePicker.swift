@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct ExercisePicker: View {
-    let exercises: [Exercise]
+    let exercises: [Exercises]
     @Binding var selectedExerciseId: UUID?
     let onAddExercise: () -> Void
 

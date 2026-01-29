@@ -58,12 +58,12 @@ struct ErrorResponse: Codable {
 }
 
 struct UserPropertiesRequest: Codable {
-    let placeholderBool: Bool
+    let bodyweight: Double?
 }
 
 struct UserPropertiesResponse: Codable {
     let userId: String
-    let placeholderBool: Bool
+    let bodyweight: Double?
     let createdDatetime: String
     let lastModifiedDatetime: String
 }

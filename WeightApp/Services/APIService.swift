@@ -229,8 +229,8 @@ class APIService {
         )
     }
 
-    func updateUserProperties() async throws -> UserPropertiesResponse {
-        let body = UserPropertiesRequest(placeholderBool: false)
+    func updateUserProperties(bodyweight: Double?) async throws -> UserPropertiesResponse {
+        let body = UserPropertiesRequest(bodyweight: bodyweight)
         return try await request(
             endpoint: "/user/properties",
             method: "POST",
