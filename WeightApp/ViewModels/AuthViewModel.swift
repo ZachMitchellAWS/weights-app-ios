@@ -20,6 +20,8 @@ class AuthViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var userId: String?
+    @Published var isNewUser = false
+    @Published var showPostAuthFlow = false
 
     nonisolated(unsafe) private var tokenRefreshTimer: Timer?
 
@@ -33,12 +35,18 @@ class AuthViewModel: ObservableObject {
         userId = KeychainService.shared.getUserId()
     }
 
+    func completePostAuthFlow() {
+        showPostAuthFlow = false
+    }
+
     func login(email: String, password: String) async -> AuthResult {
         isLoading = true
         errorMessage = nil
 
         do {
             let response = try await APIService.shared.login(email: email, password: password)
+            isNewUser = false
+            showPostAuthFlow = true
             isAuthenticated = true
             userId = response.userId
 
@@ -60,6 +68,8 @@ class AuthViewModel: ObservableObject {
 
         do {
             let response = try await APIService.shared.createUser(email: email, password: password)
+            isNewUser = true
+            showPostAuthFlow = true
             isAuthenticated = true
             userId = response.userId
 

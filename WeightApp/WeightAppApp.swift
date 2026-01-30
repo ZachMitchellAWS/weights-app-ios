@@ -24,11 +24,34 @@ struct WeightAppApp: App {
             ZStack {
                 Group {
                     if authViewModel.isAuthenticated {
-                        ContentView(authViewModel: authViewModel)
+                        if authViewModel.showPostAuthFlow {
+                            // Show onboarding for new users, welcome back for returning users
+                            if authViewModel.isNewUser {
+                                OnboardingView {
+                                    withAnimation(.easeInOut(duration: 0.4)) {
+                                        authViewModel.completePostAuthFlow()
+                                    }
+                                }
+                                .transition(.opacity)
+                            } else {
+                                WelcomeBackView {
+                                    withAnimation(.easeInOut(duration: 0.4)) {
+                                        authViewModel.completePostAuthFlow()
+                                    }
+                                }
+                                .transition(.opacity)
+                            }
+                        } else {
+                            ContentView(authViewModel: authViewModel)
+                                .transition(.opacity)
+                        }
                     } else {
                         AuthView(authViewModel: authViewModel)
+                            .transition(.opacity)
                     }
                 }
+                .animation(.easeInOut(duration: 0.4), value: authViewModel.isAuthenticated)
+                .animation(.easeInOut(duration: 0.4), value: authViewModel.showPostAuthFlow)
                 .preferredColorScheme(.dark)
                 .opacity(showSplash ? 0 : 1)
 

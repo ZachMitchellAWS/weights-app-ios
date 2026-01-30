@@ -135,8 +135,8 @@ struct ForgotPasswordView: View {
     // MARK: - Email Entry Step
 
     private var emailEntryStep: some View {
-        VStack(spacing: 20) {
-            VStack(alignment: .leading, spacing: 8) {
+        VStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text("Email")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.7))
@@ -146,9 +146,9 @@ struct ForgotPasswordView: View {
                     .keyboardType(.emailAddress)
                     .autocapitalization(.none)
                     .font(.body)
-                    .padding(14)
+                    .padding(12)
                     .background(Color(white: 0.12))
-                    .cornerRadius(10)
+                    .cornerRadius(8)
                     .foregroundStyle(.white)
             }
 
@@ -163,13 +163,13 @@ struct ForgotPasswordView: View {
                             .tint(.black)
                     } else {
                         Text("Send Reset Code")
-                            .font(.headline)
+                            .font(.subheadline.weight(.semibold))
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
+                .padding(.vertical, 12)
                 .background(Color.appAccent)
-                .cornerRadius(12)
+                .cornerRadius(10)
                 .foregroundStyle(.black)
             }
             .disabled(isLoading || email.isEmpty)
@@ -180,8 +180,8 @@ struct ForgotPasswordView: View {
     // MARK: - Code Entry Step
 
     private var codeEntryStep: some View {
-        VStack(spacing: 20) {
-            VStack(alignment: .leading, spacing: 8) {
+        VStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text("Reset Code")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.7))
@@ -189,11 +189,11 @@ struct ForgotPasswordView: View {
                 TextField("", text: $code)
                     .textContentType(.oneTimeCode)
                     .keyboardType(.numberPad)
-                    .font(.title2.weight(.medium))
+                    .font(.title3.weight(.medium))
                     .multilineTextAlignment(.center)
-                    .padding(14)
+                    .padding(12)
                     .background(Color(white: 0.12))
-                    .cornerRadius(10)
+                    .cornerRadius(8)
                     .foregroundStyle(.white)
                     .onChange(of: code) { _, newValue in
                         // Limit to 6 digits
@@ -210,11 +210,11 @@ struct ForgotPasswordView: View {
                 errorMessage = nil
             } label: {
                 Text("Verify Code")
-                    .font(.headline)
+                    .font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
+                    .padding(.vertical, 12)
                     .background(Color.appAccent)
-                    .cornerRadius(12)
+                    .cornerRadius(10)
                     .foregroundStyle(.black)
             }
             .disabled(!canSubmitCode)
@@ -236,8 +236,8 @@ struct ForgotPasswordView: View {
     // MARK: - Password Reset Step
 
     private var passwordResetStep: some View {
-        VStack(spacing: 20) {
-            VStack(alignment: .leading, spacing: 8) {
+        VStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text("New Password")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.7))
@@ -260,9 +260,9 @@ struct ForgotPasswordView: View {
                             .foregroundStyle(.white.opacity(0.5))
                     }
                 }
-                .padding(14)
+                .padding(12)
                 .background(Color(white: 0.12))
-                .cornerRadius(10)
+                .cornerRadius(8)
                 .foregroundStyle(.white)
 
                 if !newPassword.isEmpty && newPassword.count < 8 {
@@ -272,7 +272,7 @@ struct ForgotPasswordView: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text("Confirm Password")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.7))
@@ -295,9 +295,9 @@ struct ForgotPasswordView: View {
                             .foregroundStyle(.white.opacity(0.5))
                     }
                 }
-                .padding(14)
+                .padding(12)
                 .background(Color(white: 0.12))
-                .cornerRadius(10)
+                .cornerRadius(8)
                 .foregroundStyle(.white)
 
                 if !confirmPassword.isEmpty && !passwordsMatch {
@@ -318,13 +318,13 @@ struct ForgotPasswordView: View {
                             .tint(.black)
                     } else {
                         Text("Reset Password")
-                            .font(.headline)
+                            .font(.subheadline.weight(.semibold))
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
+                .padding(.vertical, 12)
                 .background(Color.appAccent)
-                .cornerRadius(12)
+                .cornerRadius(10)
                 .foregroundStyle(.black)
             }
             .disabled(isLoading || !canSubmitPassword)

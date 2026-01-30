@@ -18,6 +18,7 @@ struct AuthView: View {
     @State private var toastMessage = ""
     @State private var isKeyboardVisible = false
     @FocusState private var focusedField: Field?
+    private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
 
     enum Field {
         case email
@@ -67,56 +68,58 @@ struct AuthView: View {
                         // Tab Selector - Segmented Picker Style
                         ZStack(alignment: .center) {
                             // Background
-                            RoundedRectangle(cornerRadius: 12)
+                            RoundedRectangle(cornerRadius: 10)
                                 .fill(Color(white: 0.1))
-                                .frame(height: 48)
+                                .frame(height: 40)
 
                             // Sliding indicator
                             GeometryReader { geometry in
-                                RoundedRectangle(cornerRadius: 10)
+                                RoundedRectangle(cornerRadius: 8)
                                     .fill(Color.appAccent)
-                                    .frame(width: geometry.size.width / 2 - 6, height: 42)
+                                    .frame(width: geometry.size.width / 2 - 6, height: 34)
                                     .offset(x: authMode == .signUp ? 3 : geometry.size.width / 2 + 3, y: 3)
                                     .animation(.spring(response: 0.3, dampingFraction: 0.7), value: authMode)
                             }
-                            .frame(height: 48)
+                            .frame(height: 40)
 
                             // Tab buttons
                             HStack(spacing: 0) {
                                 Button {
+                                    hapticFeedback.impactOccurred()
                                     authMode = .signUp
                                     authViewModel.errorMessage = nil
                                 } label: {
                                     Text("Sign Up")
-                                        .font(.headline)
+                                        .font(.subheadline.weight(.semibold))
                                         .foregroundStyle(authMode == .signUp ? .black : .white.opacity(0.5))
                                         .frame(maxWidth: .infinity)
                                         .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
-                                .frame(height: 48)
+                                .frame(height: 40)
 
                                 Button {
+                                    hapticFeedback.impactOccurred()
                                     authMode = .login
                                     authViewModel.errorMessage = nil
                                 } label: {
                                     Text("Login")
-                                        .font(.headline)
+                                        .font(.subheadline.weight(.semibold))
                                         .foregroundStyle(authMode == .login ? .black : .white.opacity(0.5))
                                         .frame(maxWidth: .infinity)
                                         .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
-                                .frame(height: 48)
+                                .frame(height: 40)
                             }
                         }
-                        .frame(height: 48)
+                        .frame(height: 40)
                         .padding(.horizontal, 32)
 
                         // Auth Form
                         VStack(spacing: 20) {
                             // Email Field
-                            VStack(alignment: .leading, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 6) {
                                 Text("Email")
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(.white.opacity(0.7))
@@ -126,9 +129,9 @@ struct AuthView: View {
                                     .keyboardType(.emailAddress)
                                     .autocapitalization(.none)
                                     .font(.body)
-                                    .padding(14)
+                                    .padding(12)
                                     .background(Color(white: 0.12))
-                                    .cornerRadius(10)
+                                    .cornerRadius(8)
                                     .foregroundStyle(.white)
                                     .focused($focusedField, equals: .email)
 
@@ -140,7 +143,7 @@ struct AuthView: View {
                             }
 
                             // Password Field
-                            VStack(alignment: .leading, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 6) {
                                 Text("Password")
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(.white.opacity(0.7))
@@ -164,9 +167,9 @@ struct AuthView: View {
                                             .foregroundStyle(.white.opacity(0.5))
                                     }
                                 }
-                                .padding(14)
+                                .padding(12)
                                 .background(Color(white: 0.12))
-                                .cornerRadius(10)
+                                .cornerRadius(8)
                                 .foregroundStyle(.white)
 
                                 if !password.isEmpty && password.count < 8 && focusedField != .password {
@@ -176,7 +179,7 @@ struct AuthView: View {
                                 }
                             }
 
-                            // Forgot Password (only in login mode)
+                            // Forgot Password (only in login mode) / Spacer for sign up
                             if authMode == .login {
                                 Button {
                                     showForgotPassword = true
@@ -186,6 +189,11 @@ struct AuthView: View {
                                         .foregroundStyle(Color.appAccent)
                                 }
                                 .frame(maxWidth: .infinity)
+                            } else {
+                                // Invisible spacer to match login layout
+                                Text(" ")
+                                    .font(.subheadline)
+                                    .frame(maxWidth: .infinity)
                             }
 
                             // Error Message
@@ -199,6 +207,7 @@ struct AuthView: View {
 
                             // Submit Button
                             Button {
+                                hapticFeedback.impactOccurred()
                                 Task {
                                     await handleSubmit()
                                 }
@@ -209,13 +218,13 @@ struct AuthView: View {
                                             .tint(.black)
                                     } else {
                                         Text(authMode == .signUp ? "Sign Up" : "Login")
-                                            .font(.headline)
+                                            .font(.subheadline.weight(.semibold))
                                     }
                                 }
                                 .frame(maxWidth: .infinity)
-                                .padding(.vertical, 16)
+                                .padding(.vertical, 12)
                                 .background(Color.appAccent)
-                                .cornerRadius(12)
+                                .cornerRadius(10)
                                 .foregroundStyle(.black)
                             }
                             .disabled(authViewModel.isLoading || !canSubmit)
@@ -268,6 +277,9 @@ struct AuthView: View {
     }
 
     private func handleSubmit() async {
+        // Dismiss keyboard before auth transition
+        focusedField = nil
+
         if authMode == .signUp {
             let result = await authViewModel.createUser(email: email, password: password)
             if result == .userAlreadyExists {
@@ -293,7 +305,7 @@ struct AuthView: View {
                 }
             }
         } else {
-            await authViewModel.login(email: email, password: password)
+            _ = await authViewModel.login(email: email, password: password)
         }
-    }
+    } 
 }

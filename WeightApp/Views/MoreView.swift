@@ -23,6 +23,7 @@ struct MoreView: View {
     @State private var showPlateSelection = false
 
     @State private var showDataPopulatedAlert = false
+    @State private var showTodayDataPopulatedAlert = false
     @State private var showUserPropertiesAlert = false
     @State private var showDeleteConfirmation = false
     @State private var showDataDeletedAlert = false
@@ -258,6 +259,20 @@ struct MoreView: View {
                         }
 
                         Button {
+                            populateTodayData()
+                            showTodayDataPopulatedAlert = true
+                        } label: {
+                            HStack {
+                                Text("Populate Today Data")
+                                    .foregroundStyle(.primary)
+                                    .padding(.leading, 32)
+                                Spacer()
+                                Image(systemName: "calendar.badge.plus")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        Button {
                             Task {
                                 await updateUserProperties()
                             }
@@ -277,6 +292,34 @@ struct MoreView: View {
                         }
                         .disabled(isUpdatingProperties)
 
+                        Button {
+                            authViewModel.isNewUser = true
+                            authViewModel.showPostAuthFlow = true
+                        } label: {
+                            HStack {
+                                Text("Replay Onboarding")
+                                    .foregroundStyle(.primary)
+                                    .padding(.leading, 32)
+                                Spacer()
+                                Image(systemName: "arrow.counterclockwise")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        Button {
+                            authViewModel.isNewUser = false
+                            authViewModel.showPostAuthFlow = true
+                        } label: {
+                            HStack {
+                                Text("Replay Welcome Back")
+                                    .foregroundStyle(.primary)
+                                    .padding(.leading, 32)
+                                Spacer()
+                                Image(systemName: "hand.wave")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
                         Button(role: .destructive) {
                             showDeleteConfirmation = true
                         } label: {
@@ -292,7 +335,7 @@ struct MoreView: View {
                     }
                 } footer: {
                     if showDeveloper {
-                        Text("Generates realistic training data for the past 7 days. Update user properties sends a test API call. Delete all workout data removes all LiftSet and Estimated1RM entries.")
+                        Text("Generates realistic training data for the past 7 days. Update user properties sends a test API call. Replay onboarding/welcome back shows the post-auth flows. Delete all workout data removes all LiftSet and Estimated1RM entries.")
                     }
                 }
             }
@@ -307,6 +350,11 @@ struct MoreView: View {
                 Button("OK") { }
             } message: {
                 Text("Successfully generated 7 days of training data.")
+            }
+            .alert("Today's Data Populated", isPresented: $showTodayDataPopulatedAlert) {
+                Button("OK") { }
+            } message: {
+                Text("Successfully generated today's training data for all exercises.")
             }
             .alert("User Properties", isPresented: $showUserPropertiesAlert) {
                 Button("OK") { }
@@ -500,24 +548,11 @@ struct MoreView: View {
 
                 let currentMax = exerciseMaxes[exerciseName]!
 
-                // Pattern: 2 Easy, 2 Varied (Moderate/Hard/Redline), 1 PR
-                let numSets = 5
+                // Pattern: 2 Easy, 2 Moderate, 2 Hard, 1 Redline, 1 PR
+                let numSets = 8
 
                 // Intensity percentages for each set (percentage of current 1RM)
-                // Easy (55%, 60%), then varied intensities, then PR (103%)
-                let intensities: [Double]
-                let dayPattern = daysAgo % 3
-                switch dayPattern {
-                case 0:
-                    // Easy, Easy, Moderate, Moderate, PR
-                    intensities = [0.55, 0.60, 0.68, 0.72, 1.03]
-                case 1:
-                    // Easy, Easy, Hard, Hard, PR
-                    intensities = [0.55, 0.60, 0.78, 0.82, 1.03]
-                default:
-                    // Easy, Easy, Redline, Redline, PR
-                    intensities = [0.55, 0.60, 0.88, 0.92, 1.03]
-                }
+                let intensities: [Double] = [0.52, 0.58, 0.65, 0.70, 0.76, 0.82, 0.90, 1.03]
 
                 for setNum in 0..<numSets {
                     let intensity = intensities[setNum]
@@ -526,10 +561,11 @@ struct MoreView: View {
                     // Choose reps: higher reps for easier sets, lower for harder
                     let reps: Int
                     switch setNum {
-                    case 0, 1: reps = 8  // Easy sets
-                    case 2: reps = 6     // First varied set
-                    case 3: reps = 5     // Second varied set
-                    case 4: reps = 3     // PR set
+                    case 0, 1: reps = 10 // Easy warmup sets
+                    case 2, 3: reps = 8  // Moderate sets
+                    case 4, 5: reps = 6  // Hard sets
+                    case 6: reps = 4     // Redline set
+                    case 7: reps = 2     // PR set
                     default: reps = 6
                     }
 
@@ -546,8 +582,8 @@ struct MoreView: View {
                     set.createdTimezone = TimeZone.current.identifier
                     modelContext.insert(set)
 
-                    // Update max if this is a PR
-                    if setNum == numSets - 1 {
+                    // Update max if this is a PR (last set)
+                    if setNum == 7 {
                         exerciseMaxes[exerciseName] = target1RM
                     }
 
@@ -558,6 +594,85 @@ struct MoreView: View {
                 // Rest between exercises (5-8 minutes)
                 currentTime = calendar.date(byAdding: .minute, value: Int.random(in: 5...8), to: currentTime) ?? currentTime
             }
+        }
+
+        try? modelContext.save()
+    }
+
+    private func populateTodayData() {
+        // Simulated user bodyweight for bodyweight exercises
+        let simulatedBodyweight: Double = userProperties.bodyweight ?? 180.0
+
+        let calendar = Calendar.current
+        let now = Date()
+
+        // Ensure we have exercises
+        if exercises.isEmpty {
+            return
+        }
+
+        // Helper function to round weight to nearest attainable increment (2.5 lbs)
+        func roundToAttainable(_ weight: Double) -> Double {
+            return (weight / 2.5).rounded() * 2.5
+        }
+
+        // Starting 1RM estimates for each exercise
+        func getBase1RM(for exerciseName: String) -> Double {
+            switch exerciseName {
+            case "Deadlift": return 275.0
+            case "Squat": return 245.0
+            case "Bench Press": return 195.0
+            case "Barbell Row": return 175.0
+            case "Overhead Press": return 125.0
+            case "Pull Ups": return simulatedBodyweight + 45.0
+            case "Dips": return simulatedBodyweight + 55.0
+            default: return 135.0
+            }
+        }
+
+        // Start workout at a reasonable time today
+        var currentTime = calendar.date(bySettingHour: 10, minute: 0, second: 0, of: now) ?? now
+
+        for exercise in exercises {
+            let currentMax = getBase1RM(for: exercise.name)
+
+            // Pattern: 2 Easy, 2 Moderate, 2 Hard, 1 Redline, 1 PR
+            let intensities: [Double] = [0.52, 0.58, 0.65, 0.70, 0.76, 0.82, 0.90, 1.02]
+
+            for setNum in 0..<intensities.count {
+                let intensity = intensities[setNum]
+                let target1RM = currentMax * intensity
+
+                // Choose reps: higher reps for easier sets, lower for harder
+                let reps: Int
+                switch setNum {
+                case 0, 1: reps = 10 // Easy warmup sets
+                case 2, 3: reps = 8  // Moderate sets
+                case 4, 5: reps = 6  // Hard sets
+                case 6: reps = 4     // Redline set
+                case 7: reps = 2     // PR set
+                default: reps = 6
+                }
+
+                // Calculate weight needed to hit target 1RM with these reps
+                // Using Brzycki formula: 1RM = weight * (36 / (37 - reps))
+                let calculatedWeight = roundToAttainable(target1RM * (37.0 - Double(reps)) / 36.0)
+
+                // For bodyweight exercises, subtract bodyweight to get added weight only
+                let isBodyweightExercise = exercise.exerciseLoadType == .bodyweightPlusSingleLoad
+                let weightToStore = isBodyweightExercise ? max(0, calculatedWeight - simulatedBodyweight) : calculatedWeight
+
+                let set = LiftSet(exercise: exercise, reps: reps, weight: weightToStore)
+                set.createdAt = currentTime
+                set.createdTimezone = TimeZone.current.identifier
+                modelContext.insert(set)
+
+                // Add some time between sets (2-4 minutes)
+                currentTime = calendar.date(byAdding: .minute, value: Int.random(in: 2...4), to: currentTime) ?? currentTime
+            }
+
+            // Rest between exercises (5-8 minutes)
+            currentTime = calendar.date(byAdding: .minute, value: Int.random(in: 5...8), to: currentTime) ?? currentTime
         }
 
         try? modelContext.save()
