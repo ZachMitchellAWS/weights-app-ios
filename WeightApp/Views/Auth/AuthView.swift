@@ -17,6 +17,7 @@ struct AuthView: View {
     @State private var showToast = false
     @State private var toastMessage = ""
     @State private var isKeyboardVisible = false
+    @State private var isSubmitting = false
     @FocusState private var focusedField: Field?
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
 
@@ -46,8 +47,8 @@ struct AuthView: View {
 
                 ScrollView {
                     VStack(spacing: 32) {
-                        // Logo/Title (hidden when keyboard is visible)
-                        if !isKeyboardVisible {
+                        // Logo/Title (hidden when keyboard is visible or submitting)
+                        if !isKeyboardVisible && !isSubmitting {
                             VStack(spacing: 12) {
                                 Image(systemName: "dumbbell.fill")
                                     .font(.system(size: 60))
@@ -60,7 +61,7 @@ struct AuthView: View {
                             .padding(.top, 60)
                             .transition(.opacity.combined(with: .move(edge: .top)))
                         } else {
-                            // Add minimal top padding when keyboard is visible
+                            // Add minimal top padding when keyboard is visible or submitting
                             Spacer()
                                 .frame(height: 20)
                         }
@@ -277,11 +278,16 @@ struct AuthView: View {
     }
 
     private func handleSubmit() async {
-        // Dismiss keyboard before auth transition
+        // Freeze layout and dismiss keyboard before auth transition
+        isSubmitting = true
         focusedField = nil
 
         if authMode == .signUp {
             let result = await authViewModel.createUser(email: email, password: password)
+            if result != .success {
+                // Reset layout freeze on failure
+                isSubmitting = false
+            }
             if result == .userAlreadyExists {
                 // Show toast and switch to login
                 toastMessage = "Try logging in instead"
@@ -305,7 +311,11 @@ struct AuthView: View {
                 }
             }
         } else {
-            _ = await authViewModel.login(email: email, password: password)
+            let result = await authViewModel.login(email: email, password: password)
+            if result != .success {
+                // Reset layout freeze on failure
+                isSubmitting = false
+            }
         }
     } 
 }

@@ -14,9 +14,18 @@ struct WeightAppApp: App {
     @StateObject private var authViewModel = AuthViewModel()
     @State private var showSplash = true
 
+    let modelContainer: ModelContainer
+
     init() {
         // Lock to portrait orientation
         AppDelegate.orientationLock = .portrait
+
+        // Create the model container
+        do {
+            modelContainer = try ModelContainer(for: Exercises.self, LiftSet.self, UserProperties.self, Estimated1RM.self)
+        } catch {
+            fatalError("Failed to create ModelContainer: \(error)")
+        }
     }
 
     var body: some Scene {
@@ -62,6 +71,18 @@ struct WeightAppApp: App {
                 }
             }
             .onAppear {
+                // Wire up ModelContext for SyncService and AuthViewModel
+                let context = modelContainer.mainContext
+                SyncService.shared.setModelContext(context)
+                authViewModel.setModelContext(context)
+
+                // Process any pending sync operations on app launch
+                if authViewModel.isAuthenticated {
+                    Task {
+                        await SyncService.shared.processRetryQueue()
+                    }
+                }
+
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     withAnimation(.easeOut(duration: 0.5)) {
                         showSplash = false
@@ -69,7 +90,7 @@ struct WeightAppApp: App {
                 }
             }
         }
-        .modelContainer(for: [Exercises.self, LiftSet.self, UserProperties.self, Estimated1RM.self])
+        .modelContainer(modelContainer)
     }
 }
 

@@ -47,6 +47,8 @@ struct CheckInView: View {
     @State private var showEditExerciseName = false
     @State private var editExerciseNameInput: String = ""
     @State private var exerciseNotesInput: String = ""
+    @State private var showNoExercisesAlert = false
+    @State private var isRetryingSync = false
 
     enum SortColumn {
         case weight, reps, est1RM, gain
@@ -226,8 +228,10 @@ struct CheckInView: View {
                 }
                 .padding(.horizontal, 12)
                 .onAppear {
-                    seedIfNeeded()
                     validateWeightDelta()
+                    if exercises.isEmpty {
+                        showNoExercisesAlert = true
+                    }
                 }
                 .onChange(of: selectedExercisesId) { _, _ in
                     resetToDefaults()
@@ -293,6 +297,17 @@ struct CheckInView: View {
                         .presentationDetents([.height(380)])
                         .presentationDragIndicator(.visible)
                 }
+                .alert("No Exercises Found", isPresented: $showNoExercisesAlert) {
+                    Button("Try Again") {
+                        retryFetchExercises()
+                    }
+                    .disabled(isRetryingSync)
+                    Button("Use Defaults") {
+                        useDefaultExercises()
+                    }
+                } message: {
+                    Text("Unable to load your exercises. You can retry or start with default exercises.")
+                }
                 if showSubmitOverlay {
                     SubmitOverlayView(
                         didIncrease: overlayDidIncrease,
@@ -323,7 +338,7 @@ struct CheckInView: View {
                         exerciseName: selectedExercises?.name ?? "Exercises",
                         reps: reps,
                         weight: weight,
-                        isBodyweightExercises: selectedExercises?.exerciseLoadType == .bodyweightPlusSingleLoad,
+                        isBodyweightExercises: false,
                         onConfirm: {
                             hapticFeedback.impactOccurred()
                             showLogConfirmation = false
@@ -1086,6 +1101,7 @@ struct CheckInView: View {
 
     private var styledExercisesSelector: some View {
         Button {
+            hapticFeedback.impactOccurred()
             showExercisesSelection = true
         } label: {
             HStack(spacing: 12) {
@@ -1132,6 +1148,7 @@ struct CheckInView: View {
             // Edit icon in left area
             if selectedExercises != nil {
                 Button {
+                    hapticFeedback.impactOccurred()
                     editExerciseNameInput = selectedExercises?.name ?? ""
                     exerciseNotesInput = selectedExercises?.notes ?? ""
                     showEditExerciseName = true
@@ -1408,7 +1425,6 @@ struct CheckInView: View {
     @State private var selectedChartBarIndex: Int? = nil
 
     private func setDetailOverlay(for setInfo: SetWithPR) -> some View {
-        let isBodyweightExercise = setInfo.set.exercise?.exerciseLoadType == .bodyweightPlusSingleLoad
         let isZeroWeight = setInfo.set.weight == 0
 
         return VStack(spacing: 8) {
@@ -1424,21 +1440,9 @@ struct CheckInView: View {
             }
 
             VStack(spacing: 4) {
-                if isBodyweightExercise {
-                    if isZeroWeight {
-                        Text("Weight: Bodyweight")
-                            .font(.subheadline)
-                            .foregroundStyle(.white)
-                    } else {
-                        Text("Weight: Bodyweight + \(setInfo.set.weight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
-                            .font(.subheadline)
-                            .foregroundStyle(.white)
-                    }
-                } else {
-                    Text("Weight: \(setInfo.set.weight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
-                        .font(.subheadline)
-                        .foregroundStyle(.white)
-                }
+                Text("Weight: \(setInfo.set.weight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
+                    .font(.subheadline)
+                    .foregroundStyle(.white)
                 Text("Reps: \(setInfo.set.reps)")
                     .font(.subheadline)
                     .foregroundStyle(.white)
@@ -2028,11 +2032,6 @@ struct CheckInView: View {
                         showWeightPicker = true
                     } label: {
                         VStack(spacing: 1) {
-                            if selectedExercises?.exerciseLoadType == .bodyweightPlusSingleLoad {
-                                Text("Bodyweight +")
-                                    .font(.system(size: 8))
-                                    .foregroundStyle(.white.opacity(0.5))
-                            }
                             Text(hasSetInitialValues ? weight.rounded1().formatted(.number.precision(.fractionLength(2))) : "---")
                                 .font(.title3.weight(.bold))
                                 .foregroundStyle(.white)
@@ -2305,17 +2304,11 @@ struct CheckInView: View {
         let exerciseName: String
         let reps: Int
         let weight: Double
-        let isBodyweightExercises: Bool
+        let isBodyweightExercises: Bool // Kept for backward compatibility but unused
         let onConfirm: () -> Void
         let onCancel: () -> Void
 
         private var weightText: String {
-            if isBodyweightExercises {
-                if weight == 0 {
-                    return "Bodyweight"
-                }
-                return "BW + \(weight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs"
-            }
             return "\(weight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs"
         }
 
@@ -2410,6 +2403,9 @@ struct CheckInView: View {
         let ex = Exercises(name: trimmed, isCustom: true, loadType: newExercisesLoadType)
         modelContext.insert(ex)
         selectedExercisesId = ex.id
+
+        // Sync new custom exercise to backend
+        Task { await SyncService.shared.syncExercise(ex) }
 
         newExercisesName = ""
         newExercisesLoadType = .barbell
@@ -2571,11 +2567,16 @@ struct CheckInView: View {
         ex.notes = exerciseNotesInput.isEmpty ? nil : exerciseNotesInput
         try? modelContext.save()
 
+        // Sync edited exercise to backend
+        Task { await SyncService.shared.syncExercise(ex) }
+
         showEditExerciseName = false
     }
 
     private func deleteExercises() {
         guard let ex = selectedExercises, ex.isCustom else { return }
+
+        let exerciseId = ex.id
 
         // Delete associated sets
         let setsToDelete = allSets.filter { $0.exercise?.id == ex.id }
@@ -2595,32 +2596,32 @@ struct CheckInView: View {
         // Select a different exercise
         selectedExercisesId = exercises.first(where: { $0.id != ex.id })?.id
 
+        // Sync deletion to backend
+        Task { await SyncService.shared.deleteExercise(exerciseId) }
+
         showExercisesDetails = false
     }
 
-    private func seedIfNeeded() {
-        guard exercises.isEmpty else { return }
-
-        let defaults: [(String, ExerciseLoadType)] = [
-            ("Deadlift", .barbell),
-            ("Squat", .barbell),
-            ("Bench Press", .barbell),
-            ("Overhead Press", .barbell),
-            ("Barbell Row", .barbell),
-            ("Pull Ups", .bodyweightPlusSingleLoad),
-            ("Dips", .bodyweightPlusSingleLoad)
-        ]
-        for (name, loadType) in defaults {
-            let exercise = Exercises(name: name, isCustom: false, loadType: loadType)
-            modelContext.insert(exercise)
+    private func retryFetchExercises() {
+        isRetryingSync = true
+        Task {
+            let success = await SyncService.shared.retryFetchExercises()
+            isRetryingSync = false
+            if !success && exercises.isEmpty {
+                showNoExercisesAlert = true
+            }
         }
+    }
 
-        // Seed default plate weights
-        if userProperties.plateWeights.isEmpty {
-            userProperties.plateWeights = UserProperties.defaultPlateWeights
+    private func useDefaultExercises() {
+        Task {
+            await SyncService.shared.createDefaultExercisesAndSync()
+            // Seed default plate weights if needed
+            if userProperties.plateWeights.isEmpty {
+                userProperties.plateWeights = UserProperties.defaultPlateWeights
+                try? modelContext.save()
+            }
         }
-
-        try? modelContext.save()
     }
 }
 

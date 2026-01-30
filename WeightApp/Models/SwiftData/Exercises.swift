@@ -10,7 +10,6 @@ import SwiftData
 
 enum ExerciseLoadType: String, Codable, CaseIterable {
     case barbell = "Barbell"
-    case bodyweightPlusSingleLoad = "Bodyweight + Single Load"
     case singleLoad = "Single Load"
 }
 
@@ -34,8 +33,26 @@ final class Exercises {
         self.notes = nil
     }
 
+    init(id: UUID? = nil, name: String, isCustom: Bool, loadType: ExerciseLoadType = .barbell,
+         createdAt: Date = Date(), createdTimezone: String = TimeZone.current.identifier,
+         notes: String? = nil) {
+        self.id = id ?? UUID()
+        self.name = name
+        self.isCustom = isCustom
+        self.createdAt = createdAt
+        self.createdTimezone = createdTimezone
+        self.loadType = loadType.rawValue
+        self.notes = notes
+    }
+
     var exerciseLoadType: ExerciseLoadType {
-        get { ExerciseLoadType(rawValue: loadType) ?? .barbell }
+        get {
+            // Handle backward compatibility for old "Bodyweight + Single Load" values
+            if loadType == "Bodyweight + Single Load" {
+                return .singleLoad
+            }
+            return ExerciseLoadType(rawValue: loadType) ?? .barbell
+        }
         set { loadType = newValue.rawValue }
     }
 }

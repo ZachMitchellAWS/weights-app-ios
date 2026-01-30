@@ -239,4 +239,101 @@ class APIService {
             requiresAuth: true
         )
     }
+
+    // MARK: - Exercise Sync Endpoints
+
+    func getExercises() async throws -> GetExercisesResponse {
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/exercises",
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+
+    func upsertExercises(_ exercises: [ExerciseDTO]) async throws -> UpsertExercisesResponse {
+        let body = UpsertExercisesRequest(exercises: exercises)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/exercises",
+            method: "POST",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    func deleteExercises(_ exerciseIds: [UUID]) async throws -> DeleteExercisesResponse {
+        let body = DeleteExercisesRequest(exerciseIds: exerciseIds)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/exercises",
+            method: "DELETE",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    // MARK: - Request Method with Date Decoding
+
+    private func requestWithDateDecoding<T: Decodable>(
+        endpoint: String,
+        method: String = "GET",
+        body: Encodable? = nil,
+        requiresAuth: Bool = false
+    ) async throws -> T {
+        if requiresAuth {
+            try await refreshTokenIfNeeded()
+        }
+
+        guard let url = URL(string: APIConfig.baseURL + endpoint) else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+
+        var allHeaders = APIConfig.commonHeaders
+        if requiresAuth, let token = KeychainService.shared.getAccessToken() {
+            allHeaders["Authorization"] = "Bearer \(token)"
+        }
+
+        for (key, value) in allHeaders {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+
+        if let body = body {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            request.httpBody = try encoder.encode(body)
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw APIError.invalidResponse
+            }
+
+            if httpResponse.statusCode == 401 {
+                throw APIError.unauthorized
+            }
+
+            if !(200...299).contains(httpResponse.statusCode) {
+                if let errorResponse = try? JSONDecoder().decode(ErrorResponse.self, from: data) {
+                    throw APIError.httpError(httpResponse.statusCode, errorResponse.message)
+                }
+                throw APIError.httpError(httpResponse.statusCode, "Unknown error")
+            }
+
+            do {
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                let decodedData = try decoder.decode(T.self, from: data)
+                return decodedData
+            } catch {
+                throw APIError.decodingError(error)
+            }
+        } catch let error as APIError {
+            throw error
+        } catch {
+            throw APIError.networkError(error)
+        }
+    }
 }

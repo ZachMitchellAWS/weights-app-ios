@@ -248,8 +248,6 @@ private struct ExerciseRow: View {
         switch loadType {
         case .barbell:
             return "figure.strengthtraining.traditional"
-        case .bodyweightPlusSingleLoad:
-            return "figure.core.training"
         case .singleLoad:
             return "dumbbell.fill"
         }

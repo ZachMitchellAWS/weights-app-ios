@@ -14,7 +14,7 @@ enum APIEnvironment {
     var baseURL: String {
         switch self {
         case .staging:
-            return "https://1hlfq3bzb9.execute-api.us-west-1.amazonaws.com/staging"
+            return "https://h49ho1pn62.execute-api.us-west-1.amazonaws.com/staging"
         case .production:
             return "" // TODO: Add production URL when available
         }
@@ -23,7 +23,7 @@ enum APIEnvironment {
     var apiKey: String {
         switch self {
         case .staging:
-            return "UWLqSbcHeo1ibSEqQvPbU5lUoa6cKf8f835qWblO"
+            return "VedgMnwCCw6gSxybUQxLi1aTpHVEUz5t2u1NC9K3"
         case .production:
             return "" // TODO: Add production API key when available
         }

@@ -30,6 +30,7 @@ struct MoreView: View {
     @State private var showLogoutConfirmation = false
     @State private var userPropertiesAlertMessage = ""
     @State private var isUpdatingProperties = false
+    @State private var showExerciseIds = false
 
     @State private var tempBodyweight: Double = 0
 
@@ -320,6 +321,37 @@ struct MoreView: View {
                             }
                         }
 
+                        Button {
+                            withAnimation {
+                                showExerciseIds.toggle()
+                            }
+                        } label: {
+                            HStack {
+                                Text("Show Exercise IDs")
+                                    .foregroundStyle(.primary)
+                                    .padding(.leading, 32)
+                                Spacer()
+                                Image(systemName: showExerciseIds ? "eye.fill" : "eye")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        if showExerciseIds {
+                            ForEach(exercises.sorted { $0.name < $1.name }, id: \.id) { exercise in
+                                HStack {
+                                    Text(exercise.name)
+                                        .foregroundStyle(.white.opacity(0.7))
+                                        .padding(.leading, 48)
+                                        .lineLimit(1)
+                                    Spacer()
+                                    Text(exercise.id.uuidString.prefix(8) + "...")
+                                        .foregroundStyle(.white.opacity(0.5))
+                                        .font(.system(.caption, design: .monospaced))
+                                        .textSelection(.enabled)
+                                }
+                            }
+                        }
+
                         Button(role: .destructive) {
                             showDeleteConfirmation = true
                         } label: {
@@ -335,7 +367,7 @@ struct MoreView: View {
                     }
                 } footer: {
                     if showDeveloper {
-                        Text("Generates realistic training data for the past 7 days. Update user properties sends a test API call. Replay onboarding/welcome back shows the post-auth flows. Delete all workout data removes all LiftSet and Estimated1RM entries.")
+                        Text("Generates realistic training data for the past 7 days. Update user properties sends a test API call. Replay onboarding/welcome back shows the post-auth flows. Show Exercise IDs displays UUIDs for debugging. Delete all workout data removes all LiftSet and Estimated1RM entries.")
                     }
                 }
             }
@@ -485,12 +517,6 @@ struct MoreView: View {
             modelContext.delete(estimated1RM)
         }
 
-        // Simulated user bodyweight for bodyweight exercises
-        let simulatedBodyweight: Double = 180.0
-
-        // Set the user's bodyweight for proper 1RM calculations
-        userProperties.bodyweight = simulatedBodyweight
-
         let calendar = Calendar.current
         let now = Date()
 
@@ -511,7 +537,7 @@ struct MoreView: View {
             ["Squat"], // Legs
         ]
 
-        // Track max 1RM per exercise for progression (for bodyweight exercises, this is TOTAL load including bodyweight)
+        // Track max 1RM per exercise for progression
         var exerciseMaxes: [String: Double] = [:]
 
         for daysAgo in (1...7).reversed() {
@@ -530,7 +556,6 @@ struct MoreView: View {
                 guard let exercise = exercises.first(where: { $0.name == exerciseName }) else { continue }
 
                 // Starting 1RM for this exercise (if not already tracked)
-                // For bodyweight exercises, this represents TOTAL load (bodyweight + added weight)
                 if exerciseMaxes[exerciseName] == nil {
                     exerciseMaxes[exerciseName] = {
                         switch exerciseName {
@@ -539,8 +564,8 @@ struct MoreView: View {
                         case "Bench Press": return 165.0
                         case "Barbell Row": return 145.0
                         case "Overhead Press": return 100.0
-                        case "Pull Ups": return simulatedBodyweight + 30.0  // 180 + 30 = 210 lbs total
-                        case "Dips": return simulatedBodyweight + 40.0      // 180 + 40 = 220 lbs total
+                        case "Pull Ups": return 50.0
+                        case "Dips": return 70.0
                         default: return 100.0
                         }
                     }()
@@ -573,11 +598,7 @@ struct MoreView: View {
                     // Using Brzycki formula: 1RM = weight * (36 / (37 - reps))
                     let calculatedWeight = roundToAttainable(target1RM * (37.0 - Double(reps)) / 36.0)
 
-                    // For bodyweight exercises, subtract bodyweight to get added weight only
-                    let isBodyweightExercises = exercise.exerciseLoadType == .bodyweightPlusSingleLoad
-                    let weightToStore = isBodyweightExercises ? max(0, calculatedWeight - simulatedBodyweight) : calculatedWeight
-
-                    let set = LiftSet(exercise: exercise, reps: reps, weight: weightToStore)
+                    let set = LiftSet(exercise: exercise, reps: reps, weight: calculatedWeight)
                     set.createdAt = currentTime
                     set.createdTimezone = TimeZone.current.identifier
                     modelContext.insert(set)
@@ -600,9 +621,6 @@ struct MoreView: View {
     }
 
     private func populateTodayData() {
-        // Simulated user bodyweight for bodyweight exercises
-        let simulatedBodyweight: Double = userProperties.bodyweight ?? 180.0
-
         let calendar = Calendar.current
         let now = Date()
 
@@ -624,8 +642,8 @@ struct MoreView: View {
             case "Bench Press": return 195.0
             case "Barbell Row": return 175.0
             case "Overhead Press": return 125.0
-            case "Pull Ups": return simulatedBodyweight + 45.0
-            case "Dips": return simulatedBodyweight + 55.0
+            case "Pull Ups": return 65.0
+            case "Dips": return 90.0
             default: return 135.0
             }
         }
@@ -658,11 +676,7 @@ struct MoreView: View {
                 // Using Brzycki formula: 1RM = weight * (36 / (37 - reps))
                 let calculatedWeight = roundToAttainable(target1RM * (37.0 - Double(reps)) / 36.0)
 
-                // For bodyweight exercises, subtract bodyweight to get added weight only
-                let isBodyweightExercise = exercise.exerciseLoadType == .bodyweightPlusSingleLoad
-                let weightToStore = isBodyweightExercise ? max(0, calculatedWeight - simulatedBodyweight) : calculatedWeight
-
-                let set = LiftSet(exercise: exercise, reps: reps, weight: weightToStore)
+                let set = LiftSet(exercise: exercise, reps: reps, weight: calculatedWeight)
                 set.createdAt = currentTime
                 set.createdTimezone = TimeZone.current.identifier
                 modelContext.insert(set)
@@ -721,8 +735,8 @@ struct MoreView: View {
             modelContext.delete(estimated1RM)
         }
 
-        // Hard delete all custom Exercises (keep built-in ones)
-        for exercise in exercises where exercise.isCustom {
+        // Hard delete all Exercises (both custom and built-in since they're synced)
+        for exercise in exercises {
             modelContext.delete(exercise)
         }
 

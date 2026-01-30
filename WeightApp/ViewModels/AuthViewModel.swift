@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import SwiftData
 
 enum AuthResult {
     case success
@@ -24,10 +25,15 @@ class AuthViewModel: ObservableObject {
     @Published var showPostAuthFlow = false
 
     nonisolated(unsafe) private var tokenRefreshTimer: Timer?
+    private var modelContext: ModelContext?
 
     init() {
         checkAuthStatus()
         startTokenRefreshTimer()
+    }
+
+    func setModelContext(_ context: ModelContext) {
+        self.modelContext = context
     }
 
     func checkAuthStatus() {
@@ -53,6 +59,9 @@ class AuthViewModel: ObservableObject {
             // Fetch and store user properties
             await fetchUserProperties()
 
+            // Perform initial sync for returning user
+            await SyncService.shared.performInitialSync(isNewUser: false)
+
             isLoading = false
             return .success
         } catch {
@@ -75,6 +84,9 @@ class AuthViewModel: ObservableObject {
 
             // Fetch and store user properties
             await fetchUserProperties()
+
+            // Perform initial sync for new user
+            await SyncService.shared.performInitialSync(isNewUser: true)
 
             isLoading = false
             return .success
@@ -106,6 +118,9 @@ class AuthViewModel: ObservableObject {
 
         // Perform hard delete of all local data
         onDataCleanup()
+
+        // Clear sync retry queue
+        SyncService.shared.clearOnLogout()
 
         // Always clear tokens and log out, regardless of API success/failure
         KeychainService.shared.clearTokens()
