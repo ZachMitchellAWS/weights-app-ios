@@ -12,7 +12,7 @@ struct MoreView: View {
     @ObservedObject var authViewModel: AuthViewModel
     @Environment(\.modelContext) private var modelContext
     @Query private var userPropertiesItems: [UserProperties]
-    @Query private var exercises: [Exercises]
+    @Query(filter: #Predicate<Exercises> { !$0.deleted }) private var exercises: [Exercises]
     @Query private var liftSets: [LiftSet]
     @Query private var estimated1RMs: [Estimated1RM]
 
@@ -376,7 +376,7 @@ struct MoreView: View {
                 weightInputSheet
             }
             .fullScreenCover(isPresented: $showPlateSelection) {
-                PlateSelectionView()
+                ChangePlatesView()
             }
             .alert("Data Populated", isPresented: $showDataPopulatedAlert) {
                 Button("OK") { }
@@ -696,7 +696,7 @@ struct MoreView: View {
         isUpdatingProperties = true
 
         do {
-            let response = try await APIService.shared.updateUserProperties(bodyweight: userProperties.bodyweight)
+            let response = try await APIService.shared.updateUserProperties(availableChangePlates: userProperties.availableChangePlates)
             userPropertiesAlertMessage = "Successfully updated user properties\n\nbodyweight: \(response.bodyweight?.description ?? "nil")"
             showUserPropertiesAlert = true
         } catch {

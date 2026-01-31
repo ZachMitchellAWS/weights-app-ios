@@ -229,8 +229,8 @@ class APIService {
         )
     }
 
-    func updateUserProperties(bodyweight: Double?) async throws -> UserPropertiesResponse {
-        let body = UserPropertiesRequest(bodyweight: bodyweight)
+    func updateUserProperties(availableChangePlates: [Double]?) async throws -> UserPropertiesResponse {
+        let body = UserPropertiesRequest(availableChangePlates: availableChangePlates)
         return try await request(
             endpoint: "/user/properties",
             method: "POST",
@@ -261,7 +261,7 @@ class APIService {
     }
 
     func deleteExercises(_ exerciseIds: [UUID]) async throws -> DeleteExercisesResponse {
-        let body = DeleteExercisesRequest(exerciseIds: exerciseIds)
+        let body = DeleteExercisesRequest(exerciseItemIds: exerciseIds)
         return try await requestWithDateDecoding(
             endpoint: "/checkin/exercises",
             method: "DELETE",

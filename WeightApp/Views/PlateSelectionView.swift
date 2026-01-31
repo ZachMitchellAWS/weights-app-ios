@@ -25,7 +25,7 @@ struct PlateSelectionView: View {
     }
 
     private var plates: [Double] {
-        userProperties.plateWeights.filter { $0 < 5 }.sorted { $0 > $1 }
+        userProperties.availableChangePlates.filter { $0 < 5 }.sorted { $0 > $1 }
     }
 
     var body: some View {
@@ -110,8 +110,8 @@ struct PlateSelectionView: View {
                 )
             }
             .onAppear {
-                if userProperties.plateWeights.isEmpty {
-                    userProperties.plateWeights = UserProperties.defaultPlateWeights
+                if userProperties.availableChangePlates.isEmpty {
+                    userProperties.availableChangePlates = UserProperties.defaultAvailableChangePlates
                     try? modelContext.save()
                 }
             }
@@ -119,15 +119,25 @@ struct PlateSelectionView: View {
     }
 
     private func addPlate(weight: Double) {
-        if !userProperties.plateWeights.contains(weight) {
-            userProperties.plateWeights.append(weight)
+        if !userProperties.availableChangePlates.contains(weight) {
+            userProperties.availableChangePlates.append(weight)
             try? modelContext.save()
+
+            // Sync to backend
+            Task {
+                await SyncService.shared.updateChangePlates(userProperties.availableChangePlates)
+            }
         }
     }
 
     private func deletePlate(weight: Double) {
-        userProperties.plateWeights.removeAll { $0 == weight }
+        userProperties.availableChangePlates.removeAll { $0 == weight }
         try? modelContext.save()
+
+        // Sync to backend
+        Task {
+            await SyncService.shared.updateChangePlates(userProperties.availableChangePlates)
+        }
     }
 }
 

@@ -31,6 +31,10 @@ class SyncService {
             return
         }
 
+        // Step 1: Sync user properties (non-blocking - failure doesn't stop exercise sync)
+        await syncUserProperties()
+
+        // Step 2: Sync exercises
         do {
             let response = try await APIService.shared.getExercises()
 
@@ -44,6 +48,69 @@ class SyncService {
         } catch {
             print("SyncService: Initial sync failed: \(error.localizedDescription)")
         }
+    }
+
+    // MARK: - User Properties Sync
+
+    func syncUserProperties() async {
+        guard let context = modelContext else { return }
+
+        do {
+            let response = try await APIService.shared.getUserProperties()
+
+            // Update local UserProperties with backend data
+            let userProperties = fetchOrCreateUserProperties(context: context)
+            if let plates = response.availableChangePlates {
+                userProperties.availableChangePlates = plates
+            }
+            if let bodyweight = response.bodyweight {
+                userProperties.bodyweight = bodyweight
+            }
+
+            try? context.save()
+
+            // Also save createdDatetime to keychain
+            KeychainService.shared.saveUserProperties(createdDatetime: response.createdDatetime)
+        } catch {
+            print("SyncService: Failed to sync user properties: \(error.localizedDescription)")
+            // Don't block exercise sync - user properties are not critical
+        }
+    }
+
+    func updateChangePlates(_ plates: [Double]) async {
+        do {
+            _ = try await APIService.shared.updateUserProperties(availableChangePlates: plates)
+            retryQueue.removePendingUserPropertiesSync()
+        } catch {
+            print("SyncService: Failed to update change plates: \(error.localizedDescription)")
+            retryQueue.addPendingUserPropertiesSync()
+        }
+    }
+
+    func processUserPropertiesRetryQueue() async {
+        guard let context = modelContext else { return }
+        guard retryQueue.hasUserPropertiesPending() else { return }
+
+        let userProperties = fetchOrCreateUserProperties(context: context)
+
+        do {
+            _ = try await APIService.shared.updateUserProperties(
+                availableChangePlates: userProperties.availableChangePlates
+            )
+            retryQueue.removePendingUserPropertiesSync()
+        } catch {
+            retryQueue.incrementUserPropertiesRetryCount()
+        }
+    }
+
+    private func fetchOrCreateUserProperties(context: ModelContext) -> UserProperties {
+        let descriptor = FetchDescriptor<UserProperties>()
+        if let existing = try? context.fetch(descriptor).first {
+            return existing
+        }
+        let props = UserProperties()
+        context.insert(props)
+        return props
     }
 
     // MARK: - Exercise CRUD Sync
@@ -175,12 +242,22 @@ class SyncService {
         let existingIds = Set(existingExercises.map { $0.id })
 
         for dto in dtos {
+            // Skip deleted exercises from backend
+            if dto.deleted == true {
+                // If it exists locally, mark as deleted
+                if let existing = existingExercises.first(where: { $0.id == dto.exerciseItemId }) {
+                    existing.deleted = true
+                }
+                continue
+            }
+
             if existingIds.contains(dto.exerciseItemId) {
                 if let existing = existingExercises.first(where: { $0.id == dto.exerciseItemId }) {
                     existing.name = dto.name
                     existing.isCustom = dto.isCustom
                     existing.loadType = dto.loadType
                     existing.notes = dto.notes
+                    existing.deleted = dto.deleted ?? false
                 }
             } else {
                 let loadType = ExerciseLoadType(rawValue: dto.loadType) ?? .barbell
@@ -191,7 +268,8 @@ class SyncService {
                     loadType: loadType,
                     createdAt: dto.createdDatetime ?? Date(),
                     createdTimezone: dto.createdTimezone,
-                    notes: dto.notes
+                    notes: dto.notes,
+                    deleted: dto.deleted ?? false
                 )
                 context.insert(exercise)
             }

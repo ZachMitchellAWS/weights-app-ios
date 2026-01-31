@@ -56,10 +56,7 @@ class AuthViewModel: ObservableObject {
             isAuthenticated = true
             userId = response.userId
 
-            // Fetch and store user properties
-            await fetchUserProperties()
-
-            // Perform initial sync for returning user
+            // Perform initial sync for returning user (includes user properties sync)
             await SyncService.shared.performInitialSync(isNewUser: false)
 
             isLoading = false
@@ -82,10 +79,7 @@ class AuthViewModel: ObservableObject {
             isAuthenticated = true
             userId = response.userId
 
-            // Fetch and store user properties
-            await fetchUserProperties()
-
-            // Perform initial sync for new user
+            // Perform initial sync for new user (includes user properties sync)
             await SyncService.shared.performInitialSync(isNewUser: true)
 
             isLoading = false
@@ -154,16 +148,6 @@ class AuthViewModel: ObservableObject {
         } catch {
             // Silently fail and retry on next attempt
             // This allows recovery from temporary network issues
-        }
-    }
-
-    private func fetchUserProperties() async {
-        do {
-            let properties = try await APIService.shared.getUserProperties()
-            KeychainService.shared.saveUserProperties(createdDatetime: properties.createdDatetime)
-        } catch {
-            // Silently fail - user properties are not critical
-            print("Failed to fetch user properties: \(error.localizedDescription)")
         }
     }
 

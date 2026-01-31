@@ -26,10 +26,21 @@ struct PendingOperation: Codable, Equatable {
     }
 }
 
+struct PendingUserPropertiesSync: Codable {
+    var retryCount: Int
+    let createdAt: Date
+
+    init() {
+        self.retryCount = 0
+        self.createdAt = Date()
+    }
+}
+
 class SyncRetryQueue {
     static let shared = SyncRetryQueue()
 
     private let userDefaultsKey = "SyncRetryQueue.PendingOperations"
+    private let userPropertiesKey = "SyncRetryQueue.PendingUserPropertiesSync"
     private let maxRetries = 3
 
     private init() {}
@@ -67,10 +78,59 @@ class SyncRetryQueue {
 
     func clearAll() {
         UserDefaults.standard.removeObject(forKey: userDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: userPropertiesKey)
     }
 
     func hasPendingOperations() -> Bool {
         return !loadOperations().isEmpty
+    }
+
+    // MARK: - User Properties Sync Methods
+
+    func addPendingUserPropertiesSync() {
+        let pending = PendingUserPropertiesSync()
+        saveUserPropertiesSync(pending)
+    }
+
+    func removePendingUserPropertiesSync() {
+        UserDefaults.standard.removeObject(forKey: userPropertiesKey)
+    }
+
+    func getPendingUserPropertiesSync() -> PendingUserPropertiesSync? {
+        guard let data = UserDefaults.standard.data(forKey: userPropertiesKey) else {
+            return nil
+        }
+
+        do {
+            return try JSONDecoder().decode(PendingUserPropertiesSync.self, from: data)
+        } catch {
+            print("SyncRetryQueue: Failed to decode pending user properties sync: \(error)")
+            return nil
+        }
+    }
+
+    func incrementUserPropertiesRetryCount() {
+        guard var pending = getPendingUserPropertiesSync() else { return }
+
+        pending.retryCount += 1
+        if pending.retryCount >= maxRetries {
+            removePendingUserPropertiesSync()
+        } else {
+            saveUserPropertiesSync(pending)
+        }
+    }
+
+    func hasUserPropertiesPending() -> Bool {
+        return getPendingUserPropertiesSync() != nil
+    }
+
+    private func saveUserPropertiesSync(_ pending: PendingUserPropertiesSync) {
+        do {
+            let data = try JSONEncoder().encode(pending)
+            UserDefaults.standard.set(data, forKey: userPropertiesKey)
+        } catch {
+            print("SyncRetryQueue: Failed to encode pending user properties sync: \(error)")
+        }
     }
 
     // MARK: - Private Methods

@@ -17,6 +17,7 @@ struct ExerciseDTO: Codable {
     let createdTimezone: String
     let notes: String?
     let createdDatetime: Date?
+    let deleted: Bool?
 
     init(from exercise: Exercises) {
         self.exerciseItemId = exercise.id
@@ -26,9 +27,10 @@ struct ExerciseDTO: Codable {
         self.createdTimezone = exercise.createdTimezone
         self.notes = exercise.notes
         self.createdDatetime = exercise.createdAt
+        self.deleted = exercise.deleted
     }
 
-    init(exerciseItemId: UUID, name: String, isCustom: Bool, loadType: String, createdTimezone: String, notes: String?, createdDatetime: Date? = nil) {
+    init(exerciseItemId: UUID, name: String, isCustom: Bool, loadType: String, createdTimezone: String, notes: String?, createdDatetime: Date? = nil, deleted: Bool? = nil) {
         self.exerciseItemId = exerciseItemId
         self.name = name
         self.isCustom = isCustom
@@ -36,6 +38,7 @@ struct ExerciseDTO: Codable {
         self.createdTimezone = createdTimezone
         self.notes = notes
         self.createdDatetime = createdDatetime
+        self.deleted = deleted
     }
 }
 
@@ -46,7 +49,7 @@ struct UpsertExercisesRequest: Codable {
 }
 
 struct DeleteExercisesRequest: Codable {
-    let exerciseIds: [UUID]
+    let exerciseItemIds: [UUID]
 }
 
 // MARK: - Response Models

@@ -15,13 +15,13 @@ final class UserProperties {
 
     @Attribute(.unique) var id: UUID
     var bodyweight: Double?
-    var plateWeights: [Double] = []
+    var availableChangePlates: [Double] = []
 
     init() {
         self.id = UserProperties.singletonID
         self.bodyweight = nil
-        self.plateWeights = []
+        self.availableChangePlates = []
     }
 
-    static let defaultPlateWeights: [Double] = [2.5]
+    static let defaultAvailableChangePlates: [Double] = [2.5]
 }

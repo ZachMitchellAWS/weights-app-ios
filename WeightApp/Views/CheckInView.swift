@@ -5,7 +5,7 @@ import Charts
 struct CheckInView: View {
     @Environment(\.modelContext) private var modelContext
 
-    @Query(sort: \Exercises.createdAt) private var exercises: [Exercises]
+    @Query(filter: #Predicate<Exercises> { !$0.deleted }, sort: \Exercises.createdAt) private var exercises: [Exercises]
     @Query(filter: #Predicate<LiftSet> { !$0.deleted }, sort: \LiftSet.createdAt, order: .reverse) private var allSets: [LiftSet]
     @Query private var userPropertiesItems: [UserProperties]
     @Query(filter: #Predicate<Estimated1RM> { !$0.deleted }, sort: \Estimated1RM.createdAt, order: .reverse) private var allEstimated1RMs: [Estimated1RM]
@@ -49,6 +49,10 @@ struct CheckInView: View {
     @State private var exerciseNotesInput: String = ""
     @State private var showNoExercisesAlert = false
     @State private var isRetryingSync = false
+    @State private var showDeleteSection = false
+    @State private var showDeleteConfirmation = false
+    @State private var deleteConfirmationChecked = false
+    @State private var showIncrementSelection = false
 
     enum SortColumn {
         case weight, reps, est1RM, gain
@@ -69,7 +73,7 @@ struct CheckInView: View {
     }
 
     private var availablePlates: [Double] {
-        userProperties.plateWeights.sorted { $0 > $1 }
+        userProperties.availableChangePlates.sorted { $0 > $1 }
     }
 
     private var selectedExercises: Exercises? {
@@ -294,8 +298,16 @@ struct CheckInView: View {
                 }
                 .sheet(isPresented: $showEditExerciseName) {
                     editExerciseNameSheet
-                        .presentationDetents([.height(380)])
+                        .presentationDetents([.medium, .large])
                         .presentationDragIndicator(.visible)
+                }
+                .sheet(isPresented: $showIncrementSelection) {
+                    ChangePlatesView(selectedIncrement: Binding(
+                        get: { weightDelta },
+                        set: { if let v = $0 { weightDelta = v } }
+                    ))
+                    .presentationDetents([.medium])
+                    .presentationDragIndicator(.visible)
                 }
                 .alert("No Exercises Found", isPresented: $showNoExercisesAlert) {
                     Button("Try Again") {
@@ -305,6 +317,7 @@ struct CheckInView: View {
                     Button("Use Defaults") {
                         useDefaultExercises()
                     }
+                    Button("Dismiss", role: .cancel) { }
                 } message: {
                     Text("Unable to load your exercises. You can retry or start with default exercises.")
                 }
@@ -968,6 +981,76 @@ struct CheckInView: View {
                             Spacer()
                         }
                     }
+
+                    // Delete section (collapsed by default)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showDeleteSection.toggle()
+                                if !showDeleteSection {
+                                    deleteConfirmationChecked = false
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Text("Delete")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.white.opacity(0.5))
+                                Spacer()
+                                Image(systemName: showDeleteSection ? "chevron.down" : "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.3))
+                            }
+                        }
+                        .buttonStyle(.plain)
+
+                        if showDeleteSection {
+                            VStack(spacing: 16) {
+                                Text("Deleting an exercise will permanently remove it and all associated workout data. This action cannot be undone.")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.6))
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                                // Confirmation checkbox (centered)
+                                Button {
+                                    deleteConfirmationChecked.toggle()
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: deleteConfirmationChecked ? "checkmark.square.fill" : "square")
+                                            .foregroundStyle(deleteConfirmationChecked ? .red : .white.opacity(0.5))
+                                            .font(.system(size: 20))
+                                        Text("I understand this is permanent")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.white.opacity(0.7))
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .frame(maxWidth: .infinity)
+
+                                // Delete button
+                                Button {
+                                    showDeleteConfirmation = true
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "trash")
+                                        Text("Delete Exercise")
+                                    }
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(deleteConfirmationChecked ? .white : .white.opacity(0.3))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(deleteConfirmationChecked ? Color.red : Color.red.opacity(0.2))
+                                    .cornerRadius(10)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(!deleteConfirmationChecked)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.top, 4)
+                        }
+                    }
+                    .padding(.top, 16)
                 }
                 .padding(.horizontal)
             }
@@ -983,6 +1066,19 @@ struct CheckInView: View {
             )
             .ignoresSafeArea()
         )
+        .alert("Delete Exercise?", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                performExerciseDeletion()
+            }
+        } message: {
+            Text("This will permanently delete \"\(selectedExercises?.name ?? "this exercise")\" and all its workout history.")
+        }
+        .onDisappear {
+            // Reset delete section state when sheet closes
+            showDeleteSection = false
+            deleteConfirmationChecked = false
+        }
     }
 
     private var exerciseDetailsSheet: some View {
@@ -1774,7 +1870,7 @@ struct CheckInView: View {
                     Image(systemName: "arrow.up")
                         .font(.caption)
                         .foregroundStyle(.white)
-                    Text("Estimated 1RM")
+                    Text("Est. 1RM")
                         .font(.headline)
                         .foregroundStyle(.white)
                 }
@@ -1796,15 +1892,21 @@ struct CheckInView: View {
                     }
                     .disabled(weightDelta <= minWeightDelta)
 
-                    VStack(spacing: 0) {
-                        Text(weightDelta.formatted(.number.precision(.fractionLength(1))))
-                            .font(.subheadline.weight(.bold))
-                            .foregroundStyle(.white)
-                        Text("Δ LB")
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(Color.appLabel)
+                    Button {
+                        hapticFeedback.impactOccurred()
+                        showIncrementSelection = true
+                    } label: {
+                        VStack(spacing: 0) {
+                            Text(weightDelta.formatted(.number.precision(.fractionLength(1))))
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(.white)
+                            Text("Δ LB")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(Color.appLabel)
+                        }
+                        .frame(width: 55)
                     }
-                    .frame(width: 55)
+                    .buttonStyle(.plain)
 
                     Button {
                         // Find next delta in availableWeightDeltas
@@ -1820,6 +1922,10 @@ struct CheckInView: View {
                     }
                     .disabled(weightDelta >= maxWeightDelta)
                 }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color(white: 0.12))
+                .cornerRadius(10)
             }
 
             if setsForSelected.isEmpty {
@@ -2573,6 +2679,37 @@ struct CheckInView: View {
         showEditExerciseName = false
     }
 
+    private func performExerciseDeletion() {
+        guard let ex = selectedExercises else { return }
+
+        let exerciseId = ex.id
+
+        // Delete associated sets
+        let setsToDelete = allSets.filter { $0.exercise?.id == ex.id }
+        for set in setsToDelete {
+            modelContext.delete(set)
+        }
+
+        // Delete associated 1RM records
+        let estimatesToDelete = allEstimated1RMs.filter { $0.exercise?.id == ex.id }
+        for estimate in estimatesToDelete {
+            modelContext.delete(estimate)
+        }
+
+        // Delete the exercise
+        modelContext.delete(ex)
+        try? modelContext.save()
+
+        // Close the edit sheet
+        showEditExerciseName = false
+
+        // Select a different exercise
+        selectedExercisesId = exercises.first(where: { $0.id != ex.id })?.id
+
+        // Sync deletion to backend immediately
+        Task { await SyncService.shared.deleteExercise(exerciseId) }
+    }
+
     private func deleteExercises() {
         guard let ex = selectedExercises, ex.isCustom else { return }
 
@@ -2617,8 +2754,8 @@ struct CheckInView: View {
         Task {
             await SyncService.shared.createDefaultExercisesAndSync()
             // Seed default plate weights if needed
-            if userProperties.plateWeights.isEmpty {
-                userProperties.plateWeights = UserProperties.defaultPlateWeights
+            if userProperties.availableChangePlates.isEmpty {
+                userProperties.availableChangePlates = UserProperties.defaultAvailableChangePlates
                 try? modelContext.save()
             }
         }
@@ -2788,20 +2925,6 @@ struct ExercisesCardButton: View {
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .minimumScaleFactor(0.8)
-
-                if exercise.isCustom {
-                    Button {
-                        onEdit()
-                    } label: {
-                        Image(systemName: "pencil.circle")
-                            .font(.system(size: 16))
-                            .foregroundStyle(.white.opacity(0.6))
-                    }
-                    .buttonStyle(.plain)
-                    .onTapGesture {
-                        onEdit()
-                    }
-                }
             }
             .frame(maxWidth: .infinity)
             .frame(height: 140)
@@ -3075,6 +3198,268 @@ struct LegendItem: View {
             Text(label)
                 .font(.caption2)
                 .foregroundStyle(.white.opacity(0.7))
+        }
+    }
+}
+
+// MARK: - Change Plates View
+
+struct ChangePlatesView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @Query private var userPropertiesItems: [UserProperties]
+    @Binding var selectedIncrement: Double?
+
+    private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
+
+    init(selectedIncrement: Binding<Double?> = .constant(nil)) {
+        self._selectedIncrement = selectedIncrement
+    }
+
+    private var userProperties: UserProperties {
+        if let props = userPropertiesItems.first { return props }
+        let props = UserProperties()
+        modelContext.insert(props)
+        return props
+    }
+
+    // Available plate weights that produce increments (increment = 2 * plate)
+    private var plateWeights: [Double] {
+        userProperties.availableChangePlates.filter { $0 < 5 }.sorted()
+    }
+
+    // All possible plate options (excluding 2.5 since 5 lb is always available)
+    private let allPlateOptions: [Double] = [0.25, 0.5, 0.75, 1.0, 1.25, 2.0]
+
+    private func isPlateActive(_ plate: Double) -> Bool {
+        return plateWeights.contains { abs($0 - plate) < 0.01 }
+    }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color(white: 0.14), Color(white: 0.10)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // Header area
+                VStack(spacing: 8) {
+                    Text("Available Change Plates")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.white)
+
+                    Text("Select your available change plates")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.6))
+                        .multilineTextAlignment(.center)
+
+                    BarbellPlateIcon(size: 48)
+                        .foregroundStyle(Color.appAccent.opacity(0.8))
+                        .padding(.top, 8)
+                }
+                .padding(.top, 40)
+                .padding(.bottom, 32)
+
+                // Available change plates
+                VStack(spacing: 16) {
+                    FlowLayout(spacing: 12, centered: true) {
+                        ForEach(allPlateOptions, id: \.self) { plate in
+                            ChangePlateBubble(
+                                plate: plate,
+                                isActive: isPlateActive(plate),
+                                onToggle: {
+                                    hapticFeedback.impactOccurred()
+                                    togglePlate(plate)
+                                }
+                            )
+                        }
+                    }
+                }
+                .padding(.horizontal, 24)
+
+                Spacer()
+
+                // Done button
+                Button {
+                    dismiss()
+                } label: {
+                    Text("Done")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.appAccent)
+                        .cornerRadius(10)
+                }
+                .padding(.horizontal, 40)
+                .padding(.top, 24)
+                .padding(.bottom, 16)
+
+                // Footer text
+                Text("In addition to 5 LB, barbell exercises will have increment options that are 2X the available change plates.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.4))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+                    .padding(.bottom, 24)
+            }
+        }
+    }
+
+    private func togglePlate(_ plate: Double) {
+        if isPlateActive(plate) {
+            // Remove plate
+            userProperties.availableChangePlates.removeAll { abs($0 - plate) < 0.01 }
+            // If current selection was this increment, default to 5
+            if let current = selectedIncrement {
+                let increment = plate * 2
+                if abs(current - increment) < 0.01 {
+                    selectedIncrement = 5.0
+                }
+            }
+        } else {
+            // Add plate
+            userProperties.availableChangePlates.append(plate)
+        }
+        try? modelContext.save()
+
+        // Sync to backend
+        Task {
+            await SyncService.shared.updateChangePlates(userProperties.availableChangePlates)
+        }
+    }
+}
+
+struct BarbellPlateIcon: View {
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            // Outer plate circle
+            Circle()
+                .fill(.primary)
+
+            // Inner rim (slightly darker/recessed look)
+            Circle()
+                .fill(.primary.opacity(0.7))
+                .frame(width: size * 0.72, height: size * 0.72)
+
+            // Raised inner ring
+            Circle()
+                .stroke(.primary, lineWidth: size * 0.06)
+                .frame(width: size * 0.55, height: size * 0.55)
+
+            // Center hole (dark/empty)
+            Circle()
+                .fill(Color.black.opacity(0.8))
+                .frame(width: size * 0.22, height: size * 0.22)
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+struct ChangePlateBubble: View {
+    let plate: Double
+    let isActive: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        Button {
+            onToggle()
+        } label: {
+            Text(formatPlate(plate))
+                .font(.body.weight(.semibold))
+                .foregroundStyle(isActive ? .black : .white)
+                .padding(.horizontal, 22)
+                .padding(.vertical, 14)
+                .background(
+                    Capsule()
+                        .fill(isActive ? Color.appAccent : Color(white: 0.22))
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(isActive ? Color.clear : Color.white.opacity(0.1), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func formatPlate(_ value: Double) -> String {
+        if value == floor(value) {
+            return "\(Int(value)) lb"
+        } else {
+            return "\(value.formatted(.number.precision(.fractionLength(1...2)))) lb"
+        }
+    }
+}
+
+// Simple flow layout for wrapping bubbles
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+    var centered: Bool = false
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = FlowResult(in: proposal.width ?? 0, subviews: subviews, spacing: spacing, centered: centered)
+        return result.size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = FlowResult(in: bounds.width, subviews: subviews, spacing: spacing, centered: centered)
+        for (index, subview) in subviews.enumerated() {
+            subview.place(at: CGPoint(x: bounds.minX + result.positions[index].x,
+                                       y: bounds.minY + result.positions[index].y),
+                          proposal: .unspecified)
+        }
+    }
+
+    struct FlowResult {
+        var size: CGSize = .zero
+        var positions: [CGPoint] = []
+
+        init(in maxWidth: CGFloat, subviews: Subviews, spacing: CGFloat, centered: Bool) {
+            var x: CGFloat = 0
+            var y: CGFloat = 0
+            var rowHeight: CGFloat = 0
+            var rowStartIndex = 0
+            var rowWidth: CGFloat = 0
+
+            for (index, subview) in subviews.enumerated() {
+                let size = subview.sizeThatFits(.unspecified)
+
+                if x + size.width > maxWidth && x > 0 {
+                    // Center the completed row if needed
+                    if centered {
+                        let offset = (maxWidth - rowWidth + spacing) / 2
+                        for i in rowStartIndex..<index {
+                            positions[i].x += offset
+                        }
+                    }
+
+                    x = 0
+                    y += rowHeight + spacing
+                    rowHeight = 0
+                    rowStartIndex = index
+                    rowWidth = 0
+                }
+
+                positions.append(CGPoint(x: x, y: y))
+                rowHeight = max(rowHeight, size.height)
+                rowWidth = x + size.width
+                x += size.width + spacing
+            }
+
+            // Center the last row if needed
+            if centered && !subviews.isEmpty {
+                let offset = (maxWidth - rowWidth + spacing) / 2
+                for i in rowStartIndex..<subviews.count {
+                    positions[i].x += offset
+                }
+            }
+
+            self.size = CGSize(width: maxWidth, height: y + rowHeight)
         }
     }
 }

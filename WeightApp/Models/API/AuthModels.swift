@@ -58,12 +58,13 @@ struct ErrorResponse: Codable {
 }
 
 struct UserPropertiesRequest: Codable {
-    let bodyweight: Double?
+    let availableChangePlates: [Double]?
 }
 
 struct UserPropertiesResponse: Codable {
     let userId: String
     let bodyweight: Double?
+    let availableChangePlates: [Double]?
     let createdDatetime: String
     let lastModifiedDatetime: String
 }

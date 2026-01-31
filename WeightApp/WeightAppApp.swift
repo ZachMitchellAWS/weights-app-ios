@@ -63,6 +63,7 @@ struct WeightAppApp: App {
                 .animation(.easeInOut(duration: 0.4), value: authViewModel.showPostAuthFlow)
                 .preferredColorScheme(.dark)
                 .opacity(showSplash ? 0 : 1)
+                .ignoresSafeArea(.keyboard)
 
                 if showSplash {
                     SplashView()
@@ -80,6 +81,7 @@ struct WeightAppApp: App {
                 if authViewModel.isAuthenticated {
                     Task {
                         await SyncService.shared.processRetryQueue()
+                        await SyncService.shared.processUserPropertiesRetryQueue()
                     }
                 }
 

@@ -22,6 +22,7 @@ final class Exercises {
     var isCustom: Bool
     var loadType: String // Store as String for SwiftData compatibility
     var notes: String?
+    var deleted: Bool
 
     init(name: String, isCustom: Bool, loadType: ExerciseLoadType = .barbell) {
         self.id = UUID()
@@ -31,11 +32,12 @@ final class Exercises {
         self.createdTimezone = TimeZone.current.identifier
         self.loadType = loadType.rawValue
         self.notes = nil
+        self.deleted = false
     }
 
     init(id: UUID? = nil, name: String, isCustom: Bool, loadType: ExerciseLoadType = .barbell,
          createdAt: Date = Date(), createdTimezone: String = TimeZone.current.identifier,
-         notes: String? = nil) {
+         notes: String? = nil, deleted: Bool = false) {
         self.id = id ?? UUID()
         self.name = name
         self.isCustom = isCustom
@@ -43,6 +45,7 @@ final class Exercises {
         self.createdTimezone = createdTimezone
         self.loadType = loadType.rawValue
         self.notes = notes
+        self.deleted = deleted
     }
 
     var exerciseLoadType: ExerciseLoadType {
