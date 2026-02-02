@@ -40,13 +40,14 @@ struct AuthResponse: Codable {
     let emailAddress: String
     let accessToken: String
     let refreshToken: String
-    let expiresIn: Int
+    let accessTokenExpiresIn: Int
+    let refreshTokenExpiresIn: Int
 }
 
 struct RefreshResponse: Codable {
     let userId: String
     let accessToken: String
-    let expiresIn: Int
+    let accessTokenExpiresIn: Int
 }
 
 struct MessageResponse: Codable {
@@ -76,6 +77,7 @@ struct TokenStorage {
     let refreshToken: String
     let userId: String
     let expiresAt: Date
+    let refreshTokenExpiresAt: Date?
 
     var isExpired: Bool {
         Date() >= expiresAt
@@ -86,5 +88,10 @@ struct TokenStorage {
         let totalLifetime: TimeInterval = 15 * 60 // 15 minutes
         let refreshThreshold = totalLifetime * 0.75
         return timeUntilExpiry <= (totalLifetime - refreshThreshold)
+    }
+
+    var isRefreshTokenExpired: Bool {
+        guard let refreshExpiry = refreshTokenExpiresAt else { return false }
+        return Date() >= refreshExpiry
     }
 }

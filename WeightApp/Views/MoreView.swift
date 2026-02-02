@@ -31,6 +31,7 @@ struct MoreView: View {
     @State private var userPropertiesAlertMessage = ""
     @State private var isUpdatingProperties = false
     @State private var showExerciseIds = false
+    @State private var showTokenExpiry = false
 
     @State private var tempBodyweight: Double = 0
 
@@ -250,7 +251,7 @@ struct MoreView: View {
                             showDataPopulatedAlert = true
                         } label: {
                             HStack {
-                                Text("Populate 7 Days of Data")
+                                Text("Populate 28 Days of Data")
                                     .foregroundStyle(.primary)
                                     .padding(.leading, 32)
                                 Spacer()
@@ -352,6 +353,26 @@ struct MoreView: View {
                             }
                         }
 
+                        Button {
+                            withAnimation {
+                                showTokenExpiry.toggle()
+                            }
+                        } label: {
+                            HStack {
+                                Text("Token Expiry Info")
+                                    .foregroundStyle(.primary)
+                                    .padding(.leading, 32)
+                                Spacer()
+                                Image(systemName: showTokenExpiry ? "clock.fill" : "clock")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        if showTokenExpiry {
+                            TokenExpiryView()
+                                .padding(.leading, 32)
+                        }
+
                         Button(role: .destructive) {
                             showDeleteConfirmation = true
                         } label: {
@@ -367,7 +388,7 @@ struct MoreView: View {
                     }
                 } footer: {
                     if showDeveloper {
-                        Text("Generates realistic training data for the past 7 days. Update user properties sends a test API call. Replay onboarding/welcome back shows the post-auth flows. Show Exercise IDs displays UUIDs for debugging. Delete all workout data removes all LiftSet and Estimated1RM entries.")
+                        Text("Generates realistic training data for the past 28 days. Update user properties sends a test API call. Replay onboarding/welcome back shows the post-auth flows. Show Exercise IDs displays UUIDs for debugging. Delete all workout data removes all LiftSet and Estimated1RM entries.")
                     }
                 }
             }
@@ -381,7 +402,7 @@ struct MoreView: View {
             .alert("Data Populated", isPresented: $showDataPopulatedAlert) {
                 Button("OK") { }
             } message: {
-                Text("Successfully generated 7 days of training data.")
+                Text("Successfully generated 28 days of training data.")
             }
             .alert("Today's Data Populated", isPresented: $showTodayDataPopulatedAlert) {
                 Button("OK") { }
@@ -530,7 +551,7 @@ struct MoreView: View {
             return (weight / 2.5).rounded() * 2.5
         }
 
-        // Training plan: alternate between push/pull/legs over 7 days
+        // Training plan: alternate between push/pull/legs over 28 days
         let workoutPlans: [[String]] = [
             ["Bench Press", "Overhead Press", "Dips"], // Push
             ["Deadlift", "Barbell Row", "Pull Ups"], // Pull
@@ -540,7 +561,7 @@ struct MoreView: View {
         // Track max 1RM per exercise for progression
         var exerciseMaxes: [String: Double] = [:]
 
-        for daysAgo in (1...7).reversed() {
+        for daysAgo in (1...28).reversed() {
             guard let workoutDate = calendar.date(byAdding: .day, value: -daysAgo, to: now) else { continue }
 
             let workoutType = (daysAgo - 1) % 3
@@ -746,5 +767,171 @@ struct MoreView: View {
         }
 
         try? modelContext.save()
+    }
+}
+
+// MARK: - Token Expiry View
+
+struct TokenExpiryView: View {
+    // Access token lifetime is 15 minutes (900 seconds)
+    private let accessTokenLifetime: TimeInterval = 15 * 60
+    // Auto-refresh triggers at 75% of lifetime (11.25 min elapsed = 3.75 min remaining)
+    private let refreshThresholdRemaining: TimeInterval = 3.75 * 60
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1.0)) { context in
+            let tokenInfo = getTokenInfo(at: context.date)
+
+            VStack(alignment: .leading, spacing: 12) {
+                // Access Token Expiry
+                TokenCountdownRow(
+                    label: "Access Token",
+                    countdown: tokenInfo.accessTokenCountdown,
+                    isExpired: tokenInfo.accessTokenExpired,
+                    color: tokenInfo.accessTokenExpired ? .red : .green
+                )
+
+                // Auto-Refresh Countdown
+                TokenCountdownRow(
+                    label: "Auto-Refresh In",
+                    countdown: tokenInfo.autoRefreshCountdown,
+                    isExpired: tokenInfo.shouldRefreshNow,
+                    expiredText: "Now",
+                    color: tokenInfo.shouldRefreshNow ? .orange : .blue
+                )
+
+                // Refresh Token Expiry
+                TokenCountdownRow(
+                    label: "Refresh Token",
+                    countdown: tokenInfo.refreshTokenCountdown,
+                    isExpired: tokenInfo.refreshTokenExpired,
+                    color: tokenInfo.refreshTokenExpired ? .red : (tokenInfo.refreshTokenTracked ? .green : .gray)
+                )
+            }
+            .padding(.vertical, 8)
+        }
+    }
+
+    private struct TokenInfo {
+        let accessTokenCountdown: String
+        let accessTokenExpired: Bool
+        let autoRefreshCountdown: String
+        let shouldRefreshNow: Bool
+        let refreshTokenCountdown: String
+        let refreshTokenExpired: Bool
+        let refreshTokenTracked: Bool
+    }
+
+    private func getTokenInfo(at date: Date) -> TokenInfo {
+        guard let tokenStorage = KeychainService.shared.getTokenStorage() else {
+            return TokenInfo(
+                accessTokenCountdown: "No token",
+                accessTokenExpired: true,
+                autoRefreshCountdown: "No token",
+                shouldRefreshNow: true,
+                refreshTokenCountdown: "No token",
+                refreshTokenExpired: true,
+                refreshTokenTracked: false
+            )
+        }
+
+        let timeUntilExpiry = tokenStorage.expiresAt.timeIntervalSince(date)
+        let accessTokenExpired = timeUntilExpiry <= 0
+
+        // Access token countdown
+        let accessTokenCountdown: String
+        if accessTokenExpired {
+            accessTokenCountdown = "Expired"
+        } else {
+            accessTokenCountdown = formatCountdown(timeUntilExpiry)
+        }
+
+        // Auto-refresh countdown (time until shouldRefresh becomes true)
+        // shouldRefresh triggers when timeUntilExpiry <= refreshThresholdRemaining
+        let timeUntilAutoRefresh = timeUntilExpiry - refreshThresholdRemaining
+        let shouldRefreshNow = timeUntilAutoRefresh <= 0
+
+        let autoRefreshCountdown: String
+        if accessTokenExpired {
+            autoRefreshCountdown = "Expired"
+        } else if shouldRefreshNow {
+            autoRefreshCountdown = "Now"
+        } else {
+            autoRefreshCountdown = formatCountdown(timeUntilAutoRefresh)
+        }
+
+        // Refresh token countdown
+        let refreshTokenCountdown: String
+        let refreshTokenExpired: Bool
+        let refreshTokenTracked: Bool
+
+        if let refreshExpiry = tokenStorage.refreshTokenExpiresAt {
+            refreshTokenTracked = true
+            let timeUntilRefreshExpiry = refreshExpiry.timeIntervalSince(date)
+            refreshTokenExpired = timeUntilRefreshExpiry <= 0
+
+            if refreshTokenExpired {
+                refreshTokenCountdown = "Expired"
+            } else {
+                refreshTokenCountdown = formatLongCountdown(timeUntilRefreshExpiry)
+            }
+        } else {
+            refreshTokenTracked = false
+            refreshTokenExpired = false
+            refreshTokenCountdown = "Not tracked"
+        }
+
+        return TokenInfo(
+            accessTokenCountdown: accessTokenCountdown,
+            accessTokenExpired: accessTokenExpired,
+            autoRefreshCountdown: autoRefreshCountdown,
+            shouldRefreshNow: shouldRefreshNow,
+            refreshTokenCountdown: refreshTokenCountdown,
+            refreshTokenExpired: refreshTokenExpired,
+            refreshTokenTracked: refreshTokenTracked
+        )
+    }
+
+    private func formatCountdown(_ seconds: TimeInterval) -> String {
+        let totalSeconds = Int(seconds)
+        let minutes = totalSeconds / 60
+        let secs = totalSeconds % 60
+        return String(format: "%d:%02d", minutes, secs)
+    }
+
+    private func formatLongCountdown(_ seconds: TimeInterval) -> String {
+        let totalSeconds = Int(seconds)
+        let days = totalSeconds / 86400
+        let hours = (totalSeconds % 86400) / 3600
+        let minutes = (totalSeconds % 3600) / 60
+
+        if days > 0 {
+            return String(format: "%dd %dh %dm", days, hours, minutes)
+        } else if hours > 0 {
+            return String(format: "%dh %dm", hours, minutes)
+        } else {
+            return String(format: "%dm", minutes)
+        }
+    }
+}
+
+struct TokenCountdownRow: View {
+    let label: String
+    let countdown: String
+    let isExpired: Bool
+    var expiredText: String = "Expired"
+    let color: Color
+
+    var body: some View {
+        HStack {
+            Text(label)
+                .foregroundStyle(.white.opacity(0.7))
+                .font(.subheadline)
+            Spacer()
+            Text(isExpired && countdown != "Now" ? expiredText : countdown)
+                .foregroundStyle(color)
+                .font(.system(.subheadline, design: .monospaced))
+                .fontWeight(.medium)
+        }
     }
 }

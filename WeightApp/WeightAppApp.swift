@@ -82,6 +82,8 @@ struct WeightAppApp: App {
                     Task {
                         await SyncService.shared.processRetryQueue()
                         await SyncService.shared.processUserPropertiesRetryQueue()
+                        await SyncService.shared.processLiftSetRetryQueue()
+                        await SyncService.shared.processEstimated1RMRetryQueue()
                     }
                 }
 
@@ -90,6 +92,13 @@ struct WeightAppApp: App {
                         showSplash = false
                     }
                 }
+            }
+            .alert("Session Expired", isPresented: $authViewModel.sessionExpired) {
+                Button("Sign In") {
+                    authViewModel.dismissSessionExpiredAlert()
+                }
+            } message: {
+                Text("Your session has expired. Please sign in again to continue.")
             }
         }
         .modelContainer(modelContainer)

@@ -11,6 +11,7 @@ struct WelcomeBackView: View {
     let onComplete: () -> Void
 
     @State private var buttonEnabled = true
+    @State private var isExiting = false
 
     var body: some View {
         ZStack {
@@ -42,7 +43,13 @@ struct WelcomeBackView: View {
 
                 // Continue button
                 Button {
-                    onComplete()
+                    // Smooth exit transition
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        isExiting = true
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        onComplete()
+                    }
                 } label: {
                     Text("Let's Go")
                         .font(.body.weight(.semibold))
@@ -54,10 +61,12 @@ struct WelcomeBackView: View {
                         .animation(.easeInOut(duration: 0.3), value: buttonEnabled)
                 }
                 .buttonStyle(.plain)
-                .disabled(!buttonEnabled)
+                .disabled(!buttonEnabled || isExiting)
                 .padding(.horizontal, 32)
                 .padding(.bottom, 50)
             }
+            .opacity(isExiting ? 0 : 1)
+            .scaleEffect(isExiting ? 0.95 : 1)
         }
     }
 }

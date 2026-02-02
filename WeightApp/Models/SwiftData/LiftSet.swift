@@ -16,7 +16,6 @@ final class LiftSet {
     var reps: Int
     var weight: Double
     var deleted: Bool
-    var deletedAt: Date?
     @Relationship var exercise: Exercises?
 
     init(exercise: Exercises, reps: Int, weight: Double) {
@@ -27,6 +26,5 @@ final class LiftSet {
         self.createdAt = Date()
         self.createdTimezone = TimeZone.current.identifier
         self.deleted = false
-        self.deletedAt = nil
     }
 }

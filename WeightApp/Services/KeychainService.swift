@@ -15,6 +15,7 @@ class KeychainService {
     private let refreshTokenKey = "com.weightapp.refreshToken"
     private let userIdKey = "com.weightapp.userId"
     private let expiresAtKey = "com.weightapp.expiresAt"
+    private let refreshTokenExpiresAtKey = "com.weightapp.refreshTokenExpiresAt"
     private let emailKey = "com.weightapp.email"
     private let createdDatetimeKey = "com.weightapp.createdDatetime"
 
@@ -22,21 +23,23 @@ class KeychainService {
 
     // MARK: - Save Tokens
 
-    func saveTokens(accessToken: String, refreshToken: String, userId: String, expiresIn: Int, email: String? = nil) {
-        let expiresAt = Date().addingTimeInterval(TimeInterval(expiresIn))
+    func saveTokens(accessToken: String, refreshToken: String, userId: String, accessTokenExpiresIn: Int, refreshTokenExpiresIn: Int, email: String? = nil) {
+        let expiresAt = Date().addingTimeInterval(TimeInterval(accessTokenExpiresIn))
+        let refreshTokenExpiresAt = Date().addingTimeInterval(TimeInterval(refreshTokenExpiresIn))
 
         save(key: accessTokenKey, value: accessToken)
         save(key: refreshTokenKey, value: refreshToken)
         save(key: userIdKey, value: userId)
         save(key: expiresAtKey, value: ISO8601DateFormatter().string(from: expiresAt))
+        save(key: refreshTokenExpiresAtKey, value: ISO8601DateFormatter().string(from: refreshTokenExpiresAt))
 
         if let email = email {
             save(key: emailKey, value: email)
         }
     }
 
-    func updateAccessToken(accessToken: String, userId: String, expiresIn: Int) {
-        let expiresAt = Date().addingTimeInterval(TimeInterval(expiresIn))
+    func updateAccessToken(accessToken: String, userId: String, accessTokenExpiresIn: Int) {
+        let expiresAt = Date().addingTimeInterval(TimeInterval(accessTokenExpiresIn))
 
         save(key: accessTokenKey, value: accessToken)
         save(key: userIdKey, value: userId)
@@ -74,11 +77,18 @@ class KeychainService {
             return nil
         }
 
+        // Refresh token expiry is optional (backend may not provide it yet)
+        var refreshTokenExpiresAt: Date? = nil
+        if let refreshExpiresAtString = get(key: refreshTokenExpiresAtKey) {
+            refreshTokenExpiresAt = ISO8601DateFormatter().date(from: refreshExpiresAtString)
+        }
+
         return TokenStorage(
             accessToken: accessToken,
             refreshToken: refreshToken,
             userId: userId,
-            expiresAt: expiresAt
+            expiresAt: expiresAt,
+            refreshTokenExpiresAt: refreshTokenExpiresAt
         )
     }
 
@@ -99,6 +109,7 @@ class KeychainService {
         delete(key: refreshTokenKey)
         delete(key: userIdKey)
         delete(key: expiresAtKey)
+        delete(key: refreshTokenExpiresAtKey)
         delete(key: emailKey)
         delete(key: createdDatetimeKey)
     }

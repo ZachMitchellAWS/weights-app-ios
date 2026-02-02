@@ -23,6 +23,7 @@ class AuthViewModel: ObservableObject {
     @Published var userId: String?
     @Published var isNewUser = false
     @Published var showPostAuthFlow = false
+    @Published var sessionExpired = false
 
     nonisolated(unsafe) private var tokenRefreshTimer: Timer?
     private var modelContext: ModelContext?
@@ -37,12 +38,44 @@ class AuthViewModel: ObservableObject {
     }
 
     func checkAuthStatus() {
-        isAuthenticated = KeychainService.shared.isAuthenticated()
+        // First check if we have tokens
+        guard KeychainService.shared.isAuthenticated() else {
+            isAuthenticated = false
+            userId = nil
+            return
+        }
+
+        // Check if refresh token is expired
+        if let tokenStorage = KeychainService.shared.getTokenStorage(),
+           tokenStorage.isRefreshTokenExpired {
+            handleSessionExpired()
+            return
+        }
+
+        isAuthenticated = true
         userId = KeychainService.shared.getUserId()
     }
 
     func completePostAuthFlow() {
         showPostAuthFlow = false
+    }
+
+    func handleSessionExpired() {
+        // Clear all tokens
+        KeychainService.shared.clearTokens()
+
+        // Clear sync retry queue
+        SyncService.shared.clearOnLogout()
+
+        // Update state
+        isAuthenticated = false
+        userId = nil
+        sessionExpired = true
+        stopTokenRefreshTimer()
+    }
+
+    func dismissSessionExpiredAlert() {
+        sessionExpired = false
     }
 
     func login(email: String, password: String) async -> AuthResult {
@@ -143,11 +176,24 @@ class AuthViewModel: ObservableObject {
     private func refreshTokenIfNeeded() async {
         guard isAuthenticated else { return }
 
+        // Check if refresh token is expired before attempting refresh
+        if let tokenStorage = KeychainService.shared.getTokenStorage(),
+           tokenStorage.isRefreshTokenExpired {
+            handleSessionExpired()
+            return
+        }
+
         do {
             try await APIService.shared.refreshTokenIfNeeded()
+        } catch let error as APIError {
+            // If we get unauthorized, the refresh token is likely expired/invalid
+            if case .unauthorized = error {
+                handleSessionExpired()
+            }
+            // For other errors, silently fail and retry on next attempt
+            // This allows recovery from temporary network issues
         } catch {
             // Silently fail and retry on next attempt
-            // This allows recovery from temporary network issues
         }
     }
 

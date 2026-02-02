@@ -141,7 +141,8 @@ class APIService {
             accessToken: response.accessToken,
             refreshToken: response.refreshToken,
             userId: response.userId,
-            expiresIn: response.expiresIn,
+            accessTokenExpiresIn: response.accessTokenExpiresIn,
+            refreshTokenExpiresIn: response.refreshTokenExpiresIn,
             email: response.emailAddress
         )
 
@@ -162,7 +163,8 @@ class APIService {
             accessToken: response.accessToken,
             refreshToken: response.refreshToken,
             userId: response.userId,
-            expiresIn: response.expiresIn,
+            accessTokenExpiresIn: response.accessTokenExpiresIn,
+            refreshTokenExpiresIn: response.refreshTokenExpiresIn,
             email: response.emailAddress
         )
 
@@ -186,7 +188,7 @@ class APIService {
         KeychainService.shared.updateAccessToken(
             accessToken: response.accessToken,
             userId: response.userId,
-            expiresIn: response.expiresIn
+            accessTokenExpiresIn: response.accessTokenExpiresIn
         )
     }
 
@@ -264,6 +266,74 @@ class APIService {
         let body = DeleteExercisesRequest(exerciseItemIds: exerciseIds)
         return try await requestWithDateDecoding(
             endpoint: "/checkin/exercises",
+            method: "DELETE",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    // MARK: - Lift Set Sync Endpoints
+
+    func getLiftSets(limit: Int = 100, pageToken: String? = nil) async throws -> GetLiftSetsResponse {
+        var endpoint = "/checkin/lift-sets?limit=\(limit)"
+        if let pageToken = pageToken {
+            endpoint += "&pageToken=\(pageToken)"
+        }
+        return try await requestWithDateDecoding(
+            endpoint: endpoint,
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+
+    func createLiftSets(_ liftSets: [LiftSetDTO]) async throws -> CreateLiftSetsResponse {
+        let body = CreateLiftSetsRequest(liftSets: liftSets)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/lift-sets",
+            method: "POST",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    func deleteLiftSets(_ liftSetIds: [UUID]) async throws -> DeleteLiftSetsResponse {
+        let body = DeleteLiftSetsRequest(liftSetIds: liftSetIds)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/lift-sets",
+            method: "DELETE",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    // MARK: - Estimated 1RM Sync Endpoints
+
+    func getEstimated1RMs(limit: Int = 100, pageToken: String? = nil) async throws -> GetEstimated1RMsResponse {
+        var endpoint = "/checkin/estimated-1rm?limit=\(limit)"
+        if let pageToken = pageToken {
+            endpoint += "&pageToken=\(pageToken)"
+        }
+        return try await requestWithDateDecoding(
+            endpoint: endpoint,
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+
+    func createEstimated1RMs(_ estimated1RMs: [Estimated1RMDTO]) async throws -> CreateEstimated1RMsResponse {
+        let body = CreateEstimated1RMsRequest(estimated1RMs: estimated1RMs)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/estimated-1rm",
+            method: "POST",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    func deleteEstimated1RMs(liftSetIds: [UUID]) async throws -> DeleteEstimated1RMsResponse {
+        let body = DeleteEstimated1RMsRequest(liftSetIds: liftSetIds)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/estimated-1rm",
             method: "DELETE",
             body: body,
             requiresAuth: true

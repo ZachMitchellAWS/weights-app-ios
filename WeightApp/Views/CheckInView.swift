@@ -306,7 +306,7 @@ struct CheckInView: View {
                         get: { weightDelta },
                         set: { if let v = $0 { weightDelta = v } }
                     ))
-                    .presentationDetents([.medium])
+                    .presentationDetents([.height(480), .large])
                     .presentationDragIndicator(.visible)
                 }
                 .alert("No Exercises Found", isPresented: $showNoExercisesAlert) {
@@ -1879,8 +1879,11 @@ struct CheckInView: View {
 
                 HStack(spacing: 8) {
                     Button {
-                        // Find previous delta in availableWeightDeltas
-                        if let currentIndex = availableWeightDeltas.firstIndex(where: { abs($0 - weightDelta) < 0.01 }),
+                        // If at minimum, open change plates view to add smaller increments
+                        if weightDelta <= minWeightDelta {
+                            hapticFeedback.impactOccurred()
+                            showIncrementSelection = true
+                        } else if let currentIndex = availableWeightDeltas.firstIndex(where: { abs($0 - weightDelta) < 0.01 }),
                            currentIndex > 0 {
                             weightDelta = availableWeightDeltas[currentIndex - 1]
                             hapticFeedback.impactOccurred()
@@ -1890,7 +1893,6 @@ struct CheckInView: View {
                             .font(.system(size: 20))
                             .foregroundStyle(weightDelta > minWeightDelta ? Color.appAccent : .gray)
                     }
-                    .disabled(weightDelta <= minWeightDelta)
 
                     Button {
                         hapticFeedback.impactOccurred()
@@ -1909,8 +1911,11 @@ struct CheckInView: View {
                     .buttonStyle(.plain)
 
                     Button {
-                        // Find next delta in availableWeightDeltas
-                        if let currentIndex = availableWeightDeltas.firstIndex(where: { abs($0 - weightDelta) < 0.01 }),
+                        // If at maximum, open change plates view
+                        if weightDelta >= maxWeightDelta {
+                            hapticFeedback.impactOccurred()
+                            showIncrementSelection = true
+                        } else if let currentIndex = availableWeightDeltas.firstIndex(where: { abs($0 - weightDelta) < 0.01 }),
                            currentIndex < availableWeightDeltas.count - 1 {
                             weightDelta = availableWeightDeltas[currentIndex + 1]
                             hapticFeedback.impactOccurred()
@@ -1920,7 +1925,6 @@ struct CheckInView: View {
                             .font(.system(size: 20))
                             .foregroundStyle(weightDelta < maxWeightDelta ? Color.appAccent : .gray)
                     }
-                    .disabled(weightDelta >= maxWeightDelta)
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
@@ -2633,6 +2637,12 @@ struct CheckInView: View {
         let estimated = Estimated1RM(exercise: ex, value: after, setId: set.id)
         modelContext.insert(estimated)
 
+        // Sync lift set and estimated 1RM to backend
+        Task {
+            await SyncService.shared.syncLiftSet(set)
+            await SyncService.shared.syncEstimated1RM(estimated)
+        }
+
         overlayDidIncrease = increased
         overlayDelta = d
         overlayNew1RM = after
@@ -3084,17 +3094,27 @@ struct SetSquareView: View {
     }
 
     private func deleteSet() {
+        let setId = set.id
+
         // Soft delete the set
         set.deleted = true
-        set.deletedAt = Date()
 
         // Find and soft delete associated Estimated1RM if it exists
-        if let associated1RM = allEstimated1RMs.first(where: { $0.setId == set.id }) {
+        var estimated1RMId: UUID? = nil
+        if let associated1RM = allEstimated1RMs.first(where: { $0.setId == setId }) {
             associated1RM.deleted = true
-            associated1RM.deletedAt = Date()
+            estimated1RMId = associated1RM.id
         }
 
         try? modelContext.save()
+
+        // Sync deletes to backend
+        Task {
+            await SyncService.shared.deleteLiftSet(setId)
+            if estimated1RMId != nil {
+                await SyncService.shared.deleteEstimated1RM(estimated1RMId: estimated1RMId!, liftSetId: setId)
+            }
+        }
     }
 }
 
@@ -3251,10 +3271,11 @@ struct ChangePlatesView: View {
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.white)
 
-                    Text("Select your available change plates")
+                    Text("Plates smaller than 2.5 lbs for fine-tuning increments")
                         .font(.subheadline)
                         .foregroundStyle(.white.opacity(0.6))
                         .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
 
                     BarbellPlateIcon(size: 48)
                         .foregroundStyle(Color.appAccent.opacity(0.8))

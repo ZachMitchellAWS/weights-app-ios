@@ -10,8 +10,10 @@ import SwiftData
 
 struct TrendsView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \LiftSet.createdAt) private var allSets: [LiftSet]
+    @Query(filter: #Predicate<LiftSet> { !$0.deleted }, sort: \LiftSet.createdAt) private var allSets: [LiftSet]
+    @Query(filter: #Predicate<Estimated1RM> { !$0.deleted }) private var allEstimated1RMs: [Estimated1RM]
     @ObservedObject var selectedSetData: SelectedSetData
+    @ObservedObject private var syncService = SyncService.shared
     @Binding var selectedTab: Int
     @State private var setToDelete: LiftSet? = nil
     @State private var showDeleteConfirmation = false
@@ -129,12 +131,48 @@ struct TrendsView: View {
                 Button("Cancel", role: .cancel) { }
                 Button("Delete", role: .destructive) {
                     if let set = setToDelete {
-                        modelContext.delete(set)
+                        let setId = set.id
+                        set.deleted = true
+
+                        // Also mark the associated Estimated1RM as deleted
+                        var estimated1RMId: UUID? = nil
+                        if let associated1RM = allEstimated1RMs.first(where: { $0.setId == setId }) {
+                            associated1RM.deleted = true
+                            estimated1RMId = associated1RM.id
+                        }
+
+                        try? modelContext.save()
+
+                        Task {
+                            await SyncService.shared.deleteLiftSet(setId)
+                            // Also delete the associated Estimated1RM from backend
+                            if estimated1RMId != nil {
+                                await SyncService.shared.deleteEstimated1RM(estimated1RMId: estimated1RMId!, liftSetId: setId)
+                            }
+                        }
                     }
                 }
             } message: {
                 if let set = setToDelete {
                     Text("Delete \(set.reps) × \(set.weight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs?")
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                if syncService.isSyncingLiftSets {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: Color.appAccent))
+                            .scaleEffect(0.8)
+
+                        Text(syncService.liftSetSyncProgress ?? "Syncing...")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.7))
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color(white: 0.1))
                 }
             }
         }

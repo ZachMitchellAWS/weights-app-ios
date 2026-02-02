@@ -13,6 +13,7 @@ struct OnboardingView: View {
 
     @State private var currentPage = 0
     @State private var buttonEnabled = false
+    @State private var isExiting = false
 
     private let totalPages = 3
 
@@ -76,7 +77,13 @@ struct OnboardingView: View {
                             }
                         }
                     } else {
-                        onComplete()
+                        // Smooth exit transition
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            isExiting = true
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                            onComplete()
+                        }
                     }
                 } label: {
                     Text(currentPage < totalPages - 1 ? "Continue" : "Get Started")
@@ -89,10 +96,12 @@ struct OnboardingView: View {
                         .animation(.easeInOut(duration: 0.3), value: buttonEnabled)
                 }
                 .buttonStyle(.plain)
-                .disabled(!buttonEnabled)
+                .disabled(!buttonEnabled || isExiting)
                 .padding(.horizontal, 32)
                 .padding(.bottom, 50)
             }
+            .opacity(isExiting ? 0 : 1)
+            .scaleEffect(isExiting ? 0.95 : 1)
         }
         .onAppear {
             // Enable button after 1.5 second delay
