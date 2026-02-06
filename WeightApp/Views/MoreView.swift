@@ -38,6 +38,7 @@ struct MoreView: View {
     @State private var showTokenExpiry = false
     @State private var showUpsellPreview = false
     @State private var showExerciseIcons = false
+    @State private var showAlertPreviews = false
     @State private var copiedToast: String?
 
     @State private var tempBodyweight: Double = 0
@@ -124,6 +125,40 @@ struct MoreView: View {
     var body: some View {
         NavigationStack {
             Form {
+                // Branding Header
+                Section {
+                    HStack(spacing: 16) {
+                        Image("LiftTheBullIcon")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 60, height: 60)
+                            .foregroundStyle(Color.appLogoColor)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Lift the Bull")
+                                .font(.bebasNeue(size: 28))
+                                .foregroundStyle(.white)
+                            Text("Let's keep making progress")
+                                .font(.inter(size: 14))
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
+
+                        Spacer()
+                    }
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color(white: 0.12))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(Color.appLogoColor.opacity(0.5), lineWidth: 1.5)
+                    )
+                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                    .listRowBackground(Color.clear)
+                }
+
                 // Account Section (Top, Expandable)
                 Section {
                     Button {
@@ -142,6 +177,7 @@ struct MoreView: View {
                                 .foregroundStyle(.white.opacity(0.3))
                                 .font(.system(size: 14))
                         }
+                        .padding(.horizontal, 4)
                     }
 
                     if showAccount {
@@ -278,6 +314,7 @@ struct MoreView: View {
                                 .foregroundStyle(.white.opacity(0.3))
                                 .font(.system(size: 14))
                         }
+                        .padding(.horizontal, 4)
                     }
 
                     if showSettings {
@@ -382,6 +419,7 @@ struct MoreView: View {
                                 .foregroundStyle(.white.opacity(0.3))
                                 .font(.system(size: 14))
                         }
+                        .padding(.horizontal, 4)
                     }
 
                     if showDeveloper {
@@ -591,6 +629,19 @@ struct MoreView: View {
                             }
                         }
 
+                        Button {
+                            showAlertPreviews = true
+                        } label: {
+                            HStack {
+                                Text("Preview Alerts")
+                                    .foregroundStyle(.primary)
+                                    .padding(.leading, 32)
+                                Spacer()
+                                Image(systemName: "bell.badge")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
                         Button(role: .destructive) {
                             showDeleteConfirmation = true
                         } label: {
@@ -610,7 +661,7 @@ struct MoreView: View {
                     }
                 }
             }
-            .navigationTitle("More")
+            .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showWeightInput) {
                 weightInputSheet
             }
@@ -624,6 +675,9 @@ struct MoreView: View {
             }
             .sheet(isPresented: $showExerciseIcons) {
                 ExerciseIconsPreviewSheet(exercises: exercises)
+            }
+            .sheet(isPresented: $showAlertPreviews) {
+                AlertPreviewsSheet()
             }
             .alert("Data Populated", isPresented: $showDataPopulatedAlert) {
                 Button("OK") { }
@@ -1329,5 +1383,285 @@ struct ExerciseIconsPreviewSheet: View {
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+    }
+}
+
+// MARK: - Alert Previews Sheet
+
+struct AlertPreviewsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedPreview: AlertPreviewType? = nil
+
+    enum AlertPreviewType: String, CaseIterable, Identifiable {
+        case submitPR = "Set Logged (PR)"
+        case submitNearMax = "Set Logged (Near Max)"
+        case submitHard = "Set Logged (Hard)"
+        case submitModerate = "Set Logged (Moderate)"
+        case submitEasy = "Set Logged (Easy)"
+        case cancel = "Not Logged"
+        case confirmation = "Confirmation Dialog"
+
+        var id: String { rawValue }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
+
+                ScrollView {
+                    VStack(spacing: 16) {
+                        ForEach(AlertPreviewType.allCases) { previewType in
+                            Button {
+                                selectedPreview = previewType
+                            } label: {
+                                HStack {
+                                    Text(previewType.rawValue)
+                                        .foregroundStyle(.white)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .foregroundStyle(.white.opacity(0.3))
+                                }
+                                .padding()
+                                .background(Color(white: 0.15))
+                                .cornerRadius(12)
+                            }
+                        }
+                    }
+                    .padding()
+                }
+            }
+            .navigationTitle("Alert Previews")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .foregroundStyle(Color.appAccent)
+                }
+            }
+            .overlay {
+                if let preview = selectedPreview {
+                    alertPreview(for: preview)
+                        .onTapGesture {
+                            selectedPreview = nil
+                        }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    @ViewBuilder
+    private func alertPreview(for type: AlertPreviewType) -> some View {
+        switch type {
+        case .submitPR:
+            SubmitOverlayPreview(didIncrease: true, delta: 12.5, intensityLabel: "PR", intensityColor: .setPR)
+        case .submitNearMax:
+            SubmitOverlayPreview(didIncrease: false, delta: 0, intensityLabel: "Redline", intensityColor: .setNearMax)
+        case .submitHard:
+            SubmitOverlayPreview(didIncrease: false, delta: 0, intensityLabel: "Hard", intensityColor: .setHard)
+        case .submitModerate:
+            SubmitOverlayPreview(didIncrease: false, delta: 0, intensityLabel: "Moderate", intensityColor: .setModerate)
+        case .submitEasy:
+            SubmitOverlayPreview(didIncrease: false, delta: 0, intensityLabel: "Easy", intensityColor: .setEasy)
+        case .cancel:
+            CancelOverlayPreview()
+        case .confirmation:
+            ConfirmationOverlayPreview(onDismiss: { selectedPreview = nil })
+        }
+    }
+}
+
+// MARK: - Alert Preview Components
+
+private struct SubmitOverlayPreview: View {
+    let didIncrease: Bool
+    let delta: Double
+    let intensityLabel: String
+    let intensityColor: Color
+
+    @State private var iconScale: CGFloat = 0.5
+    @State private var iconOpacity: Double = 0
+
+    private let squareSize: CGFloat = 160
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.15)
+                .ignoresSafeArea()
+
+            VStack(spacing: 10) {
+                if didIncrease {
+                    Image("LiftTheBullIcon")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 60, height: 60)
+                        .foregroundStyle(Color.appLogoColor)
+                        .scaleEffect(iconScale)
+                        .opacity(iconOpacity)
+                } else {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 44, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(Color.setEasy)
+                        .scaleEffect(iconScale)
+                        .opacity(iconOpacity)
+                }
+
+                if didIncrease {
+                    VStack(spacing: 4) {
+                        Text("Increased 1RM by")
+                            .font(.subheadline)
+                        Text("+\(delta.formatted(.number.precision(.fractionLength(2)))) lbs")
+                            .font(.title.weight(.semibold))
+                            .foregroundStyle(Color.appLogoColor)
+                    }
+                } else {
+                    VStack(spacing: 2) {
+                        Text(intensityLabel)
+                            .font(.bebasNeue(size: 28))
+                            .foregroundStyle(intensityColor)
+                        Text("Set Logged")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
+                }
+            }
+            .frame(width: squareSize, height: squareSize)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(Color.appLogoColor.opacity(0.5), lineWidth: 1.5)
+            )
+        }
+        .onAppear {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.6)) {
+                iconScale = 1.0
+                iconOpacity = 1.0
+            }
+        }
+    }
+}
+
+private struct CancelOverlayPreview: View {
+    private let squareSize: CGFloat = 160
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.15)
+                .ignoresSafeArea()
+
+            VStack(spacing: 10) {
+                Image(systemName: "arrow.uturn.backward.circle.fill")
+                    .font(.system(size: 44, weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.white.opacity(0.7))
+
+                Text("Not Logged")
+                    .font(.headline)
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+            .frame(width: squareSize, height: squareSize)
+            .background(Color(white: 0.2).opacity(0.95), in: RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(Color.appLogoColor.opacity(0.5), lineWidth: 1.5)
+            )
+        }
+    }
+}
+
+private struct ConfirmationOverlayPreview: View {
+    let onDismiss: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.5)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    onDismiss()
+                }
+
+            VStack(spacing: 20) {
+                VStack(spacing: 8) {
+                    Image(systemName: "dumbbell.fill")
+                        .font(.system(size: 50))
+                        .foregroundStyle(Color.appAccent)
+
+                    Text("Bench Press")
+                        .font(.bebasNeue(size: 24))
+                        .foregroundStyle(Color.appAccent)
+                }
+
+                HStack(spacing: 16) {
+                    HStack(spacing: 6) {
+                        Text("185.00 lbs")
+                            .font(.title2)
+                            .foregroundStyle(.white)
+                    }
+
+                    Rectangle()
+                        .fill(.white.opacity(0.2))
+                        .frame(width: 1, height: 24)
+
+                    HStack(spacing: 6) {
+                        Text("8")
+                            .font(.title2)
+                            .foregroundStyle(.white)
+                        Text("reps")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(Color(white: 0.08))
+                .cornerRadius(12)
+
+                Rectangle()
+                    .fill(Color.white.opacity(0.15))
+                    .frame(height: 1)
+                    .padding(.horizontal, 4)
+
+                HStack(spacing: 10) {
+                    Button {
+                        onDismiss()
+                    } label: {
+                        Text("Cancel")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.8))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color(white: 0.2))
+                            .cornerRadius(10)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        onDismiss()
+                    } label: {
+                        Text("Confirm")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color.appAccent)
+                            .cornerRadius(10)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(24)
+            .background(Color(white: 0.14))
+            .cornerRadius(20)
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .strokeBorder(Color.appLogoColor.opacity(0.5), lineWidth: 1.5)
+            )
+            .padding(.horizontal, 40)
+        }
     }
 }

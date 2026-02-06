@@ -20,6 +20,8 @@ struct CheckInView: View {
     @State private var reps: Int = 8
     @State private var weight: Double = 20.0
     @State private var hasSetInitialValues = false
+    @State private var hasSetWeight = false
+    @State private var hasSetReps = false
 
     @State private var newExercisesName: String = ""
     @State private var newExercisesLoadType: ExerciseLoadType = .barbell
@@ -28,6 +30,8 @@ struct CheckInView: View {
     @State private var overlayDidIncrease = false
     @State private var overlayDelta: Double = 0
     @State private var overlayNew1RM: Double = 0
+    @State private var overlayIntensityColor: Color = .setEasy
+    @State private var overlayIntensityLabel: String = "Easy"
 
     @State private var showWeightPicker = false
     @State private var weightInput: String = ""
@@ -40,7 +44,6 @@ struct CheckInView: View {
     @State private var editingExercisesLoadType: ExerciseLoadType = .barbell
     @State private var showLogConfirmation = false
     @State private var showCancelOverlay = false
-    @State private var showValidationMessage = false
     @State private var weightDelta: Double = 5.0
     @State private var showExercisesSelection = false
     @State private var selectedGraphTab: Int = 0 // 0 = Set Intensity, 1 = 1RM Graph
@@ -244,7 +247,9 @@ struct CheckInView: View {
                     SubmitOverlayView(
                         didIncrease: overlayDidIncrease,
                         delta: overlayDelta,
-                        new1RM: overlayNew1RM
+                        new1RM: overlayNew1RM,
+                        intensityLabel: overlayIntensityLabel,
+                        intensityColor: overlayIntensityColor
                     )
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     .zIndex(10)
@@ -253,13 +258,6 @@ struct CheckInView: View {
 
                 if showCancelOverlay {
                     CancelOverlayView()
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                        .zIndex(10)
-                        .allowsHitTesting(false)
-                }
-
-                if showValidationMessage {
-                    ValidationMessageOverlayView()
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                         .zIndex(10)
                         .allowsHitTesting(false)
@@ -609,9 +607,12 @@ struct CheckInView: View {
             // Done button
             Button {
                 let result = evaluateCalculator()
-                if result > 0 && result <= 1000 {
+                // Allow zero for single load (bodyweight) exercises
+                let minWeight = selectedExercises?.exerciseLoadType == .singleLoad ? 0.0 : 0.01
+                if result >= minWeight && result <= 1000 {
                     weight = result
                     hasSetInitialValues = true
+                    hasSetWeight = true
                 }
                 showWeightPicker = false
             } label: {
@@ -708,9 +709,10 @@ struct CheckInView: View {
 
         // Check limits based on whether we have a decimal
         if currentCalcInput.contains(".") {
-            // With decimal: limit to 2 decimal places
+            // With decimal: on 3rd decimal digit, clear and start over
             let parts = currentCalcInput.split(separator: ".")
             if parts.count > 1 && parts[1].count >= 2 {
+                currentCalcInput = digit
                 return
             }
         } else {
@@ -891,6 +893,7 @@ struct CheckInView: View {
                     if repsInput != "---", let value = Int(repsInput), value > 0, value <= 99 {
                         reps = value
                         hasSetInitialValues = true
+                        hasSetReps = true
                     }
                     showRepsPicker = false
                 } label: {
@@ -914,7 +917,7 @@ struct CheckInView: View {
             )
         )
         .onAppear {
-            if hasSetInitialValues {
+            if hasSetReps {
                 repsInput = "\(reps)"
             } else {
                 repsInput = "---"
@@ -1088,6 +1091,21 @@ struct CheckInView: View {
                                 .foregroundStyle(.white.opacity(0.5))
                             Spacer()
                         }
+                    }
+
+                    // Load type (read-only)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Load Type")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.7))
+
+                        Text(selectedExercises?.exerciseLoadType.rawValue ?? "Unknown")
+                            .font(.body)
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(white: 0.08))
+                            .cornerRadius(10)
+                            .foregroundStyle(.white.opacity(0.6))
                     }
 
                     // Notes text field
@@ -1417,22 +1435,15 @@ struct CheckInView: View {
             ZStack {
                 // Sample chart with colorful bars
                 Chart {
-                    // Create sample bars with different intensity values to showcase colors
-                    let green = Color(red: 0x84/255, green: 0xCC/255, blue: 0x16/255)
-                    let yellow = Color(red: 0xEA/255, green: 0xB3/255, blue: 0x08/255)
-                    let orange = Color(red: 0xF9/255, green: 0x73/255, blue: 0x16/255)
-                    let red = Color(red: 0xEF/255, green: 0x44/255, blue: 0x44/255)
-                    let cyan = Color(red: 0x06/255, green: 0xB6/255, blue: 0xD4/255)
-
                     let sampleData: [(height: Double, color: [Color])] = [
-                        (60, [green, green.opacity(0.8)]), // Easy
-                        (75, [yellow, yellow.opacity(0.8)]), // Moderate
-                        (85, [orange, orange.opacity(0.8)]), // Hard
-                        (95, [red, red.opacity(0.8)]), // Near Failure
-                        (110, [cyan, cyan.opacity(0.8)]), // PR
-                        (100, [red, red.opacity(0.8)]), // Near Failure
-                        (90, [orange, orange.opacity(0.8)]), // Hard
-                        (105, [red, red.opacity(0.8)]), // Near Failure
+                        (60, [.setEasy, .setEasy.opacity(0.8)]), // Easy
+                        (75, [.setModerate, .setModerate.opacity(0.8)]), // Moderate
+                        (85, [.setHard, .setHard.opacity(0.8)]), // Hard
+                        (95, [.setNearMax, .setNearMax.opacity(0.8)]), // Near Max
+                        (110, [.setPR, .setPR.opacity(0.8)]), // PR
+                        (100, [.setNearMax, .setNearMax.opacity(0.8)]), // Near Max
+                        (90, [.setHard, .setHard.opacity(0.8)]), // Hard
+                        (105, [.setNearMax, .setNearMax.opacity(0.8)]), // Near Max
                     ]
 
                     ForEach(0..<sampleData.count, id: \.self) { index in
@@ -1502,52 +1513,35 @@ struct CheckInView: View {
         }
 
         private func colorForPercentage(_ percentage: Double, isPR: Bool, weight: Double, reps: Int) -> [Color] {
-            // If it's a PR, use special cyan gradient
+            // If it's a PR, use special PR color
             if isPR {
-                let cyan = Color(red: 0x06/255, green: 0xB6/255, blue: 0xD4/255)
-                return [cyan, cyan.opacity(0.8)]
+                return [.setPR, .setPR.opacity(0.8)]
             }
 
             // For 0-weight sets, color by reps (more reps = harder)
             if weight == 0 {
                 switch reps {
                 case 12...:
-                    // Near Failure - Red
-                    let red = Color(red: 0xEF/255, green: 0x44/255, blue: 0x44/255)
-                    return [red, red.opacity(0.8)]
+                    return [.setNearMax, .setNearMax.opacity(0.8)]
                 case 9..<12:
-                    // Hard - Orange
-                    let orange = Color(red: 0xF9/255, green: 0x73/255, blue: 0x16/255)
-                    return [orange, orange.opacity(0.8)]
+                    return [.setHard, .setHard.opacity(0.8)]
                 case 6..<9:
-                    // Moderate - Yellow
-                    let yellow = Color(red: 0xEA/255, green: 0xB3/255, blue: 0x08/255)
-                    return [yellow, yellow.opacity(0.8)]
+                    return [.setModerate, .setModerate.opacity(0.8)]
                 default:
-                    // Easy - Green
-                    let green = Color(red: 0x84/255, green: 0xCC/255, blue: 0x16/255)
-                    return [green, green.opacity(0.8)]
+                    return [.setEasy, .setEasy.opacity(0.8)]
                 }
             }
 
             // Otherwise, color by percentage of current 1RM (intensity)
             switch percentage {
             case 85...:
-                // 85%+ - Near Failure - Red
-                let red = Color(red: 0xEF/255, green: 0x44/255, blue: 0x44/255)
-                return [red, red.opacity(0.8)]
+                return [.setNearMax, .setNearMax.opacity(0.8)]
             case 75..<85:
-                // 75-85% - Hard - Orange
-                let orange = Color(red: 0xF9/255, green: 0x73/255, blue: 0x16/255)
-                return [orange, orange.opacity(0.8)]
+                return [.setHard, .setHard.opacity(0.8)]
             case 65..<75:
-                // 65-75% - Moderate - Yellow
-                let yellow = Color(red: 0xEA/255, green: 0xB3/255, blue: 0x08/255)
-                return [yellow, yellow.opacity(0.8)]
+                return [.setModerate, .setModerate.opacity(0.8)]
             default:
-                // < 65% - Easy - Green
-                let green = Color(red: 0x84/255, green: 0xCC/255, blue: 0x16/255)
-                return [green, green.opacity(0.8)]
+                return [.setEasy, .setEasy.opacity(0.8)]
             }
         }
 
@@ -1738,15 +1732,9 @@ struct CheckInView: View {
     }
 
     private var setComparisonView: some View {
-        let green = Color(red: 0x84/255, green: 0xCC/255, blue: 0x16/255)
-        let yellow = Color(red: 0xEA/255, green: 0xB3/255, blue: 0x08/255)
-        let orange = Color(red: 0xF9/255, green: 0x73/255, blue: 0x16/255)
-        let red = Color(red: 0xEF/255, green: 0x44/255, blue: 0x44/255)
-        let cyan = Color(red: 0x06/255, green: 0xB6/255, blue: 0xD4/255)
-
         let placeholderSquares: [[Color]] = [
-            [green, yellow, orange, cyan, red, orange, yellow],
-            [yellow, orange, red, cyan, orange, yellow, green]
+            [.setEasy, .setModerate, .setHard, .setPR, .setNearMax, .setHard, .setModerate],
+            [.setModerate, .setHard, .setNearMax, .setPR, .setHard, .setModerate, .setEasy]
         ]
 
         return Group {
@@ -1827,6 +1815,8 @@ struct CheckInView: View {
                                             weight = set.weight
                                             reps = set.reps
                                             hasSetInitialValues = true
+                                            hasSetWeight = true
+                                            hasSetReps = true
                                             selectedSquareId = set.id
                                             highlightLogSet()
                                             hapticFeedback.impactOccurred()
@@ -1879,6 +1869,8 @@ struct CheckInView: View {
                                             weight = set.weight
                                             reps = set.reps
                                             hasSetInitialValues = true
+                                            hasSetWeight = true
+                                            hasSetReps = true
                                             selectedSquareId = set.id
                                             highlightLogSet()
                                             hapticFeedback.impactOccurred()
@@ -1997,11 +1989,11 @@ struct CheckInView: View {
 
             // Legend
             HStack(spacing: 10) {
-                LegendItem(color: Color(red: 0x84/255, green: 0xCC/255, blue: 0x16/255), label: "Easy")
-                LegendItem(color: Color(red: 0xEA/255, green: 0xB3/255, blue: 0x08/255), label: "Moderate")
-                LegendItem(color: Color(red: 0xF9/255, green: 0x73/255, blue: 0x16/255), label: "Hard")
-                LegendItem(color: Color(red: 0xEF/255, green: 0x44/255, blue: 0x44/255), label: "Redline")
-                LegendItem(color: Color(red: 0x06/255, green: 0xB6/255, blue: 0xD4/255), label: "Est. 1RM PR")
+                LegendItem(color: .setEasy, label: "Easy")
+                LegendItem(color: .setModerate, label: "Moderate")
+                LegendItem(color: .setHard, label: "Hard")
+                LegendItem(color: .setNearMax, label: "Redline")
+                LegendItem(color: .setPR, label: "Est. 1RM PR")
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 10)
@@ -2130,7 +2122,7 @@ struct CheckInView: View {
                             handleColumnTap(.weight)
                         } label: {
                             VStack(spacing: 0) {
-                                Text("WEIGHT (LB)")
+                                Text("WEIGHT")
                                     .font(.caption2.weight(.bold))
                                     .foregroundStyle(columnHighlighted && sortColumn == .weight ? Color.appAccent : Color.appLabel)
                                     .animation(.easeInOut(duration: 0.15), value: columnHighlighted)
@@ -2306,12 +2298,13 @@ struct CheckInView: View {
                             showExercisesSelection = true
                             return
                         }
-                        if !hasSetInitialValues {
+                        if !hasSetWeight {
                             weight = selectedExercises?.exerciseLoadType == .barbell ? 45.0 : 0.0
                         } else {
                             weight = max(0, weight - smallestPlateIncrement)
                         }
                         hasSetInitialValues = true
+                        hasSetWeight = true
                         hapticFeedback.impactOccurred()
                     } label: {
                         Image(systemName: "minus.circle.fill")
@@ -2327,7 +2320,7 @@ struct CheckInView: View {
                         showWeightPicker = true
                     } label: {
                         VStack(spacing: 1) {
-                            Text(hasSetInitialValues ? weight.rounded1().formatted(.number.precision(.fractionLength(2))) : "---")
+                            Text(hasSetWeight ? weight.rounded1().formatted(.number.precision(.fractionLength(2))) : "---")
                                 .font(.title2)
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
@@ -2345,12 +2338,13 @@ struct CheckInView: View {
                             showExercisesSelection = true
                             return
                         }
-                        if !hasSetInitialValues {
+                        if !hasSetWeight {
                             weight = selectedExercises?.exerciseLoadType == .barbell ? 45.0 : 0.0
                         } else {
                             weight = min(1000, weight + smallestPlateIncrement)
                         }
                         hasSetInitialValues = true
+                        hasSetWeight = true
                         hapticFeedback.impactOccurred()
                     } label: {
                         Image(systemName: "plus.circle.fill")
@@ -2375,6 +2369,7 @@ struct CheckInView: View {
                             return
                         }
                         hasSetInitialValues = true
+                        hasSetReps = true
                         reps = max(1, reps - 1)
                         hapticFeedback.impactOccurred()
                     } label: {
@@ -2391,7 +2386,7 @@ struct CheckInView: View {
                         showRepsPicker = true
                     } label: {
                         VStack(spacing: 2) {
-                            Text(hasSetInitialValues ? "\(reps)" : "---")
+                            Text(hasSetReps ? "\(reps)" : "---")
                                 .font(.title2)
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
@@ -2410,6 +2405,7 @@ struct CheckInView: View {
                             return
                         }
                         hasSetInitialValues = true
+                        hasSetReps = true
                         reps = min(99, reps + 1)
                         hapticFeedback.impactOccurred()
                     } label: {
@@ -2432,17 +2428,14 @@ struct CheckInView: View {
                     showExercisesSelection = true
                     return
                 }
-                if !hasSetInitialValues {
-                    showValidationMessage = true
-                    Task {
-                        try? await Task.sleep(nanoseconds: 2_000_000_000)
-                        await MainActor.run {
-                            withAnimation(.easeOut(duration: 0.18)) {
-                                showValidationMessage = false
-                            }
-                        }
-                    }
+                if !hasSetWeight {
+                    // Weight not set - open weight picker
+                    showWeightPicker = true
+                } else if !hasSetReps {
+                    // Weight set but reps not set - open reps picker
+                    showRepsPicker = true
                 } else {
+                    // Both set - show confirmation
                     showLogConfirmation = true
                 }
             } label: {
@@ -2482,8 +2475,14 @@ struct CheckInView: View {
         let didIncrease: Bool
         let delta: Double
         let new1RM: Double
+        let intensityLabel: String
+        let intensityColor: Color
 
         @State private var pulse = false
+        @State private var iconScale: CGFloat = 0.5
+        @State private var iconOpacity: Double = 0
+
+        private let squareSize: CGFloat = 160
 
         var body: some View {
             ZStack {
@@ -2491,9 +2490,22 @@ struct CheckInView: View {
                     .ignoresSafeArea()
 
                 VStack(spacing: 10) {
-                    Image(systemName: didIncrease ? "arrow.up.circle.fill" : "checkmark.circle.fill")
-                        .font(.system(size: 44, weight: .semibold))
-                        .symbolRenderingMode(.hierarchical)
+                    if didIncrease {
+                        Image("LiftTheBullIcon")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 60, height: 60)
+                            .foregroundStyle(Color.appLogoColor)
+                            .scaleEffect(iconScale)
+                            .opacity(iconOpacity)
+                    } else {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 44, weight: .semibold))
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(Color.setEasy)
+                            .scaleEffect(iconScale)
+                            .opacity(iconOpacity)
+                    }
 
                     if didIncrease {
                         VStack(spacing: 4) {
@@ -2501,23 +2513,32 @@ struct CheckInView: View {
                                 .font(.subheadline)
                             Text("+\(delta.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
                                 .font(.title.weight(.semibold))
-                                .foregroundStyle(Color.appAccent)
+                                .foregroundStyle(Color.appLogoColor)
                         }
                     } else {
-                        Text("Set Logged")
-                            .font(.headline)
+                        VStack(spacing: 2) {
+                            Text(intensityLabel)
+                                .font(.bebasNeue(size: 28))
+                                .foregroundStyle(intensityColor)
+                            Text("Set Logged")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
                     }
                 }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 16)
+                .frame(width: squareSize, height: squareSize)
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                        .strokeBorder(Color.appLogoColor.opacity(0.5), lineWidth: 1.5)
                 )
                 .scaleEffect(pulse ? 1.02 : 1.0)
                 .onAppear {
-                    withAnimation(.easeInOut(duration: 0.22).repeatCount(2, autoreverses: true)) {
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.6)) {
+                        iconScale = 1.0
+                        iconOpacity = 1.0
+                    }
+                    withAnimation(.easeInOut(duration: 0.3).repeatCount(3, autoreverses: true).delay(0.4)) {
                         pulse = true
                     }
                 }
@@ -2527,6 +2548,8 @@ struct CheckInView: View {
 
     private struct CancelOverlayView: View {
         @State private var pulse = false
+
+        private let squareSize: CGFloat = 160
 
         var body: some View {
             ZStack {
@@ -2543,48 +2566,11 @@ struct CheckInView: View {
                         .font(.headline)
                         .foregroundStyle(.white.opacity(0.9))
                 }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 16)
+                .frame(width: squareSize, height: squareSize)
                 .background(Color(white: 0.2).opacity(0.95), in: RoundedRectangle(cornerRadius: 16))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
-                )
-                .scaleEffect(pulse ? 1.02 : 1.0)
-                .onAppear {
-                    withAnimation(.easeInOut(duration: 0.22).repeatCount(2, autoreverses: true)) {
-                        pulse = true
-                    }
-                }
-            }
-        }
-    }
-
-    private struct ValidationMessageOverlayView: View {
-        @State private var pulse = false
-
-        var body: some View {
-            ZStack {
-                Color.black.opacity(0.15)
-                    .ignoresSafeArea()
-
-                VStack(spacing: 10) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 44, weight: .semibold))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.orange)
-
-                    Text("Please enter weight and reps")
-                        .font(.headline)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 8)
-                }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 16)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                        .strokeBorder(Color.appLogoColor.opacity(0.5), lineWidth: 1.5)
                 )
                 .scaleEffect(pulse ? 1.02 : 1.0)
                 .onAppear {
@@ -2678,7 +2664,7 @@ struct CheckInView: View {
                         Button {
                             onConfirm()
                         } label: {
-                            Text("Log Set")
+                            Text("Confirm")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.black)
                                 .frame(maxWidth: .infinity)
@@ -2696,7 +2682,7 @@ struct CheckInView: View {
                 .cornerRadius(20)
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
-                        .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                        .strokeBorder(Color.appLogoColor.opacity(0.5), lineWidth: 1.5)
                 )
                 .shadow(color: .black.opacity(0.5), radius: 30, y: 10)
                 .padding(.horizontal, 32)
@@ -2728,6 +2714,8 @@ struct CheckInView: View {
             weight = (current1RM * 0.8).rounded()
         }
         hasSetInitialValues = false
+        hasSetWeight = false
+        hasSetReps = false
     }
 
     private func validateWeightDelta() {
@@ -2749,10 +2737,12 @@ struct CheckInView: View {
         if let repsValue = selectedSetData.reps {
             reps = repsValue
             hasSetInitialValues = true
+            hasSetReps = true
         }
         if let weightValue = selectedSetData.weight {
             weight = weightValue
             hasSetInitialValues = true
+            hasSetWeight = true
         }
         highlightLogSet()
     }
@@ -2800,6 +2790,8 @@ struct CheckInView: View {
         reps = suggestion.reps
         weight = suggestion.weight
         hasSetInitialValues = true
+        hasSetWeight = true
+        hasSetReps = true
         highlightLogSet()
     }
 
@@ -2845,12 +2837,53 @@ struct CheckInView: View {
         overlayDelta = d
         overlayNew1RM = after
 
+        // Calculate intensity color and label for the overlay
+        if increased {
+            overlayIntensityColor = .setPR
+            overlayIntensityLabel = "PR"
+        } else if weight == 0 {
+            // Bodyweight exercise - color by reps
+            switch reps {
+            case 12...:
+                overlayIntensityColor = .setNearMax
+                overlayIntensityLabel = "Redline"
+            case 9..<12:
+                overlayIntensityColor = .setHard
+                overlayIntensityLabel = "Hard"
+            case 6..<9:
+                overlayIntensityColor = .setModerate
+                overlayIntensityLabel = "Moderate"
+            default:
+                overlayIntensityColor = .setEasy
+                overlayIntensityLabel = "Easy"
+            }
+        } else {
+            // Weighted exercise - color by percentage of 1RM
+            // Use THIS set's estimated 1RM, not the running max
+            let setEstimate = OneRMCalculator.estimate1RM(weight: weight, reps: reps)
+            let percentage = before > 0 ? (setEstimate / before) * 100 : 100.0
+            switch percentage {
+            case 85...:
+                overlayIntensityColor = .setNearMax
+                overlayIntensityLabel = "Redline"
+            case 75..<85:
+                overlayIntensityColor = .setHard
+                overlayIntensityLabel = "Hard"
+            case 65..<75:
+                overlayIntensityColor = .setModerate
+                overlayIntensityLabel = "Moderate"
+            default:
+                overlayIntensityColor = .setEasy
+                overlayIntensityLabel = "Easy"
+            }
+        }
+
         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
             showSubmitOverlay = true
         }
 
         Task {
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
             await MainActor.run {
                 withAnimation(.easeOut(duration: 0.18)) {
                     showSubmitOverlay = false
@@ -3198,39 +3231,30 @@ struct SetSquareView: View {
 
         let color: Color
         if isPR {
-            // PR - Special cyan
-            color = Color(red: 0x06/255, green: 0xB6/255, blue: 0xD4/255)
+            color = .setPR
         } else if set.weight == 0 {
             // For 0-weight sets, color based on reps (more reps = harder)
             switch set.reps {
             case 12...:
-                // Near Failure - Red
-                color = Color(red: 0xEF/255, green: 0x44/255, blue: 0x44/255)
+                color = .setNearMax
             case 9..<12:
-                // Hard - Orange
-                color = Color(red: 0xF9/255, green: 0x73/255, blue: 0x16/255)
+                color = .setHard
             case 6..<9:
-                // Moderate - Yellow
-                color = Color(red: 0xEA/255, green: 0xB3/255, blue: 0x08/255)
+                color = .setModerate
             default:
-                // Easy - Green
-                color = Color(red: 0x84/255, green: 0xCC/255, blue: 0x16/255)
+                color = .setEasy
             }
         } else {
             let percentage = currentMax > 0 ? (setEstimated1RM / currentMax) * 100 : 100.0
             switch percentage {
             case 85...:
-                // Near Failure - Red
-                color = Color(red: 0xEF/255, green: 0x44/255, blue: 0x44/255)
+                color = .setNearMax
             case 75..<85:
-                // Hard - Orange
-                color = Color(red: 0xF9/255, green: 0x73/255, blue: 0x16/255)
+                color = .setHard
             case 65..<75:
-                // Moderate - Yellow
-                color = Color(red: 0xEA/255, green: 0xB3/255, blue: 0x08/255)
+                color = .setModerate
             default:
-                // Easy - Green
-                color = Color(red: 0x84/255, green: 0xCC/255, blue: 0x16/255)
+                color = .setEasy
             }
         }
 
@@ -3299,13 +3323,13 @@ struct DemoSetSquare: View {
     private var actualColor: Color {
         switch color {
         case .green:
-            return Color(red: 0x84/255, green: 0xCC/255, blue: 0x16/255) // Easy
+            return .setEasy
         case .yellow:
-            return Color(red: 0xEA/255, green: 0xB3/255, blue: 0x08/255) // Moderate
+            return .setModerate
         case .orange:
-            return Color(red: 0xF9/255, green: 0x73/255, blue: 0x16/255) // Hard
+            return .setHard
         case .red:
-            return Color(red: 0xEF/255, green: 0x44/255, blue: 0x44/255) // Near Failure
+            return .setNearMax
         default:
             return color
         }

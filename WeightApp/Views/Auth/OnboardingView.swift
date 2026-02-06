@@ -135,53 +135,47 @@ struct OnboardingView: View {
 private struct OnboardingPageOne: View {
     @State private var scrollOffset: CGFloat = 0
 
-    private let green = Color(red: 0x84/255, green: 0xCC/255, blue: 0x16/255)
-    private let yellow = Color(red: 0xEA/255, green: 0xB3/255, blue: 0x08/255)
-    private let orange = Color(red: 0xF9/255, green: 0x73/255, blue: 0x16/255)
-    private let red = Color(red: 0xEF/255, green: 0x44/255, blue: 0x44/255)
-    private let cyan = Color(red: 0x06/255, green: 0xB6/255, blue: 0xD4/255)
-
     // Sample sets for "Today" row - many more sets
     private var todaySets: [(reps: String, weight: String, color: Color)] {
         [
-            ("10", "135", green),
-            ("8", "155", green),
-            ("8", "175", yellow),
-            ("6", "195", yellow),
-            ("6", "205", orange),
-            ("5", "215", orange),
-            ("4", "225", red),
-            ("3", "235", red),
-            ("2", "245", cyan),
-            ("6", "205", orange),
-            ("8", "185", yellow),
-            ("10", "165", green),
-            ("8", "175", yellow),
-            ("6", "195", orange),
-            ("5", "210", red),
-            ("3", "230", cyan),
+            ("10", "135", .setEasy),
+            ("8", "155", .setEasy),
+            ("8", "175", .setModerate),
+            ("6", "195", .setModerate),
+            ("6", "205", .setHard),
+            ("5", "215", .setHard),
+            ("4", "225", .setNearMax),
+            ("3", "235", .setNearMax),
+            ("2", "245", .setPR),
+            ("6", "205", .setHard),
+            ("8", "185", .setModerate),
+            ("10", "165", .setEasy),
+            ("8", "175", .setModerate),
+            ("6", "195", .setHard),
+            ("5", "210", .setNearMax),
+            ("3", "230", .setPR),
         ]
     }
 
     // Sample sets for "Previous Day" row - many more sets
     private var previousSets: [(reps: String, weight: String, color: Color)] {
         [
-            ("12", "115", green),
-            ("10", "135", green),
-            ("8", "155", yellow),
-            ("8", "165", yellow),
-            ("6", "185", orange),
-            ("6", "195", orange),
-            ("5", "205", red),
-            ("4", "215", red),
-            ("3", "225", cyan),
-            ("6", "195", orange),
-            ("8", "175", yellow),
-            ("10", "155", green),
-            ("8", "165", yellow),
-            ("6", "185", orange),
-            ("4", "210", red),
-            ("2", "225", cyan),
+            ("12", "115", .setEasy),
+            ("10", "135", .setEasy),
+            ("8", "155", .setModerate),
+            ("8", "165", .setModerate),
+            ("6", "185", .setHard),
+            ("6", "195", .setHard),
+            ("5", "205", .setNearMax),
+            ("4", "215", .setNearMax),
+            ("3", "225", .setPR),
+            ("6", "195", .setHard),
+            ("8", "175", .setModerate),
+            ("10", "155", .setEasy),
+            ("8", "165", .setModerate),
+            ("6", "185", .setHard),
+            ("4", "210", .setNearMax),
+            ("2", "225", .setPR),
         ]
     }
 
@@ -246,11 +240,11 @@ private struct OnboardingPageOne: View {
 
                 // Legend
                 HStack(spacing: 10) {
-                    LegendDot(color: green, label: "Easy")
-                    LegendDot(color: yellow, label: "Moderate")
-                    LegendDot(color: orange, label: "Hard")
-                    LegendDot(color: red, label: "Redline")
-                    LegendDot(color: cyan, label: "PR")
+                    LegendDot(color: .setEasy, label: "Easy")
+                    LegendDot(color: .setModerate, label: "Moderate")
+                    LegendDot(color: .setHard, label: "Hard")
+                    LegendDot(color: .setNearMax, label: "Redline")
+                    LegendDot(color: .setPR, label: "PR")
                 }
                 .padding(.top, 12)
             }
@@ -308,98 +302,92 @@ private struct SetSquareOnboarding: View {
 private struct OnboardingPageTwo: View {
     @State private var scrollOffset: CGFloat = 0
 
-    private let green = Color(red: 0x84/255, green: 0xCC/255, blue: 0x16/255)
-    private let yellow = Color(red: 0xEA/255, green: 0xB3/255, blue: 0x08/255)
-    private let orange = Color(red: 0xF9/255, green: 0x73/255, blue: 0x16/255)
-    private let red = Color(red: 0xEF/255, green: 0x44/255, blue: 0x44/255)
-    private let cyan = Color(red: 0x06/255, green: 0xB6/255, blue: 0xD4/255)
-
     // Sample 1RM data - cycles through intensity colors, each PR slightly higher than last
     private var sampleData: [(value: Double, color: Color)] {
         [
             // Cycle 1: work up to first PR at 170
-            (155, green),
-            (158, green),
-            (162, yellow),
-            (165, yellow),
-            (167, orange),
-            (169, red),
-            (170, cyan),      // PR 1
+            (155, .setEasy),
+            (158, .setEasy),
+            (162, .setModerate),
+            (165, .setModerate),
+            (167, .setHard),
+            (169, .setNearMax),
+            (170, .setPR),      // PR 1
 
             // Cycle 2: start lower, work up to PR at 175
-            (160, green),
-            (164, yellow),
-            (168, orange),
-            (171, orange),
-            (173, red),
-            (175, cyan),      // PR 2
+            (160, .setEasy),
+            (164, .setModerate),
+            (168, .setHard),
+            (171, .setHard),
+            (173, .setNearMax),
+            (175, .setPR),      // PR 2
 
             // Cycle 3: start lower, work up to PR at 182
-            (165, green),
-            (169, green),
-            (173, yellow),
-            (176, orange),
-            (179, red),
-            (182, cyan),      // PR 3
+            (165, .setEasy),
+            (169, .setEasy),
+            (173, .setModerate),
+            (176, .setHard),
+            (179, .setNearMax),
+            (182, .setPR),      // PR 3
 
             // Cycle 4: start lower, work up to PR at 188
-            (172, green),
-            (176, yellow),
-            (180, yellow),
-            (183, orange),
-            (186, red),
-            (188, cyan),      // PR 4
+            (172, .setEasy),
+            (176, .setModerate),
+            (180, .setModerate),
+            (183, .setHard),
+            (186, .setNearMax),
+            (188, .setPR),      // PR 4
 
             // Cycle 5: start lower, work up to PR at 195
-            (178, green),
-            (182, yellow),
-            (186, orange),
-            (189, orange),
-            (192, red),
-            (195, cyan),      // PR 5
+            (178, .setEasy),
+            (182, .setModerate),
+            (186, .setHard),
+            (189, .setHard),
+            (192, .setNearMax),
+            (195, .setPR),      // PR 5
 
             // Cycle 6: start lower, work up to PR at 202
-            (184, green),
-            (188, green),
-            (192, yellow),
-            (196, orange),
-            (199, red),
-            (202, cyan),      // PR 6
+            (184, .setEasy),
+            (188, .setEasy),
+            (192, .setModerate),
+            (196, .setHard),
+            (199, .setNearMax),
+            (202, .setPR),      // PR 6
 
             // Cycle 7: start lower, work up to PR at 208
-            (190, green),
-            (194, yellow),
-            (198, yellow),
-            (202, orange),
-            (205, red),
-            (208, cyan),      // PR 7
+            (190, .setEasy),
+            (194, .setModerate),
+            (198, .setModerate),
+            (202, .setHard),
+            (205, .setNearMax),
+            (208, .setPR),      // PR 7
 
             // Cycle 8: start lower, work up to PR at 215
-            (196, green),
-            (200, green),
-            (204, yellow),
-            (208, orange),
-            (212, red),
-            (215, cyan),      // PR 8
+            (196, .setEasy),
+            (200, .setEasy),
+            (204, .setModerate),
+            (208, .setHard),
+            (212, .setNearMax),
+            (215, .setPR),      // PR 8
 
             // Cycle 9: start lower, work up to PR at 222
-            (202, green),
-            (206, yellow),
-            (210, yellow),
-            (214, orange),
-            (218, red),
-            (222, cyan),      // PR 9
+            (202, .setEasy),
+            (206, .setModerate),
+            (210, .setModerate),
+            (214, .setHard),
+            (218, .setNearMax),
+            (222, .setPR),      // PR 9
 
             // Cycle 10: start lower, work up to PR at 228
-            (208, green),
-            (212, green),
-            (216, yellow),
-            (220, orange),
-            (225, red),
-            (228, cyan),      // PR 10
+            (208, .setEasy),
+            (212, .setEasy),
+            (216, .setModerate),
+            (220, .setHard),
+            (225, .setNearMax),
+            (228, .setPR),      // PR 10
 
             // Cycle 11 partial: starting the next cycle
-            (214, green),
+            (214, .setEasy),
         ]
     }
 
@@ -476,11 +464,11 @@ private struct OnboardingPageTwo: View {
 
                 // Legend
                 HStack(spacing: 10) {
-                    LegendDot(color: green, label: "Easy")
-                    LegendDot(color: yellow, label: "Moderate")
-                    LegendDot(color: orange, label: "Hard")
-                    LegendDot(color: red, label: "Redline")
-                    LegendDot(color: cyan, label: "PR")
+                    LegendDot(color: .setEasy, label: "Easy")
+                    LegendDot(color: .setModerate, label: "Moderate")
+                    LegendDot(color: .setHard, label: "Hard")
+                    LegendDot(color: .setNearMax, label: "Redline")
+                    LegendDot(color: .setPR, label: "PR")
                 }
                 .padding(.top, 16)
             }

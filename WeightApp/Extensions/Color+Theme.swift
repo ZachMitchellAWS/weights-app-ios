@@ -32,4 +32,21 @@ extension Color {
 
     /// Used for text labels and headers that should match the accent color
     static let appLabel = appAccent.opacity(0.7)
+
+    // MARK: - Set Intensity Colors
+
+    /// Easy set (<65% 1RM or <6 reps for bodyweight)
+    static let setEasy = Color(red: 0x22/255, green: 0xC5/255, blue: 0x5E/255) // #22C55E
+
+    /// Moderate set (65-75% 1RM or 6-8 reps for bodyweight)
+    static let setModerate = Color(red: 0x21/255, green: 0xB7/255, blue: 0xC9/255) // #21B7C9
+
+    /// Hard set (75-85% 1RM or 9-11 reps for bodyweight)
+    static let setHard = Color(red: 0x5B/255, green: 0x3B/255, blue: 0xE8/255) // #5B3BE8
+
+    /// Near max set (85%+ 1RM or 12+ reps for bodyweight)
+    static let setNearMax = Color(red: 0xEF/255, green: 0x44/255, blue: 0x44/255) // #EF4444
+
+    /// Personal record set
+    static let setPR = Color(red: 0xFF/255, green: 0xB0/255, blue: 0x00/255) // #FFB000
 }

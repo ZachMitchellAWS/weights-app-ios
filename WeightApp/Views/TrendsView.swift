@@ -216,25 +216,19 @@ struct ExerciseGroupRow: View {
     let allSets: [LiftSet]
 
     private func colorForPercentage(_ percentage: Double, isPR: Bool) -> Color {
-        // If it's a PR, use special cyan color
         if isPR {
-            return Color(red: 0x06/255, green: 0xB6/255, blue: 0xD4/255) // #06B6D4
+            return .setPR
         }
 
-        // Otherwise, color by percentage of current 1RM (intensity)
         switch percentage {
         case 85...:
-            // 85%+ - Near Failure - Red
-            return Color(red: 0xEF/255, green: 0x44/255, blue: 0x44/255) // #EF4444
+            return .setNearMax
         case 75..<85:
-            // 75-85% - Hard - Orange
-            return Color(red: 0xF9/255, green: 0x73/255, blue: 0x16/255) // #F97316
+            return .setHard
         case 65..<75:
-            // 65-75% - Moderate - Yellow
-            return Color(red: 0xEA/255, green: 0xB3/255, blue: 0x08/255) // #EAB308
+            return .setModerate
         default:
-            // < 65% - Easy - Green
-            return Color(red: 0x84/255, green: 0xCC/255, blue: 0x16/255) // #84CC16
+            return .setEasy
         }
     }
 
