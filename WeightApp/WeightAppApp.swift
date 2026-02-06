@@ -13,6 +13,8 @@ struct WeightAppApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var authViewModel = AuthViewModel()
     @State private var showSplash = true
+    @State private var initialExerciseId: UUID? = nil
+    @State private var showUpsell = false
 
     let modelContainer: ModelContainer
 
@@ -22,7 +24,7 @@ struct WeightAppApp: App {
 
         // Create the model container
         do {
-            modelContainer = try ModelContainer(for: Exercises.self, LiftSet.self, UserProperties.self, Estimated1RM.self)
+            modelContainer = try ModelContainer(for: Exercises.self, LiftSet.self, UserProperties.self, Estimated1RM.self, PremiumEntitlement.self)
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
         }
@@ -36,12 +38,25 @@ struct WeightAppApp: App {
                         if authViewModel.showPostAuthFlow {
                             // Show onboarding for new users, welcome back for returning users
                             if authViewModel.isNewUser {
-                                OnboardingView {
-                                    withAnimation(.easeInOut(duration: 0.4)) {
-                                        authViewModel.completePostAuthFlow()
+                                if showUpsell {
+                                    // Show upsell after onboarding
+                                    UpsellView { didSubscribe in
+                                        withAnimation(.easeInOut(duration: 0.4)) {
+                                            showUpsell = false
+                                            authViewModel.completePostAuthFlow()
+                                        }
                                     }
+                                    .transition(.opacity)
+                                } else {
+                                    // Show onboarding first
+                                    OnboardingView { selectedExerciseId in
+                                        initialExerciseId = selectedExerciseId
+                                        withAnimation(.easeInOut(duration: 0.4)) {
+                                            showUpsell = true
+                                        }
+                                    }
+                                    .transition(.opacity)
                                 }
-                                .transition(.opacity)
                             } else {
                                 WelcomeBackView {
                                     withAnimation(.easeInOut(duration: 0.4)) {
@@ -51,8 +66,12 @@ struct WeightAppApp: App {
                                 .transition(.opacity)
                             }
                         } else {
-                            ContentView(authViewModel: authViewModel)
+                            ContentView(authViewModel: authViewModel, initialExerciseId: initialExerciseId)
                                 .transition(.opacity)
+                                .onAppear {
+                                    // Clear initial exercise ID after first use
+                                    initialExerciseId = nil
+                                }
                         }
                     } else {
                         AuthView(authViewModel: authViewModel)
@@ -61,6 +80,7 @@ struct WeightAppApp: App {
                 }
                 .animation(.easeInOut(duration: 0.4), value: authViewModel.isAuthenticated)
                 .animation(.easeInOut(duration: 0.4), value: authViewModel.showPostAuthFlow)
+                .animation(.easeInOut(duration: 0.4), value: showUpsell)
                 .preferredColorScheme(.dark)
                 .opacity(showSplash ? 0 : 1)
                 .ignoresSafeArea(.keyboard)

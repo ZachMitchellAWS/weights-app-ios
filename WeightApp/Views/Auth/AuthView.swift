@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SafariServices
 
 struct AuthView: View {
     @ObservedObject var authViewModel: AuthViewModel
@@ -18,8 +19,13 @@ struct AuthView: View {
     @State private var toastMessage = ""
     @State private var isKeyboardVisible = false
     @State private var isSubmitting = false
+    @State private var showTermsOfService = false
+    @State private var showPrivacyPolicy = false
     @FocusState private var focusedField: Field?
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
+
+    private let termsOfServiceURL = URL(string: "https://example.com/terms")!
+    private let privacyPolicyURL = URL(string: "https://example.com/privacy")!
 
     enum Field {
         case email
@@ -50,13 +56,21 @@ struct AuthView: View {
                         // Logo/Title (hidden when keyboard is visible or submitting)
                         if !isKeyboardVisible && !isSubmitting {
                             VStack(spacing: 12) {
-                                Image(systemName: "dumbbell.fill")
-                                    .font(.system(size: 60))
-                                    .foregroundStyle(Color.appAccent)
+                                Image("LiftTheBullIcon")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 80, height: 80)
+                                    .foregroundStyle(Color.appLogoColor)
 
-                                Text("WeightApp")
-                                    .font(.largeTitle.weight(.bold))
-                                    .foregroundStyle(.white)
+                                VStack(spacing: 4) {
+                                    Text("Lift the Bull")
+                                        .font(.largeTitle.weight(.bold))
+                                        .foregroundStyle(.white)
+
+                                    Text("Progressive Overload Tracker")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.white.opacity(0.6))
+                                }
                             }
                             .padding(.top, 60)
                             .transition(.opacity.combined(with: .move(edge: .top)))
@@ -115,7 +129,7 @@ struct AuthView: View {
                             }
                         }
                         .frame(height: 40)
-                        .padding(.horizontal, 32)
+                        .padding(.horizontal, 40)
 
                         // Auth Form
                         VStack(spacing: 20) {
@@ -230,8 +244,38 @@ struct AuthView: View {
                             }
                             .disabled(authViewModel.isLoading || !canSubmit)
                             .opacity((authViewModel.isLoading || !canSubmit) ? 0.6 : 1.0)
+
+                            // Terms and Privacy footer
+                            VStack(spacing: 4) {
+                                Text("By signing up you agree to the")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.5))
+
+                                HStack(spacing: 4) {
+                                    Button {
+                                        showTermsOfService = true
+                                    } label: {
+                                        Text("Terms of Service")
+                                            .font(.caption)
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+
+                                    Text("and")
+                                        .font(.caption)
+                                        .foregroundStyle(.white.opacity(0.5))
+
+                                    Button {
+                                        showPrivacyPolicy = true
+                                    } label: {
+                                        Text("Privacy Policy")
+                                            .font(.caption)
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+                                }
+                            }
+                            .padding(.top, 16)
                         }
-                        .padding(.horizontal, 32)
+                        .padding(.horizontal, 40)
 
                         Spacer(minLength: 40)
                     }
@@ -273,6 +317,12 @@ struct AuthView: View {
             .onDisappear {
                 NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillShowNotification, object: nil)
                 NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillHideNotification, object: nil)
+            }
+            .sheet(isPresented: $showTermsOfService) {
+                SafariView(url: termsOfServiceURL)
+            }
+            .sheet(isPresented: $showPrivacyPolicy) {
+                SafariView(url: privacyPolicyURL)
             }
         }
     }
@@ -317,5 +367,17 @@ struct AuthView: View {
                 isSubmitting = false
             }
         }
-    } 
+    }
+}
+
+// MARK: - Safari View
+
+struct SafariView: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        SFSafariViewController(url: url)
+    }
+
+    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
 }

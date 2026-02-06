@@ -12,6 +12,7 @@ struct MoreView: View {
     @ObservedObject var authViewModel: AuthViewModel
     @Environment(\.modelContext) private var modelContext
     @Query private var userPropertiesItems: [UserProperties]
+    @Query private var premiumEntitlementItems: [PremiumEntitlement]
     @Query(filter: #Predicate<Exercises> { !$0.deleted }) private var exercises: [Exercises]
     @Query private var liftSets: [LiftSet]
     @Query private var estimated1RMs: [Estimated1RM]
@@ -31,7 +32,10 @@ struct MoreView: View {
     @State private var userPropertiesAlertMessage = ""
     @State private var isUpdatingProperties = false
     @State private var showExerciseIds = false
+    @State private var showMemberSince = false
     @State private var showTokenExpiry = false
+    @State private var showUpsellPreview = false
+    @State private var copiedToast: String?
 
     @State private var tempBodyweight: Double = 0
 
@@ -42,6 +46,26 @@ struct MoreView: View {
         return props
     }
 
+    private var premiumEntitlement: PremiumEntitlement {
+        if let entitlement = premiumEntitlementItems.first { return entitlement }
+        let entitlement = PremiumEntitlement()
+        modelContext.insert(entitlement)
+        return entitlement
+    }
+
+    private var isPremiumEnabled: Bool {
+        get { premiumEntitlement.isPremium }
+        nonmutating set {
+            premiumEntitlement.isPremium = newValue
+            if !newValue {
+                premiumEntitlement.subscriptionType = nil
+                premiumEntitlement.expiresAt = nil
+                premiumEntitlement.transactionId = nil
+            }
+            try? modelContext.save()
+        }
+    }
+
     private var email: String {
         KeychainService.shared.getEmail() ?? "Not available"
     }
@@ -50,20 +74,45 @@ struct MoreView: View {
         KeychainService.shared.getUserId() ?? "Not available"
     }
 
-    private var createdDate: String {
+    private var memberSinceDate: String {
         guard let createdDatetimeString = KeychainService.shared.getCreatedDatetime() else {
             return "Not available"
         }
 
-        // Parse ISO8601 datetime and format it
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        // Try multiple ISO8601 format variations
+        let formatOptions: [ISO8601DateFormatter.Options] = [
+            [.withInternetDateTime, .withFractionalSeconds],
+            [.withInternetDateTime],
+            [.withFullDate, .withFullTime, .withFractionalSeconds],
+            [.withFullDate, .withFullTime],
+            [.withFullDate]
+        ]
 
-        if let date = formatter.date(from: createdDatetimeString) {
-            let displayFormatter = DateFormatter()
-            displayFormatter.dateStyle = .long
-            displayFormatter.timeStyle = .short
-            return displayFormatter.string(from: date)
+        for options in formatOptions {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = options
+            if let date = formatter.date(from: createdDatetimeString) {
+                let displayFormatter = DateFormatter()
+                displayFormatter.dateFormat = "MMMM d, yyyy"
+                return displayFormatter.string(from: date)
+            }
+        }
+
+        // Last resort: try DateFormatter with common patterns
+        let fallbackFormats = [
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSSS",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS",
+            "yyyy-MM-dd'T'HH:mm:ss"
+        ]
+        for format in fallbackFormats {
+            let parser = DateFormatter()
+            parser.dateFormat = format
+            parser.locale = Locale(identifier: "en_US_POSIX")
+            if let date = parser.date(from: createdDatetimeString) {
+                let displayFormatter = DateFormatter()
+                displayFormatter.dateFormat = "MMMM d, yyyy"
+                return displayFormatter.string(from: date)
+            }
         }
 
         return createdDatetimeString
@@ -94,55 +143,113 @@ struct MoreView: View {
 
                     if showAccount {
                         // Email
-                        HStack {
-                            Text("Email")
-                                .foregroundStyle(.white.opacity(0.7))
-                                .padding(.leading, 32)
-                            Spacer()
-                            Text(email)
-                                .foregroundStyle(.white)
-                                .multilineTextAlignment(.trailing)
-                                .textSelection(.enabled)
+                        Button {
+                            UIPasteboard.general.string = email
+                            showCopiedToast("Email copied")
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "envelope")
+                                    .foregroundStyle(.white.opacity(0.4))
+                                    .font(.system(size: 14))
+                                    .frame(width: 20)
+                                    .padding(.leading, 24)
+                                Text(email)
+                                    .foregroundStyle(.white)
+                                    .font(.subheadline)
+                                Spacer()
+                                Image(systemName: "doc.on.doc")
+                                    .foregroundStyle(.white.opacity(0.25))
+                                    .font(.system(size: 12))
+                            }
                         }
+                        .buttonStyle(.plain)
 
                         // User ID
-                        HStack {
-                            Text("User ID")
-                                .foregroundStyle(.white.opacity(0.7))
-                                .padding(.leading, 32)
-                            Spacer()
-                            Text(userId)
-                                .foregroundStyle(.white)
-                                .font(.system(.body, design: .monospaced))
-                                .multilineTextAlignment(.trailing)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.5)
-                                .textSelection(.enabled)
+                        Button {
+                            UIPasteboard.general.string = userId
+                            showCopiedToast("User ID copied")
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "number")
+                                    .foregroundStyle(.white.opacity(0.4))
+                                    .font(.system(size: 14))
+                                    .frame(width: 20)
+                                    .padding(.leading, 24)
+                                Text(userId)
+                                    .foregroundStyle(.white.opacity(0.7))
+                                    .font(.system(.caption, design: .monospaced))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.5)
+                                Spacer()
+                                Image(systemName: "doc.on.doc")
+                                    .foregroundStyle(.white.opacity(0.25))
+                                    .font(.system(size: 12))
+                            }
                         }
+                        .buttonStyle(.plain)
 
-                        // Created Date
-                        HStack {
-                            Text("Created")
-                                .foregroundStyle(.white.opacity(0.7))
-                                .padding(.leading, 32)
-                            Spacer()
-                            Text(createdDate)
-                                .foregroundStyle(.white)
-                                .multilineTextAlignment(.trailing)
+                        // Member Since (hidden, available in Developer section)
+                        // HStack(spacing: 10) {
+                        //     Image(systemName: "calendar")
+                        //         .foregroundStyle(.white.opacity(0.4))
+                        //         .font(.system(size: 14))
+                        //         .frame(width: 20)
+                        //         .padding(.leading, 24)
+                        //     Text("Member since \(memberSinceDate)")
+                        //         .foregroundStyle(.white.opacity(0.7))
+                        //         .font(.subheadline)
+                        //     Spacer()
+                        // }
+
+                        // Premium Status
+                        if isPremiumEnabled {
+                            HStack(spacing: 10) {
+                                Image(systemName: "crown.fill")
+                                    .foregroundStyle(Color.appAccent)
+                                    .font(.system(size: 14))
+                                    .frame(width: 20)
+                                    .padding(.leading, 24)
+                                Text("Premium")
+                                    .foregroundStyle(Color.appAccent)
+                                    .font(.subheadline.weight(.medium))
+                                Spacer()
+                            }
+                        } else {
+                            Button {
+                                showUpsellPreview = true
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "crown")
+                                        .foregroundStyle(.white.opacity(0.4))
+                                        .font(.system(size: 14))
+                                        .frame(width: 20)
+                                        .padding(.leading, 24)
+                                    Text("Free Plan")
+                                        .foregroundStyle(.white.opacity(0.7))
+                                        .font(.subheadline)
+                                    Spacer()
+                                    Text("Upgrade")
+                                        .foregroundStyle(Color.appAccent)
+                                        .font(.caption.weight(.medium))
+                                }
+                            }
+                            .buttonStyle(.plain)
                         }
 
                         // Logout Button
                         Button(role: .destructive) {
                             showLogoutConfirmation = true
                         } label: {
-                            HStack {
+                            HStack(spacing: 10) {
+                                Image(systemName: "arrow.right.square")
+                                    .foregroundStyle(.red.opacity(0.7))
+                                    .font(.system(size: 14))
+                                    .frame(width: 20)
+                                    .padding(.leading, 24)
                                 Text("Logout")
-                                    .padding(.leading, 32)
                                 Spacer()
                                 if authViewModel.isLoading {
                                     ProgressView()
-                                } else {
-                                    Image(systemName: "arrow.right.square")
                                 }
                             }
                         }
@@ -171,54 +278,83 @@ struct MoreView: View {
                     }
 
                     if showSettings {
-                        // Profile Section
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Profile")
+                        // Profile Section (commented out for now)
+                        // VStack(alignment: .leading, spacing: 8) {
+                        //     Text("Profile")
+                        //         .font(.subheadline)
+                        //         .foregroundStyle(.white.opacity(0.7))
+                        //         .padding(.leading, 32)
+                        //
+                        //     Button {
+                        //         tempBodyweight = userProperties.bodyweight ?? 0
+                        //         showWeightInput = true
+                        //     } label: {
+                        //         HStack {
+                        //             Text("Bodyweight")
+                        //                 .foregroundStyle(.primary)
+                        //                 .padding(.leading, 32)
+                        //             Spacer()
+                        //             if let bodyweight = userProperties.bodyweight {
+                        //                 Text("\(bodyweight, specifier: "%.1f") lbs")
+                        //                     .foregroundStyle(.white.opacity(0.5))
+                        //             } else {
+                        //                 Text("Not Set")
+                        //                     .foregroundStyle(.white.opacity(0.5))
+                        //             }
+                        //         }
+                        //     }
+                        // }
+                        // .padding(.vertical, 4)
+
+                        // Progress Options Section
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Progress Options")
                                 .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.7))
+                                .foregroundStyle(.white.opacity(0.5))
                                 .padding(.leading, 32)
 
-                            Button {
-                                tempBodyweight = userProperties.bodyweight ?? 0
-                                showWeightInput = true
-                            } label: {
-                                HStack {
-                                    Text("Bodyweight")
-                                        .foregroundStyle(.primary)
-                                        .padding(.leading, 32)
-                                    Spacer()
-                                    if let bodyweight = userProperties.bodyweight {
-                                        Text("\(bodyweight, specifier: "%.1f") lbs")
-                                            .foregroundStyle(.white.opacity(0.5))
-                                    } else {
-                                        Text("Not Set")
-                                            .foregroundStyle(.white.opacity(0.5))
-                                    }
-                                }
-                            }
-                        }
-                        .padding(.vertical, 4)
-
-                        // Equipment Section
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Equipment")
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.7))
-                                .padding(.leading, 32)
-                                .padding(.top, 8)
-
+                            // Plate Increments
                             Button {
                                 showPlateSelection = true
                             } label: {
                                 HStack {
-                                    Text("Available Plate Increments")
-                                        .foregroundStyle(.primary)
-                                        .padding(.leading, 32)
+                                    Text("Plate Increments")
+                                        .foregroundStyle(.white.opacity(0.7))
+                                        .font(.subheadline)
+                                        .padding(.leading, 40)
                                     Spacer()
                                     Image(systemName: "chevron.right")
                                         .foregroundStyle(.white.opacity(0.3))
-                                        .font(.system(size: 14))
+                                        .font(.system(size: 12))
                                 }
+                            }
+
+                            // Rep Range
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack {
+                                    Text("Rep Range")
+                                        .foregroundStyle(.white.opacity(0.7))
+                                        .font(.subheadline)
+                                        .padding(.leading, 40)
+                                    Spacer()
+                                    Text("\(userProperties.minReps)–\(userProperties.maxReps) reps")
+                                        .foregroundStyle(.white.opacity(0.5))
+                                        .font(.subheadline)
+                                }
+
+                                RangeSliderView(
+                                    minValue: Binding(
+                                        get: { Double(userProperties.minReps) },
+                                        set: { userProperties.minReps = Int($0); try? modelContext.save() }
+                                    ),
+                                    maxValue: Binding(
+                                        get: { Double(userProperties.maxReps) },
+                                        set: { userProperties.maxReps = Int($0); try? modelContext.save() }
+                                    ),
+                                    bounds: 1...12,
+                                    minSpan: Double(UserProperties.minRepRangeSpan)
+                                )
+                                .padding(.horizontal, 40)
                             }
                         }
                         .padding(.vertical, 4)
@@ -323,6 +459,33 @@ struct MoreView: View {
                         }
 
                         Button {
+                            showUpsellPreview = true
+                        } label: {
+                            HStack {
+                                Text("Show Premium Upsell")
+                                    .foregroundStyle(.primary)
+                                    .padding(.leading, 32)
+                                Spacer()
+                                Image(systemName: "crown")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        // Premium Status Toggle
+                        HStack {
+                            Text("Premium Status")
+                                .foregroundStyle(.primary)
+                                .padding(.leading, 32)
+                            Spacer()
+                            Toggle("", isOn: Binding(
+                                get: { isPremiumEnabled },
+                                set: { isPremiumEnabled = $0 }
+                            ))
+                            .labelsHidden()
+                            .tint(Color.appAccent)
+                        }
+
+                        Button {
                             withAnimation {
                                 showExerciseIds.toggle()
                             }
@@ -350,6 +513,33 @@ struct MoreView: View {
                                         .font(.system(.caption, design: .monospaced))
                                         .textSelection(.enabled)
                                 }
+                            }
+                        }
+
+                        Button {
+                            withAnimation {
+                                showMemberSince.toggle()
+                            }
+                        } label: {
+                            HStack {
+                                Text("Show Member Since")
+                                    .foregroundStyle(.primary)
+                                    .padding(.leading, 32)
+                                Spacer()
+                                Image(systemName: showMemberSince ? "calendar.circle.fill" : "calendar.circle")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        if showMemberSince {
+                            HStack {
+                                Text("Member Since")
+                                    .foregroundStyle(.white.opacity(0.7))
+                                    .padding(.leading, 48)
+                                Spacer()
+                                Text(memberSinceDate)
+                                    .foregroundStyle(.white.opacity(0.5))
+                                    .font(.system(.caption, design: .monospaced))
                             }
                         }
 
@@ -388,7 +578,7 @@ struct MoreView: View {
                     }
                 } footer: {
                     if showDeveloper {
-                        Text("Generates realistic training data for the past 28 days. Update user properties sends a test API call. Replay onboarding/welcome back shows the post-auth flows. Show Exercise IDs displays UUIDs for debugging. Delete all workout data removes all LiftSet and Estimated1RM entries.")
+                        Text("Generates realistic training data for the past 28 days. Update user properties sends a test API call. Replay onboarding/welcome back shows the post-auth flows. Premium Status toggles premium features on/off for testing. Show Exercise IDs displays UUIDs for debugging. Delete all workout data removes all LiftSet and Estimated1RM entries.")
                     }
                 }
             }
@@ -397,7 +587,12 @@ struct MoreView: View {
                 weightInputSheet
             }
             .fullScreenCover(isPresented: $showPlateSelection) {
-                ChangePlatesView()
+                AvailableChangePlatesView()
+            }
+            .fullScreenCover(isPresented: $showUpsellPreview) {
+                UpsellView { _ in
+                    showUpsellPreview = false
+                }
             }
             .alert("Data Populated", isPresented: $showDataPopulatedAlert) {
                 Button("OK") { }
@@ -439,6 +634,29 @@ struct MoreView: View {
             } message: {
                 Text("Are you sure you want to logout? All local data will be deleted.")
             }
+            .overlay(alignment: .bottom) {
+                if let toast = copiedToast {
+                    Text(toast)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(
+                            Capsule()
+                                .fill(Color(white: 0.25))
+                        )
+                        .padding(.bottom, 32)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.easeInOut(duration: 0.25), value: copiedToast)
+        }
+    }
+
+    private func showCopiedToast(_ message: String) {
+        copiedToast = message
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            copiedToast = nil
         }
     }
 
@@ -933,5 +1151,74 @@ struct TokenCountdownRow: View {
                 .font(.system(.subheadline, design: .monospaced))
                 .fontWeight(.medium)
         }
+    }
+}
+
+// MARK: - Range Slider View
+
+struct RangeSliderView: View {
+    @Binding var minValue: Double
+    @Binding var maxValue: Double
+    let bounds: ClosedRange<Double>
+    let minSpan: Double
+
+    private let thumbSize: CGFloat = 22
+    private let trackHeight: CGFloat = 4
+
+    var body: some View {
+        GeometryReader { geometry in
+            let totalWidth = geometry.size.width - thumbSize
+            let range = bounds.upperBound - bounds.lowerBound
+
+            ZStack(alignment: .leading) {
+                // Background track
+                Capsule()
+                    .fill(Color.white.opacity(0.15))
+                    .frame(height: trackHeight)
+                    .padding(.horizontal, thumbSize / 2)
+
+                // Active range track
+                Capsule()
+                    .fill(Color.appAccent)
+                    .frame(
+                        width: CGFloat((maxValue - minValue) / range) * totalWidth,
+                        height: trackHeight
+                    )
+                    .offset(x: thumbSize / 2 + CGFloat((minValue - bounds.lowerBound) / range) * totalWidth)
+
+                // Min thumb
+                Circle()
+                    .fill(Color.appAccent)
+                    .frame(width: thumbSize, height: thumbSize)
+                    .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+                    .offset(x: CGFloat((minValue - bounds.lowerBound) / range) * totalWidth)
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                let raw = bounds.lowerBound + Double(value.location.x / totalWidth) * range
+                                let stepped = (raw).rounded()
+                                let clamped = min(max(stepped, bounds.lowerBound), maxValue - minSpan)
+                                minValue = clamped
+                            }
+                    )
+
+                // Max thumb
+                Circle()
+                    .fill(Color.appAccent)
+                    .frame(width: thumbSize, height: thumbSize)
+                    .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+                    .offset(x: CGFloat((maxValue - bounds.lowerBound) / range) * totalWidth)
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                let raw = bounds.lowerBound + Double(value.location.x / totalWidth) * range
+                                let stepped = (raw).rounded()
+                                let clamped = min(max(stepped, minValue + minSpan), bounds.upperBound)
+                                maxValue = clamped
+                            }
+                    )
+            }
+        }
+        .frame(height: thumbSize)
     }
 }

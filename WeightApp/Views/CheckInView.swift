@@ -11,8 +11,10 @@ struct CheckInView: View {
     @Query(filter: #Predicate<Estimated1RM> { !$0.deleted }, sort: \Estimated1RM.createdAt, order: .reverse) private var allEstimated1RMs: [Estimated1RM]
 
     @ObservedObject var selectedSetData: SelectedSetData
+    var initialExerciseId: UUID? = nil
 
     @State private var selectedExercisesId: UUID?
+    @State private var hasAppliedInitialExercise = false
     @State private var showingAddExercises = false
 
     @State private var reps: Int = 8
@@ -29,6 +31,8 @@ struct CheckInView: View {
 
     @State private var showWeightPicker = false
     @State private var weightInput: String = ""
+    @State private var calculatorTokens: [String] = []  // Alternating numbers and operators
+    @State private var currentCalcInput: String = ""    // Current number being typed
     @State private var showRepsPicker = false
     @State private var repsInput: String = ""
     @State private var showExercisesDetails = false
@@ -40,6 +44,7 @@ struct CheckInView: View {
     @State private var weightDelta: Double = 5.0
     @State private var showExercisesSelection = false
     @State private var selectedGraphTab: Int = 0 // 0 = Set Intensity, 1 = 1RM Graph
+    @State private var showPROnly: Bool = false
     @State private var logSetHighlighted = false
     @State private var selectedSquareId: UUID? = nil
     @State private var showBodyweightCapture = false
@@ -181,7 +186,7 @@ struct CheckInView: View {
     }
 
     private var topThreeSuggestions: [OneRMCalculator.Suggestion] {
-        let filtered = suggestions.filter { $0.reps >= 5 && $0.reps <= 10 }
+        let filtered = suggestions.filter { $0.reps >= userProperties.minReps && $0.reps <= userProperties.maxReps }
 
         let sorted: [OneRMCalculator.Suggestion]
         switch sortColumn {
@@ -236,6 +241,11 @@ struct CheckInView: View {
                     if exercises.isEmpty {
                         showNoExercisesAlert = true
                     }
+                    // Apply initial exercise from onboarding (only once)
+                    if let initialId = initialExerciseId, !hasAppliedInitialExercise {
+                        selectedExercisesId = initialId
+                        hasAppliedInitialExercise = true
+                    }
                 }
                 .onChange(of: selectedExercisesId) { _, _ in
                     resetToDefaults()
@@ -259,8 +269,15 @@ struct CheckInView: View {
                 }
                 .sheet(isPresented: $showWeightPicker) {
                     weightPickerSheet
-                        .presentationDetents([.height(600)])
+                        .presentationDetents([.height(500)])
                         .presentationDragIndicator(.visible)
+                        .presentationBackground(
+                            LinearGradient(
+                                colors: [Color(white: 0.18), Color(white: 0.14)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
                 }
                 .sheet(isPresented: $showRepsPicker) {
                     repsPickerSheet
@@ -302,12 +319,9 @@ struct CheckInView: View {
                         .presentationDragIndicator(.visible)
                 }
                 .sheet(isPresented: $showIncrementSelection) {
-                    ChangePlatesView(selectedIncrement: Binding(
-                        get: { weightDelta },
-                        set: { if let v = $0 { weightDelta = v } }
-                    ))
-                    .presentationDetents([.height(480), .large])
-                    .presentationDragIndicator(.visible)
+                    AvailableChangePlatesView()
+                        .presentationDetents([.height(480), .large])
+                        .presentationDragIndicator(.visible)
                 }
                 .alert("No Exercises Found", isPresented: $showNoExercisesAlert) {
                     Button("Try Again") {
@@ -478,183 +492,290 @@ struct CheckInView: View {
     }
 
     private var weightPickerSheet: some View {
-        VStack(spacing: 16) {
-            // Weight display
-            Spacer()
-                .frame(height: 8)
+        VStack(spacing: 12) {
+            // Expression display
             VStack(spacing: 4) {
-                Text(weightInput.isEmpty || weightInput == "---" ? "---" : weightInput)
-                    .font(.system(size: 48, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(height: 60)
+                // Expression line (always present with fixed height)
+                Text(calculatorExpressionDisplay.isEmpty ? " " : calculatorExpressionDisplay)
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(.white.opacity(calculatorExpressionDisplay.isEmpty ? 0 : 0.6))
+                    .frame(height: 24)
+                    .frame(maxWidth: .infinity)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
+
+                // Result display (centered, fixed height)
+                Text(calculatorResultDisplay)
+                    .font(.system(size: 48, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .frame(height: 56)
+                    .frame(maxWidth: .infinity)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+
                 Text("lbs")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.6))
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
+            .frame(height: 110)
+            .padding(.horizontal, 16)
             .background(Color(white: 0.12))
             .cornerRadius(12)
             .padding(.horizontal)
 
-            // Number pad
-            VStack(spacing: 12) {
-                ForEach([["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"]], id: \.self) { row in
-                    HStack(spacing: 12) {
-                        ForEach(row, id: \.self) { number in
-                            Button {
-                                handleWeightInput(number)
-                            } label: {
-                                Text(number)
-                                    .font(.title2.weight(.semibold))
-                                    .foregroundStyle(.white)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 60)
-                                    .background(Color(white: 0.18))
-                                    .cornerRadius(12)
-                            }
-                        }
+            // Calculator pad
+            VStack(spacing: 10) {
+                // Row 1: 1, 2, 3, backspace
+                HStack(spacing: 10) {
+                    ForEach(["1", "2", "3"], id: \.self) { number in
+                        calcButton(number)
                     }
-                }
-
-                HStack(spacing: 12) {
                     Button {
-                        if !weightInput.contains(".") {
-                            if weightInput == "---" {
-                                weightInput = "0."
-                            } else if weightInput == "0" {
-                                weightInput = "0."
-                            } else {
-                                weightInput += "."
-                            }
-                        }
-                    } label: {
-                        Text(".")
-                            .font(.title2.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 60)
-                            .background(Color(white: 0.18))
-                            .cornerRadius(12)
-                    }
-
-                    Button {
-                        handleWeightInput("0")
-                    } label: {
-                        Text("0")
-                            .font(.title2.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 60)
-                            .background(Color(white: 0.18))
-                            .cornerRadius(12)
-                    }
-
-                    Button {
-                        if !weightInput.isEmpty && weightInput != "---" {
-                            weightInput.removeLast()
-                            if weightInput.isEmpty {
-                                weightInput = "---"
-                            }
-                        }
+                        handleCalcBackspace()
                     } label: {
                         Image(systemName: "delete.left")
                             .font(.title2)
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
-                            .frame(height: 60)
-                            .background(Color(white: 0.18))
+                            .frame(height: 56)
+                            .background(Color(white: 0.25))
+                            .cornerRadius(12)
+                    }
+                }
+
+                // Row 2: 4, 5, 6, +
+                HStack(spacing: 10) {
+                    ForEach(["4", "5", "6"], id: \.self) { number in
+                        calcButton(number)
+                    }
+                    calcOperatorButton("+")
+                }
+
+                // Row 3: 7, 8, 9, -
+                HStack(spacing: 10) {
+                    ForEach(["7", "8", "9"], id: \.self) { number in
+                        calcButton(number)
+                    }
+                    calcOperatorButton("−")
+                }
+
+                // Row 4: ., 0, C, =
+                HStack(spacing: 10) {
+                    calcButton(".")
+                    calcButton("0")
+
+                    Button {
+                        calculatorTokens = []
+                        currentCalcInput = ""
+                    } label: {
+                        Text("C")
+                            .font(.title2.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 56)
+                            .background(Color(white: 0.25))
+                            .cornerRadius(12)
+                    }
+
+                    Button {
+                        evaluateAndCommit()
+                    } label: {
+                        Text("=")
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 56)
+                            .background(Color.appAccent)
                             .cornerRadius(12)
                     }
                 }
             }
             .padding(.horizontal)
 
-            // Bottom buttons
-            HStack(spacing: 12) {
-                Button {
-                    weightInput = "---"
-                } label: {
-                    Text("Clear")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 55)
-                        .background(Color(white: 0.25))
-                        .cornerRadius(12)
+            // Done button
+            Button {
+                let result = evaluateCalculator()
+                if result > 0 && result <= 1000 {
+                    weight = result
+                    hasSetInitialValues = true
                 }
-
-                Button {
-                    if weightInput != "---", let value = Double(weightInput), value >= 0, value <= 1000 {
-                        weight = value
-                        hasSetInitialValues = true
-                    }
-                    showWeightPicker = false
-                } label: {
-                    Text("Done")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 55)
-                        .background(Color.appAccent)
-                        .cornerRadius(12)
-                }
+                showWeightPicker = false
+            } label: {
+                Text("Done")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 55)
+                    .background(Color.appAccent)
+                    .cornerRadius(12)
             }
             .padding(.horizontal)
             .padding(.bottom)
         }
-        .background(
-            LinearGradient(
-                colors: [Color(white: 0.18), Color(white: 0.14)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
+        .padding(.top, 16)
         .onAppear {
+            calculatorTokens = []
             if hasSetInitialValues {
-                weightInput = weight.rounded1().formatted(.number.precision(.fractionLength(2)))
+                currentCalcInput = weight.rounded1().formatted(.number.precision(.fractionLength(0...2)))
             } else {
-                weightInput = "---"
+                currentCalcInput = ""
             }
         }
     }
 
-    private func handleWeightInput(_ digit: String) {
-        // If starting from "---", replace with digit
-        if weightInput == "---" {
-            weightInput = digit
+    private func calcButton(_ value: String) -> some View {
+        Button {
+            handleCalcInput(value)
+        } label: {
+            Text(value)
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 56)
+                .background(Color(white: 0.18))
+                .cornerRadius(12)
+        }
+    }
+
+    private func calcOperatorButton(_ op: String) -> some View {
+        Button {
+            handleCalcOperator(op)
+        } label: {
+            Text(op)
+                .font(.title2.weight(.bold))
+                .foregroundStyle(.black)
+                .frame(maxWidth: .infinity)
+                .frame(height: 56)
+                .background(Color.appAccent.opacity(0.8))
+                .cornerRadius(12)
+        }
+    }
+
+    private var calculatorExpressionDisplay: String {
+        var display = calculatorTokens.joined(separator: " ")
+        if !currentCalcInput.isEmpty {
+            if !display.isEmpty {
+                display += " "
+            }
+            display += currentCalcInput
+        }
+        return display.isEmpty ? "" : display
+    }
+
+    private var calculatorResultDisplay: String {
+        let result = evaluateCalculator()
+        if result == 0 && calculatorTokens.isEmpty && currentCalcInput.isEmpty {
+            return "---"
+        }
+        // Format nicely - remove trailing zeros
+        if result == floor(result) {
+            return String(format: "%.0f", result)
+        } else {
+            return String(format: "%.2f", result).replacingOccurrences(of: "\\.?0+$", with: "", options: .regularExpression)
+        }
+    }
+
+    private func handleCalcInput(_ digit: String) {
+        // Handle decimal point
+        if digit == "." {
+            if currentCalcInput.isEmpty {
+                currentCalcInput = "0."
+            } else if !currentCalcInput.contains(".") {
+                currentCalcInput += "."
+            }
             return
         }
 
-        // Check if we're at max digits
-        let parts = weightInput.split(separator: ".")
-        let wholePart = String(parts.first ?? "")
-        let decimalPart = parts.count > 1 ? String(parts[1]) : ""
-
-        // If input is "0" and no decimal, replace it with the new digit
-        if weightInput == "0" && digit != "0" {
-            weightInput = digit
+        // Handle leading zero
+        if currentCalcInput == "0" && digit != "." {
+            currentCalcInput = digit
             return
         }
 
-        // If we have 3 digits before decimal and no decimal point, overwrite with new digit
-        if wholePart.count >= 3 && !weightInput.contains(".") {
-            weightInput = digit
-            return
+        // Check limits based on whether we have a decimal
+        if currentCalcInput.contains(".") {
+            // With decimal: limit to 2 decimal places
+            let parts = currentCalcInput.split(separator: ".")
+            if parts.count > 1 && parts[1].count >= 2 {
+                return
+            }
+        } else {
+            // Without decimal: on 4th digit, clear and start over
+            if currentCalcInput.count >= 3 {
+                currentCalcInput = digit
+                return
+            }
         }
 
-        // If we have 2 decimal places already, overwrite entire value with new digit
-        if decimalPart.count >= 2 {
-            weightInput = digit
-            return
+        currentCalcInput += digit
+    }
+
+    private func handleCalcOperator(_ op: String) {
+        // If we have a current input, commit it first
+        if !currentCalcInput.isEmpty {
+            calculatorTokens.append(currentCalcInput)
+            currentCalcInput = ""
+        } else if calculatorTokens.isEmpty {
+            // No input yet, use current weight as starting point if available
+            if hasSetInitialValues {
+                calculatorTokens.append(weight.rounded1().formatted(.number.precision(.fractionLength(0...2))))
+            } else {
+                return // Nothing to operate on
+            }
         }
 
-        // Otherwise, append the digit if within limits
-        let testInput = weightInput + digit
-        if let value = Double(testInput), value <= 1000 {
-            weightInput += digit
+        // If last token is an operator, replace it
+        if let last = calculatorTokens.last, last == "+" || last == "−" {
+            calculatorTokens.removeLast()
+        }
+
+        calculatorTokens.append(op)
+    }
+
+    private func handleCalcBackspace() {
+        if !currentCalcInput.isEmpty {
+            currentCalcInput.removeLast()
+        } else if !calculatorTokens.isEmpty {
+            calculatorTokens.removeLast()
+        }
+    }
+
+    private func evaluateCalculator() -> Double {
+        var tokens = calculatorTokens
+        if !currentCalcInput.isEmpty {
+            tokens.append(currentCalcInput)
+        }
+
+        if tokens.isEmpty {
+            return 0
+        }
+
+        // Parse and evaluate left to right
+        var result: Double = 0
+        var currentOp: String = "+"
+
+        for token in tokens {
+            if token == "+" || token == "−" {
+                currentOp = token
+            } else if let value = Double(token) {
+                if currentOp == "+" {
+                    result += value
+                } else if currentOp == "−" {
+                    result -= value
+                }
+            }
+        }
+
+        return max(0, result) // Don't allow negative weights
+    }
+
+    private func evaluateAndCommit() {
+        let result = evaluateCalculator()
+        calculatorTokens = []
+        if result > 0 {
+            currentCalcInput = result.rounded1().formatted(.number.precision(.fractionLength(0...2)))
+        } else {
+            currentCalcInput = ""
         }
     }
 
@@ -1206,12 +1327,12 @@ struct CheckInView: View {
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.white)
 
-                    if selectedExercises != nil {
+                    if selectedExercises != nil && !setsForSelected.isEmpty {
                         HStack(spacing: 4) {
                             Text("Current Estimated 1RM:")
                                 .font(.subheadline)
                                 .foregroundStyle(.white.opacity(0.6))
-                            Text(!setsForSelected.isEmpty ? current1RM.rounded1().formatted(.number.precision(.fractionLength(2))) : "--")
+                            Text(current1RM.rounded1().formatted(.number.precision(.fractionLength(2))))
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(Color.appAccent)
                         }
@@ -1474,17 +1595,25 @@ struct CheckInView: View {
         }
     }
 
+    private var filteredSetsWithPRInfo: [SetWithPR] {
+        if showPROnly {
+            return setsWithPRInfo.filter { $0.wasPR }
+        }
+        return setsWithPRInfo
+    }
+
     private var graphContentView: some View {
         Group {
             if setsWithPRInfo.isEmpty {
                 EmptyGraphView()
             } else {
+                let displayData = filteredSetsWithPRInfo
                 ZStack {
                     HStack(spacing: 0) {
                         ScrollViewReader { proxy in
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 0) {
-                                    SetHistoryChart(setsWithPRInfo: setsWithPRInfo, showYAxis: false, selectedBarIndex: $selectedChartBarIndex)
+                                    SetHistoryChart(setsWithPRInfo: displayData, showYAxis: false, selectedBarIndex: $selectedChartBarIndex)
                                         .id("chart-end")
                                 }
                             }
@@ -1493,7 +1622,7 @@ struct CheckInView: View {
                                     proxy.scrollTo("chart-end", anchor: .trailing)
                                 }
                             }
-                            .onChange(of: setsWithPRInfo.count) { _, _ in
+                            .onChange(of: displayData.count) { _, _ in
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                     withAnimation {
                                         proxy.scrollTo("chart-end", anchor: .trailing)
@@ -1503,14 +1632,14 @@ struct CheckInView: View {
                         }
 
                         // Fixed Y-axis on the right
-                        SetHistoryChartYAxis(setsWithPRInfo: setsWithPRInfo)
+                        SetHistoryChartYAxis(setsWithPRInfo: displayData)
                     }
 
-                    if let index = selectedChartBarIndex, index < setsWithPRInfo.count {
+                    if let index = selectedChartBarIndex, index < displayData.count {
                         Color.black.opacity(0.4)
                             .ignoresSafeArea()
 
-                        setDetailOverlay(for: setsWithPRInfo[index])
+                        setDetailOverlay(for: displayData[index])
                             .transition(.opacity.combined(with: .scale(scale: 0.95)))
                     }
                 }
@@ -1642,124 +1771,122 @@ struct CheckInView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(alignment: .leading, spacing: 10) {
-                // Today's Sets (now on top)
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 4) {
-                        Text("Today:")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.7))
-                        Text(formatShortDate(Date()))
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.7))
-                    }
-
-                    if todaysSets.isEmpty {
-                        // Empty state when there's no today's sets but history exists
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color.appAccent.opacity(0.3), Color.appAccent.opacity(0.15)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .frame(width: 42, height: 42)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(Color.appAccent.opacity(0.4), lineWidth: 1.5)
-                            )
-                    } else {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                ForEach(Array(todaysSets.enumerated()), id: \.element.id) { index, set in
-                                    SetSquareView(
-                                        set: set,
-                                        allSets: allSets,
-                                        currentWeight: weight,
-                                        currentReps: reps,
-                                        hasSetValues: hasSetInitialValues,
-                                        selectedSquareId: selectedSquareId,
-                                        allEstimated1RMs: allEstimated1RMs
-                                    )
-                                    .onTapGesture {
-                                        weight = set.weight
-                                        reps = set.reps
-                                        hasSetInitialValues = true
-                                        selectedSquareId = set.id
-                                        highlightLogSet()
-                                        hapticFeedback.impactOccurred()
-                                        Task {
-                                            try? await Task.sleep(nanoseconds: 300_000_000)
-                                            await MainActor.run {
-                                                selectedSquareId = nil
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(.vertical, 2)
-                            .padding(.horizontal, 2)
-                        }
-                        .frame(height: 46)
-                    }
-                }
-
-                // Previous Day Sets (now on bottom)
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 4) {
-                        Text(lastDayDate != nil ? "Previous Day:" : "Previous Day")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.7))
-                        if let date = lastDayDate {
-                            Text(formatShortDate(date))
+                    // Today's Sets
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 4) {
+                            Text("Today:")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.7))
+                            Text(formatShortDate(Date()))
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.white.opacity(0.7))
                         }
-                    }
 
-                    if lastDaySets.isEmpty {
-                        // Truly empty - no visualization, just empty space
-                        Spacer()
-                            .frame(height: 42)
-                    } else {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                ForEach(Array(lastDaySets.enumerated()), id: \.element.id) { index, set in
-                                    SetSquareView(
-                                        set: set,
-                                        allSets: allSets,
-                                        currentWeight: weight,
-                                        currentReps: reps,
-                                        hasSetValues: hasSetInitialValues,
-                                        selectedSquareId: selectedSquareId,
-                                        allEstimated1RMs: allEstimated1RMs
+                        if todaysSets.isEmpty {
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [Color.appAccent.opacity(0.3), Color.appAccent.opacity(0.15)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
                                     )
-                                    .onTapGesture {
-                                        weight = set.weight
-                                        reps = set.reps
-                                        hasSetInitialValues = true
-                                        selectedSquareId = set.id
-                                        highlightLogSet()
-                                        hapticFeedback.impactOccurred()
-                                        Task {
-                                            try? await Task.sleep(nanoseconds: 300_000_000)
-                                            await MainActor.run {
-                                                selectedSquareId = nil
+                                )
+                                .frame(width: 42, height: 42)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(Color.appAccent.opacity(0.4), lineWidth: 1.5)
+                                )
+                        } else {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 6) {
+                                    ForEach(Array(todaysSets.enumerated()), id: \.element.id) { index, set in
+                                        SetSquareView(
+                                            set: set,
+                                            allSets: allSets,
+                                            currentWeight: weight,
+                                            currentReps: reps,
+                                            hasSetValues: hasSetInitialValues,
+                                            selectedSquareId: selectedSquareId,
+                                            allEstimated1RMs: allEstimated1RMs
+                                        )
+                                        .onTapGesture {
+                                            weight = set.weight
+                                            reps = set.reps
+                                            hasSetInitialValues = true
+                                            selectedSquareId = set.id
+                                            highlightLogSet()
+                                            hapticFeedback.impactOccurred()
+                                            Task {
+                                                try? await Task.sleep(nanoseconds: 300_000_000)
+                                                await MainActor.run {
+                                                    selectedSquareId = nil
+                                                }
                                             }
                                         }
                                     }
                                 }
+                                .padding(.vertical, 2)
+                                .padding(.horizontal, 2)
                             }
-                            .padding(.vertical, 2)
-                            .padding(.horizontal, 2)
+                            .frame(height: 46)
                         }
-                        .frame(height: 46)
+                    }
+
+                    // Previous Day Sets
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 4) {
+                            Text(lastDayDate != nil ? "Previous Day:" : "Previous Day")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.7))
+                            if let date = lastDayDate {
+                                Text(formatShortDate(date))
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.white.opacity(0.7))
+                            }
+                        }
+
+                        if lastDaySets.isEmpty {
+                            Spacer()
+                                .frame(height: 42)
+                        } else {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 6) {
+                                    ForEach(Array(lastDaySets.enumerated()), id: \.element.id) { index, set in
+                                        SetSquareView(
+                                            set: set,
+                                            allSets: allSets,
+                                            currentWeight: weight,
+                                            currentReps: reps,
+                                            hasSetValues: hasSetInitialValues,
+                                            selectedSquareId: selectedSquareId,
+                                            allEstimated1RMs: allEstimated1RMs
+                                        )
+                                        .onTapGesture {
+                                            weight = set.weight
+                                            reps = set.reps
+                                            hasSetInitialValues = true
+                                            selectedSquareId = set.id
+                                            highlightLogSet()
+                                            hapticFeedback.impactOccurred()
+                                            Task {
+                                                try? await Task.sleep(nanoseconds: 300_000_000)
+                                                await MainActor.run {
+                                                    selectedSquareId = nil
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                .padding(.vertical, 2)
+                                .padding(.horizontal, 2)
+                            }
+                            .frame(height: 46)
+                        }
                     }
                 }
 
                 Spacer()
                     .frame(height: 8)
-                }
             }
         }
     }
@@ -1815,7 +1942,29 @@ struct CheckInView: View {
             .frame(height: 32)
             .padding(.horizontal, 16)
             .padding(.top, 12)
-            .padding(.bottom, 10)
+            .padding(.bottom, selectedGraphTab == 1 ? 4 : 10)
+
+            // Show PR Only toggle (only visible on Estimated 1RM tab with data)
+            if selectedGraphTab == 1 && !setsWithPRInfo.isEmpty {
+                HStack(spacing: 4) {
+                    Spacer()
+                    Button {
+                        showPROnly.toggle()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: showPROnly ? "checkmark.square.fill" : "square")
+                                .font(.caption2)
+                                .foregroundStyle(Color.appAccent)
+                            Text("Show PRs Only")
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(0.6))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 24)
+                .frame(height: 14)
+            }
 
             // Content
             VStack {
@@ -1829,7 +1978,7 @@ struct CheckInView: View {
             }
             .frame(height: 136)
             .padding(.horizontal, 16)
-            .padding(.top, 8)
+            .padding(.top, selectedGraphTab == 1 ? 2 : 8)
             .padding(.bottom, 6)
 
             // Legend
@@ -3222,18 +3371,138 @@ struct LegendItem: View {
     }
 }
 
-// MARK: - Change Plates View
+// MARK: - Available Change Plates View (Settings)
+
+struct AvailableChangePlatesView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @Query private var userPropertiesItems: [UserProperties]
+
+    private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
+
+    private var userProperties: UserProperties {
+        if let props = userPropertiesItems.first { return props }
+        let props = UserProperties()
+        modelContext.insert(props)
+        return props
+    }
+
+    private var plateWeights: [Double] {
+        userProperties.availableChangePlates.filter { $0 < 5 }.sorted()
+    }
+
+    private let allPlateOptions: [Double] = [0.25, 0.5, 0.75, 1.0, 1.25, 2.0]
+
+    private func isPlateActive(_ plate: Double) -> Bool {
+        return plateWeights.contains { abs($0 - plate) < 0.01 }
+    }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color(white: 0.14), Color(white: 0.10)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                VStack(spacing: 8) {
+                    Text("Available Change Plates")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.white)
+
+                    Text("Plates smaller than 2.5 lbs for fine-tuning increments")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.6))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
+
+                    BarbellPlateIcon(size: 48)
+                        .foregroundStyle(Color.appAccent.opacity(0.8))
+                        .padding(.top, 8)
+                }
+                .padding(.top, 40)
+                .padding(.bottom, 32)
+
+                FlowLayout(spacing: 12, centered: true) {
+                    ForEach(allPlateOptions, id: \.self) { plate in
+                        ChangePlateBubble(
+                            plate: plate,
+                            isActive: isPlateActive(plate),
+                            onToggle: {
+                                hapticFeedback.impactOccurred()
+                                togglePlate(plate)
+                            }
+                        )
+                    }
+                }
+                .padding(.horizontal, 24)
+
+                Spacer()
+
+                Button {
+                    dismiss()
+                } label: {
+                    Text("Done")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.appAccent)
+                        .cornerRadius(10)
+                }
+                .padding(.horizontal, 40)
+                .padding(.top, 24)
+                .padding(.bottom, 16)
+
+                Text("In addition to 5 LB, barbell exercises will have increment options that are 2X the available change plates.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.4))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+                    .padding(.bottom, 24)
+            }
+        }
+    }
+
+    private func togglePlate(_ plate: Double) {
+        if isPlateActive(plate) {
+            userProperties.availableChangePlates.removeAll { abs($0 - plate) < 0.01 }
+        } else {
+            userProperties.availableChangePlates.append(plate)
+        }
+        try? modelContext.save()
+
+        Task {
+            await SyncService.shared.updateChangePlates(userProperties.availableChangePlates)
+        }
+    }
+}
+
+// MARK: - Change Plates View (CheckIn)
 
 struct ChangePlatesView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query private var userPropertiesItems: [UserProperties]
     @Binding var selectedIncrement: Double?
+    let availableWeightDeltas: [Double]
+    let minWeightDelta: Double
+    let maxWeightDelta: Double
 
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
 
-    init(selectedIncrement: Binding<Double?> = .constant(nil)) {
+    init(
+        selectedIncrement: Binding<Double?> = .constant(nil),
+        availableWeightDeltas: [Double] = [5.0],
+        minWeightDelta: Double = 5.0,
+        maxWeightDelta: Double = 5.0
+    ) {
         self._selectedIncrement = selectedIncrement
+        self.availableWeightDeltas = availableWeightDeltas
+        self.minWeightDelta = minWeightDelta
+        self.maxWeightDelta = maxWeightDelta
     }
 
     private var userProperties: UserProperties {
@@ -3265,27 +3534,76 @@ struct ChangePlatesView: View {
             .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Header area
+                // Header with plate icon
                 VStack(spacing: 8) {
-                    Text("Available Change Plates")
+                    Text("Change Plates")
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.white)
 
-                    Text("Plates smaller than 2.5 lbs for fine-tuning increments")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.6))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 16)
-
                     BarbellPlateIcon(size: 48)
                         .foregroundStyle(Color.appAccent.opacity(0.8))
-                        .padding(.top, 8)
+                        .padding(.top, 4)
                 }
                 .padding(.top, 40)
-                .padding(.bottom, 32)
+                .padding(.bottom, 28)
 
-                // Available change plates
+                // Current Increment Section
+                VStack(spacing: 12) {
+                    Text("Current Increment")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.7))
+
+                    HStack(spacing: 16) {
+                        Button {
+                            if let current = selectedIncrement,
+                               let currentIndex = availableWeightDeltas.firstIndex(where: { abs($0 - current) < 0.01 }),
+                               currentIndex > 0 {
+                                selectedIncrement = availableWeightDeltas[currentIndex - 1]
+                                hapticFeedback.impactOccurred()
+                            }
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .font(.system(size: 32))
+                                .foregroundStyle((selectedIncrement ?? 5.0) > minWeightDelta ? Color.appAccent : .gray)
+                        }
+
+                        VStack(spacing: 2) {
+                            Text((selectedIncrement ?? 5.0).formatted(.number.precision(.fractionLength(2))))
+                                .font(.system(size: 36, weight: .bold))
+                                .foregroundStyle(.white)
+                            Text("LB")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Color.appLabel)
+                        }
+                        .frame(width: 90)
+
+                        Button {
+                            if let current = selectedIncrement,
+                               let currentIndex = availableWeightDeltas.firstIndex(where: { abs($0 - current) < 0.01 }),
+                               currentIndex < availableWeightDeltas.count - 1 {
+                                selectedIncrement = availableWeightDeltas[currentIndex + 1]
+                                hapticFeedback.impactOccurred()
+                            }
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 32))
+                                .foregroundStyle((selectedIncrement ?? 5.0) < maxWeightDelta ? Color.appAccent : .gray)
+                        }
+                    }
+                }
+                .padding(.vertical, 20)
+                .padding(.horizontal, 24)
+                .background(Color(white: 0.18))
+                .cornerRadius(16)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 16)
+
+                // Available Section
                 VStack(spacing: 16) {
+                    Text("Available")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.7))
+
                     FlowLayout(spacing: 12, centered: true) {
                         ForEach(allPlateOptions, id: \.self) { plate in
                             ChangePlateBubble(
@@ -3299,7 +3617,11 @@ struct ChangePlatesView: View {
                         }
                     }
                 }
+                .padding(.vertical, 20)
                 .padding(.horizontal, 24)
+                .background(Color(white: 0.18))
+                .cornerRadius(16)
+                .padding(.horizontal, 20)
 
                 Spacer()
 

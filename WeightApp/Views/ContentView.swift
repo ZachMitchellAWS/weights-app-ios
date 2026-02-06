@@ -18,6 +18,8 @@ class SelectedSetData: ObservableObject {
 
 struct ContentView: View {
     @ObservedObject var authViewModel: AuthViewModel
+    var initialExerciseId: UUID? = nil
+
     @State private var selectedTab = 1
     @StateObject private var selectedSetData = SelectedSetData()
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
@@ -28,7 +30,7 @@ struct ContentView: View {
                 .tabItem { Label("History", systemImage: "clock") }
                 .tag(0)
 
-            CheckInView(selectedSetData: selectedSetData)
+            CheckInView(selectedSetData: selectedSetData, initialExerciseId: initialExerciseId)
                 .tabItem { Label("Log Set", systemImage: "plus.circle") }
                 .tag(1)
 

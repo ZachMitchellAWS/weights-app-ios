@@ -6,16 +6,20 @@
 //
 
 import SwiftUI
+import SwiftData
 import Charts
 
 struct OnboardingView: View {
-    let onComplete: () -> Void
+    let onComplete: (UUID?) -> Void
+
+    @Query(filter: #Predicate<Exercises> { !$0.deleted }, sort: \Exercises.createdAt) private var exercises: [Exercises]
 
     @State private var currentPage = 0
     @State private var buttonEnabled = false
     @State private var isExiting = false
+    @State private var selectedExerciseId: UUID? = nil
 
-    private let totalPages = 3
+    private let totalPages = 4
 
     var body: some View {
         ZStack {
@@ -40,6 +44,21 @@ struct OnboardingView: View {
                         OnboardingPageTwo()
                     case 2:
                         OnboardingPageThree()
+                    case 3:
+                        OnboardingExerciseSelection(
+                            exercises: exercises,
+                            selectedExerciseId: $selectedExerciseId,
+                            onSelect: { exerciseId in
+                                selectedExerciseId = exerciseId
+                                // Smooth exit transition
+                                withAnimation(.easeOut(duration: 0.3)) {
+                                    isExiting = true
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                    onComplete(exerciseId)
+                                }
+                            }
+                        )
                     default:
                         EmptyView()
                     }
@@ -63,42 +82,39 @@ struct OnboardingView: View {
                 }
                 .padding(.bottom, 24)
 
-                // Continue button
-                Button {
-                    if currentPage < totalPages - 1 {
+                // Continue button (hidden on exercise selection page)
+                if currentPage < 3 {
+                    Button {
                         buttonEnabled = false
                         withAnimation(.easeInOut(duration: 0.4)) {
                             currentPage += 1
                         }
-                        // Enable button again after delay
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        // Enable button again after delay (shorter for last content page)
+                        let delay = currentPage == 2 ? 0.5 : 1.5
+                        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 buttonEnabled = true
                             }
                         }
-                    } else {
-                        // Smooth exit transition
-                        withAnimation(.easeOut(duration: 0.3)) {
-                            isExiting = true
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                            onComplete()
-                        }
+                    } label: {
+                        Text("Continue")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.black.opacity(buttonEnabled ? 1 : 0.5))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(buttonEnabled ? Color.appAccent : Color.gray)
+                            .cornerRadius(12)
+                            .animation(.easeInOut(duration: 0.3), value: buttonEnabled)
                     }
-                } label: {
-                    Text(currentPage < totalPages - 1 ? "Continue" : "Get Started")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.black.opacity(buttonEnabled ? 1 : 0.5))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(buttonEnabled ? Color.appAccent : Color.gray)
-                        .cornerRadius(12)
-                        .animation(.easeInOut(duration: 0.3), value: buttonEnabled)
+                    .buttonStyle(.plain)
+                    .disabled(!buttonEnabled || isExiting)
+                    .padding(.horizontal, 32)
+                    .padding(.bottom, 50)
+                } else {
+                    // Spacer for exercise selection page
+                    Spacer()
+                        .frame(height: 50)
                 }
-                .buttonStyle(.plain)
-                .disabled(!buttonEnabled || isExiting)
-                .padding(.horizontal, 32)
-                .padding(.bottom, 50)
             }
             .opacity(isExiting ? 0 : 1)
             .scaleEffect(isExiting ? 0.95 : 1)
@@ -222,7 +238,7 @@ private struct OnboardingPageOne: View {
                                 SetSquareOnboarding(reps: set.reps, weight: set.weight, color: set.color)
                             }
                         }
-                        .offset(x: -scrollOffset * 0.7) // Slightly different speed
+                        .offset(x: -scrollOffset) // Same speed as top row
                     }
                     .frame(height: 42)
                     .clipped()
@@ -393,12 +409,12 @@ private struct OnboardingPageTwo: View {
         VStack(spacing: 0) {
             // Text
             VStack(spacing: 12) {
-                Text("Estimate Your 1RM")
+                Text("Measure Your Progress")
                     .font(.title.weight(.bold))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
-                Text("See your estimated one-rep max for each exercise")
+                Text("Watch your estimated 1RM grow over time")
                     .font(.body)
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
@@ -655,6 +671,123 @@ private struct LegendDot: View {
             Text(label)
                 .font(.caption2)
                 .foregroundStyle(.white.opacity(0.7))
+        }
+    }
+}
+
+// MARK: - Page Four: Exercise Selection
+
+private struct OnboardingExerciseSelection: View {
+    let exercises: [Exercises]
+    @Binding var selectedExerciseId: UUID?
+    let onSelect: (UUID) -> Void
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12)
+    ]
+
+    private var sortedExercises: [Exercises] {
+        exercises.sorted { $0.name < $1.name }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header text
+            VStack(spacing: 12) {
+                Text("Try It Out")
+                    .font(.title.weight(.bold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+
+                Text("Pick any exercise to get started")
+                    .font(.body)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+            }
+
+            Spacer()
+                .frame(height: 24)
+
+            // Exercise grid
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 12) {
+                    ForEach(sortedExercises) { exercise in
+                        OnboardingExerciseCard(
+                            exercise: exercise,
+                            isSelected: selectedExerciseId == exercise.id,
+                            onSelect: {
+                                onSelect(exercise.id)
+                            }
+                        )
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 16)
+            }
+        }
+    }
+}
+
+private struct OnboardingExerciseCard: View {
+    let exercise: Exercises
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button {
+            onSelect()
+        } label: {
+            VStack(spacing: 12) {
+                Image(systemName: exerciseIcon(for: exercise))
+                    .font(.system(size: 36))
+                    .foregroundStyle(Color.appAccent)
+
+                Text(exercise.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 140)
+            .padding(12)
+            .background(
+                LinearGradient(
+                    colors: [Color(white: 0.18), Color(white: 0.14)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .cornerRadius(16)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(isSelected ? Color.appAccent : Color.white.opacity(0.2), lineWidth: isSelected ? 2 : 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func exerciseIcon(for exercise: Exercises) -> String {
+        switch exercise.name.lowercased() {
+        case let name where name.contains("bench"):
+            return "figure.strengthtraining.traditional"
+        case let name where name.contains("squat"):
+            return "figure.squat"
+        case let name where name.contains("deadlift"):
+            return "figure.cooldown"
+        case let name where name.contains("press") && name.contains("overhead"):
+            return "figure.arms.open"
+        case let name where name.contains("row"):
+            return "figure.rowing"
+        case let name where name.contains("pull"):
+            return "figure.climbing"
+        case let name where name.contains("dip"):
+            return "figure.core.training"
+        default:
+            return "dumbbell.fill"
         }
     }
 }
