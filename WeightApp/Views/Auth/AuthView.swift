@@ -129,7 +129,7 @@ struct AuthView: View {
                             }
                         }
                         .frame(height: 40)
-                        .padding(.horizontal, 40)
+                        .padding(.horizontal, 32)
 
                         // Auth Form
                         VStack(spacing: 20) {
@@ -144,7 +144,8 @@ struct AuthView: View {
                                     .keyboardType(.emailAddress)
                                     .autocapitalization(.none)
                                     .font(.body)
-                                    .padding(12)
+                                    .padding(.horizontal, 12)
+                                    .frame(height: 40)
                                     .background(Color(white: 0.12))
                                     .cornerRadius(8)
                                     .foregroundStyle(.white)
@@ -182,7 +183,8 @@ struct AuthView: View {
                                             .foregroundStyle(.white.opacity(0.5))
                                     }
                                 }
-                                .padding(12)
+                                .padding(.horizontal, 12)
+                                .frame(height: 40)
                                 .background(Color(white: 0.12))
                                 .cornerRadius(8)
                                 .foregroundStyle(.white)
@@ -237,7 +239,7 @@ struct AuthView: View {
                                     }
                                 }
                                 .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
+                                .frame(height: 40)
                                 .background(Color.appAccent)
                                 .cornerRadius(10)
                                 .foregroundStyle(.black)
@@ -275,7 +277,7 @@ struct AuthView: View {
                             }
                             .padding(.top, 16)
                         }
-                        .padding(.horizontal, 40)
+                        .padding(.horizontal, 32)
 
                         Spacer(minLength: 40)
                     }
