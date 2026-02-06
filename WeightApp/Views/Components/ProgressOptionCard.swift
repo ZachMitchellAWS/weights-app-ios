@@ -17,7 +17,7 @@ struct ProgressOptionCard: View {
         HStack(spacing: 12) {
             // Weight
             Text(formatWeight(suggestion.weight.rounded1()))
-                .font(.body.weight(.semibold))
+                .font(.title3)
                 .foregroundStyle(columnHighlighted && sortColumn == .weight ? Color.appAccent : .white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -29,7 +29,7 @@ struct ProgressOptionCard: View {
 
             // Reps
             Text("\(suggestion.reps)")
-                .font(.body.weight(.semibold))
+                .font(.title3)
                 .foregroundStyle(columnHighlighted && sortColumn == .reps ? Color.appAccent : .white)
                 .frame(width: 50)
 
@@ -39,8 +39,8 @@ struct ProgressOptionCard: View {
 
             // Projected 1RM
             Text(formatWeight(suggestion.projected1RM.rounded1()))
-                .font(.body.weight(.semibold))
-                .foregroundStyle(columnHighlighted && (sortColumn == .est1RM || sortColumn == .gain) ? Color.appAccent : .white)
+                .font(.title3)
+                .foregroundStyle(columnHighlighted && sortColumn == .est1RM ? Color.appAccent : .white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(width: 60)
@@ -52,10 +52,10 @@ struct ProgressOptionCard: View {
             // Gain
             let delta = suggestion.delta
             Text("\(delta >= 0 ? "+" : "")\(delta.formatted(.number.precision(.fractionLength(2))))")
-                .font(.body.weight(.semibold))
+                .font(.title3)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .foregroundStyle(columnHighlighted && (sortColumn == .est1RM || sortColumn == .gain) ? Color.appAccent : (delta > 0 ? .green : .white.opacity(0.7)))
+                .foregroundStyle(columnHighlighted && sortColumn == .gain ? Color.appAccent : (delta > 0 ? .green : .white.opacity(0.7)))
                 .frame(width: 65)
         }
         .padding(.horizontal, 12)

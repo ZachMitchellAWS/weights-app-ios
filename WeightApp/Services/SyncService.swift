@@ -288,9 +288,7 @@ class SyncService: ObservableObject {
                     existing.reps = dto.reps
                     existing.weight = dto.weight
                     existing.createdTimezone = dto.createdTimezone
-                    if let createdDatetime = dto.createdDatetime {
-                        existing.createdAt = createdDatetime
-                    }
+                    existing.createdAt = dto.createdDatetime
                 }
             } else {
                 // Create new lift set - need to find the exercise
@@ -299,9 +297,7 @@ class SyncService: ObservableObject {
                     // Override the auto-generated values with backend values
                     liftSet.id = dto.liftSetId
                     liftSet.createdTimezone = dto.createdTimezone
-                    if let createdDatetime = dto.createdDatetime {
-                        liftSet.createdAt = createdDatetime
-                    }
+                    liftSet.createdAt = dto.createdDatetime
                     context.insert(liftSet)
                 } else {
                     print("SyncService: Skipping lift set \(dto.liftSetId) - exercise \(dto.exerciseId) not found")
@@ -454,9 +450,7 @@ class SyncService: ObservableObject {
                     existing.value = dto.value
                     existing.setId = dto.liftSetId
                     existing.createdTimezone = dto.createdTimezone
-                    if let createdDatetime = dto.createdDatetime {
-                        existing.createdAt = createdDatetime
-                    }
+                    existing.createdAt = dto.createdDatetime
                 }
             } else {
                 // Create new estimated 1RM - need to find the exercise
@@ -465,9 +459,7 @@ class SyncService: ObservableObject {
                     // Override the auto-generated values with backend values
                     estimated1RM.id = dto.estimated1RMId
                     estimated1RM.createdTimezone = dto.createdTimezone
-                    if let createdDatetime = dto.createdDatetime {
-                        estimated1RM.createdAt = createdDatetime
-                    }
+                    estimated1RM.createdAt = dto.createdDatetime
                     context.insert(estimated1RM)
                 } else {
                     print("SyncService: Skipping estimated 1RM \(dto.estimated1RMId) - exercise \(dto.exerciseId) not found")

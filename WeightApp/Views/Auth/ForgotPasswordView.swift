@@ -48,24 +48,24 @@ struct ForgotPasswordView: View {
                             .foregroundStyle(Color.appAccent)
 
                         Text("Reset Password")
-                            .font(.largeTitle.weight(.bold))
+                            .font(.bebasNeue(size: 38))
                             .foregroundStyle(.white)
 
                         if !showCodeEntry && !showPasswordReset {
                             Text("Enter your email to receive a reset code")
-                                .font(.subheadline)
+                                .font(.inter(size: 14))
                                 .foregroundStyle(.white.opacity(0.7))
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal, 32)
                         } else if showCodeEntry && !showPasswordReset {
                             Text("Enter the 6-digit code sent to your email")
-                                .font(.subheadline)
+                                .font(.inter(size: 14))
                                 .foregroundStyle(.white.opacity(0.7))
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal, 32)
                         } else {
                             Text("Create your new password")
-                                .font(.subheadline)
+                                .font(.inter(size: 14))
                                 .foregroundStyle(.white.opacity(0.7))
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal, 32)
@@ -89,7 +89,7 @@ struct ForgotPasswordView: View {
                         // Error/Success Messages
                         if let error = errorMessage {
                             Text(error)
-                                .font(.caption)
+                                .font(.inter(size: 12))
                                 .foregroundStyle(.red)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal)
@@ -97,7 +97,7 @@ struct ForgotPasswordView: View {
 
                         if let success = successMessage {
                             Text(success)
-                                .font(.caption)
+                                .font(.inter(size: 12))
                                 .foregroundStyle(.green)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal)
@@ -110,7 +110,7 @@ struct ForgotPasswordView: View {
                         dismiss()
                     } label: {
                         Text("Back to Login")
-                            .font(.subheadline)
+                            .font(.inter(size: 14))
                             .fontWeight(.semibold)
                             .foregroundStyle(Color.appAccent)
                     }
@@ -138,14 +138,14 @@ struct ForgotPasswordView: View {
         VStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Email")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.interSemiBold(size: 14))
                     .foregroundStyle(.white.opacity(0.7))
 
                 TextField("", text: $email)
                     .textContentType(.emailAddress)
                     .keyboardType(.emailAddress)
                     .autocapitalization(.none)
-                    .font(.body)
+                    .font(.inter(size: 16))
                     .padding(12)
                     .background(Color(white: 0.12))
                     .cornerRadius(8)
@@ -163,7 +163,7 @@ struct ForgotPasswordView: View {
                             .tint(.black)
                     } else {
                         Text("Send Reset Code")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.interSemiBold(size: 14))
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -183,13 +183,13 @@ struct ForgotPasswordView: View {
         VStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Reset Code")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.interSemiBold(size: 14))
                     .foregroundStyle(.white.opacity(0.7))
 
                 TextField("", text: $code)
                     .textContentType(.oneTimeCode)
                     .keyboardType(.numberPad)
-                    .font(.title3.weight(.medium))
+                    .font(.bebasNeue(size: 22))
                     .multilineTextAlignment(.center)
                     .padding(12)
                     .background(Color(white: 0.12))
@@ -210,7 +210,7 @@ struct ForgotPasswordView: View {
                 errorMessage = nil
             } label: {
                 Text("Verify Code")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.interSemiBold(size: 14))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
                     .background(Color.appAccent)
@@ -226,7 +226,7 @@ struct ForgotPasswordView: View {
                 }
             } label: {
                 Text("Resend Code")
-                    .font(.subheadline)
+                    .font(.inter(size: 14))
                     .foregroundStyle(Color.appAccent)
             }
             .disabled(isLoading)
@@ -239,7 +239,7 @@ struct ForgotPasswordView: View {
         VStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("New Password")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.interSemiBold(size: 14))
                     .foregroundStyle(.white.opacity(0.7))
 
                 HStack {
@@ -251,7 +251,7 @@ struct ForgotPasswordView: View {
                         }
                     }
                     .textContentType(.newPassword)
-                    .font(.body)
+                    .font(.inter(size: 16))
 
                     Button {
                         showNewPassword.toggle()
@@ -267,14 +267,14 @@ struct ForgotPasswordView: View {
 
                 if !newPassword.isEmpty && newPassword.count < 8 {
                     Text("Password must be at least 8 characters")
-                        .font(.caption)
+                        .font(.inter(size: 12))
                         .foregroundStyle(.red)
                 }
             }
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Confirm Password")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.interSemiBold(size: 14))
                     .foregroundStyle(.white.opacity(0.7))
 
                 HStack {
@@ -286,7 +286,7 @@ struct ForgotPasswordView: View {
                         }
                     }
                     .textContentType(.newPassword)
-                    .font(.body)
+                    .font(.inter(size: 16))
 
                     Button {
                         showConfirmPassword.toggle()
@@ -302,7 +302,7 @@ struct ForgotPasswordView: View {
 
                 if !confirmPassword.isEmpty && !passwordsMatch {
                     Text("Passwords do not match")
-                        .font(.caption)
+                        .font(.inter(size: 12))
                         .foregroundStyle(.red)
                 }
             }
@@ -318,7 +318,7 @@ struct ForgotPasswordView: View {
                             .tint(.black)
                     } else {
                         Text("Reset Password")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.interSemiBold(size: 14))
                     }
                 }
                 .frame(maxWidth: .infinity)

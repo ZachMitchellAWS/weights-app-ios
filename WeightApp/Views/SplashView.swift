@@ -26,7 +26,7 @@ struct SplashView: View {
                     .opacity(opacity)
 
                 Text("Lift the Bull")
-                    .font(.title.weight(.bold))
+                    .font(.bebasNeue(size: 34))
                     .foregroundStyle(.white)
                     .opacity(opacity)
             }

@@ -56,7 +56,7 @@ struct UpsellView: View {
 
                 // Cancel anytime text
                 Text(SubscriptionConfig.cancelAnytimeText)
-                    .font(.caption)
+                    .font(.inter(size: 12))
                     .foregroundStyle(.white.opacity(0.5))
                     .padding(.bottom, 16)
 
@@ -88,11 +88,11 @@ struct UpsellView: View {
                 .shadow(color: Color.appAccent.opacity(0.5), radius: 10, x: 0, y: 5)
 
             Text(SubscriptionConfig.upsellTitle)
-                .font(.title.weight(.bold))
+                .font(.bebasNeue(size: 32))
                 .foregroundStyle(.white)
 
             Text(SubscriptionConfig.upsellSubtitle)
-                .font(.body)
+                .font(.inter(size: 16))
                 .foregroundStyle(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
         }
@@ -162,7 +162,7 @@ struct UpsellView: View {
                         .tint(.black)
                 } else {
                     Text("Subscribe Now")
-                        .font(.body.weight(.semibold))
+                        .font(.interSemiBold(size: 16))
                 }
             }
             .foregroundStyle(.black)
@@ -180,15 +180,15 @@ struct UpsellView: View {
     private var footerLinks: some View {
         HStack(spacing: 16) {
             Link("Terms of Service", destination: SubscriptionConfig.termsOfServiceURL)
-                .font(.caption)
+                .font(.inter(size: 12))
                 .foregroundStyle(.white.opacity(0.5))
 
             Text("|")
-                .font(.caption)
+                .font(.inter(size: 12))
                 .foregroundStyle(.white.opacity(0.3))
 
             Link("Privacy Policy", destination: SubscriptionConfig.privacyPolicyURL)
-                .font(.caption)
+                .font(.inter(size: 12))
                 .foregroundStyle(.white.opacity(0.5))
         }
     }
@@ -201,10 +201,10 @@ struct UpsellView: View {
         } label: {
             HStack(spacing: 4) {
                 Text("Continue with Free")
-                    .font(.body)
+                    .font(.inter(size: 16))
                     .foregroundStyle(.white.opacity(0.6))
                 Image(systemName: "arrow.right")
-                    .font(.caption)
+                    .font(.inter(size: 12))
                     .foregroundStyle(.white.opacity(0.4))
             }
         }
@@ -229,12 +229,12 @@ private struct FeatureCard: View {
                 .foregroundStyle(Color.appAccent)
 
             Text(title)
-                .font(.subheadline.weight(.semibold))
+                .font(.interSemiBold(size: 14))
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
 
             Text(description)
-                .font(.caption)
+                .font(.inter(size: 12))
                 .foregroundStyle(.white.opacity(0.6))
                 .multilineTextAlignment(.center)
                 .lineLimit(3)
@@ -277,7 +277,7 @@ private struct PlanCard: View {
                     // Badge (if any)
                     if let badge = badge {
                         Text(badge)
-                            .font(.caption2.weight(.bold))
+                            .font(.interSemiBold(size: 10))
                             .foregroundStyle(.black)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
@@ -302,23 +302,23 @@ private struct PlanCard: View {
 
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(title)
-                        .font(.headline)
+                        .font(.interSemiBold(size: 17))
                         .foregroundStyle(.white)
 
                     Text(price)
-                        .font(.title2.weight(.bold))
+                        .font(.bebasNeue(size: 24))
                         .foregroundStyle(.white)
 
                     if let priceSubtitle = priceSubtitle {
                         Text(priceSubtitle)
-                            .font(.caption)
+                            .font(.inter(size: 12))
                             .foregroundStyle(.white.opacity(0.5))
                     }
                 }
 
                 if let trialText = trialText {
                     Text(trialText)
-                        .font(.caption)
+                        .font(.inter(size: 12))
                         .foregroundStyle(Color.appAccent)
                 }
             }

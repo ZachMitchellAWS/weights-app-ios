@@ -15,7 +15,7 @@ struct Estimated1RMDTO: Codable {
     let exerciseId: UUID
     let value: Double
     let createdTimezone: String
-    let createdDatetime: Date?
+    let createdDatetime: Date
     let lastModifiedDatetime: Date?
 
     init(from estimated1RM: Estimated1RM) {
@@ -28,7 +28,7 @@ struct Estimated1RMDTO: Codable {
         self.lastModifiedDatetime = nil
     }
 
-    init(estimated1RMId: UUID, liftSetId: UUID, exerciseId: UUID, value: Double, createdTimezone: String, createdDatetime: Date? = nil, lastModifiedDatetime: Date? = nil) {
+    init(estimated1RMId: UUID, liftSetId: UUID, exerciseId: UUID, value: Double, createdTimezone: String, createdDatetime: Date, lastModifiedDatetime: Date? = nil) {
         self.estimated1RMId = estimated1RMId
         self.liftSetId = liftSetId
         self.exerciseId = exerciseId

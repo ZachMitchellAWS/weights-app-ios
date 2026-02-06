@@ -15,6 +15,7 @@ enum APIError: Error, LocalizedError {
     case decodingError(Error)
     case unauthorized
     case noTokensStored
+    case notImplemented(String)
 
     var errorDescription: String? {
         switch self {
@@ -32,6 +33,8 @@ enum APIError: Error, LocalizedError {
             return "Unauthorized"
         case .noTokensStored:
             return "No authentication tokens found"
+        case .notImplemented(let feature):
+            return "\(feature)"
         }
     }
 }
@@ -221,6 +224,20 @@ class APIService {
             body: body,
             headers: APIConfig.commonHeaders
         )
+    }
+
+    func authenticateWithApple(identityToken: String, authorizationCode: String, email: String?, fullName: String?) async throws -> AuthResponse {
+        // TODO: Implement when backend endpoint exists
+        // let body = AppleSignInRequest(identityToken: identityToken, authorizationCode: authorizationCode, email: email, fullName: fullName)
+        // let response: AuthResponse = try await request(
+        //     endpoint: "/auth/apple-signin",
+        //     method: "POST",
+        //     body: body,
+        //     headers: APIConfig.commonHeaders
+        // )
+        // KeychainService.shared.saveTokens(...)
+        // return response
+        throw APIError.notImplemented("Apple Sign In will be available soon")
     }
 
     func getUserProperties() async throws -> UserPropertiesResponse {

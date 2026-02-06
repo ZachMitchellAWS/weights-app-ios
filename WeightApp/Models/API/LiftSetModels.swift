@@ -15,7 +15,7 @@ struct LiftSetDTO: Codable {
     let reps: Int
     let weight: Double
     let createdTimezone: String
-    let createdDatetime: Date?
+    let createdDatetime: Date
     let lastModifiedDatetime: Date?
 
     init(from liftSet: LiftSet) {
@@ -28,7 +28,7 @@ struct LiftSetDTO: Codable {
         self.lastModifiedDatetime = nil
     }
 
-    init(liftSetId: UUID, exerciseId: UUID, reps: Int, weight: Double, createdTimezone: String, createdDatetime: Date? = nil, lastModifiedDatetime: Date? = nil) {
+    init(liftSetId: UUID, exerciseId: UUID, reps: Int, weight: Double, createdTimezone: String, createdDatetime: Date, lastModifiedDatetime: Date? = nil) {
         self.liftSetId = liftSetId
         self.exerciseId = exerciseId
         self.reps = reps

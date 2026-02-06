@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import AuthenticationServices
 
 struct RegisterView: View {
     @ObservedObject var authViewModel: AuthViewModel
@@ -42,7 +43,7 @@ struct RegisterView: View {
                             .foregroundStyle(Color.appAccent)
 
                         Text("Create Account")
-                            .font(.largeTitle.weight(.bold))
+                            .font(.bebasNeue(size: 38))
                             .foregroundStyle(.white)
                     }
                     .padding(.top, 60)
@@ -52,14 +53,14 @@ struct RegisterView: View {
                         // Email Field
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Email")
-                                .font(.subheadline.weight(.semibold))
+                                .font(.interSemiBold(size: 14))
                                 .foregroundStyle(.white.opacity(0.7))
 
                             TextField("", text: $email)
                                 .textContentType(.emailAddress)
                                 .keyboardType(.emailAddress)
                                 .autocapitalization(.none)
-                                .font(.body)
+                                .font(.inter(size: 16))
                                 .padding(14)
                                 .background(Color(white: 0.12))
                                 .cornerRadius(10)
@@ -67,7 +68,7 @@ struct RegisterView: View {
 
                             if !email.isEmpty && !isValidEmail {
                                 Text("Please enter a valid email address")
-                                    .font(.caption)
+                                    .font(.inter(size: 12))
                                     .foregroundStyle(.red)
                             }
                         }
@@ -75,7 +76,7 @@ struct RegisterView: View {
                         // Password Field
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Password")
-                                .font(.subheadline.weight(.semibold))
+                                .font(.interSemiBold(size: 14))
                                 .foregroundStyle(.white.opacity(0.7))
 
                             HStack {
@@ -87,7 +88,7 @@ struct RegisterView: View {
                                     }
                                 }
                                 .textContentType(.newPassword)
-                                .font(.body)
+                                .font(.inter(size: 16))
 
                                 Button {
                                     showPassword.toggle()
@@ -103,7 +104,7 @@ struct RegisterView: View {
 
                             if !password.isEmpty && password.count < 8 {
                                 Text("Password must be at least 8 characters")
-                                    .font(.caption)
+                                    .font(.inter(size: 12))
                                     .foregroundStyle(.red)
                             }
                         }
@@ -111,7 +112,7 @@ struct RegisterView: View {
                         // Confirm Password Field
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Confirm Password")
-                                .font(.subheadline.weight(.semibold))
+                                .font(.interSemiBold(size: 14))
                                 .foregroundStyle(.white.opacity(0.7))
 
                             HStack {
@@ -123,7 +124,7 @@ struct RegisterView: View {
                                     }
                                 }
                                 .textContentType(.newPassword)
-                                .font(.body)
+                                .font(.inter(size: 16))
 
                                 Button {
                                     showConfirmPassword.toggle()
@@ -139,7 +140,7 @@ struct RegisterView: View {
 
                             if !confirmPassword.isEmpty && !passwordsMatch {
                                 Text("Passwords do not match")
-                                    .font(.caption)
+                                    .font(.inter(size: 12))
                                     .foregroundStyle(.red)
                             }
                         }
@@ -147,7 +148,7 @@ struct RegisterView: View {
                         // Error Message
                         if let error = authViewModel.errorMessage {
                             Text(error)
-                                .font(.caption)
+                                .font(.inter(size: 12))
                                 .foregroundStyle(.red)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal)
@@ -165,7 +166,7 @@ struct RegisterView: View {
                                         .tint(.black)
                                 } else {
                                     Text("Create Account")
-                                        .font(.headline)
+                                        .font(.interSemiBold(size: 17))
                                 }
                             }
                             .frame(maxWidth: .infinity)
@@ -176,6 +177,30 @@ struct RegisterView: View {
                         }
                         .disabled(authViewModel.isLoading || !canSubmit)
                         .opacity((authViewModel.isLoading || !canSubmit) ? 0.6 : 1.0)
+
+                        // Divider with "or" text
+                        HStack {
+                            Rectangle()
+                                .fill(Color.white.opacity(0.2))
+                                .frame(height: 1)
+                            Text("or")
+                                .font(.inter(size: 12))
+                                .foregroundStyle(.white.opacity(0.5))
+                            Rectangle()
+                                .fill(Color.white.opacity(0.2))
+                                .frame(height: 1)
+                        }
+                        .padding(.top, 8)
+
+                        // Sign up with Apple
+                        SignInWithAppleButton(.signUp) { request in
+                            request.requestedScopes = [.fullName, .email]
+                        } onCompletion: { result in
+                            handleAppleSignUp(result)
+                        }
+                        .signInWithAppleButtonStyle(.white)
+                        .frame(height: 50)
+                        .cornerRadius(12)
                     }
                     .padding(.horizontal, 32)
 
@@ -191,7 +216,7 @@ struct RegisterView: View {
                                 .foregroundStyle(Color.appAccent)
                         }
                     }
-                    .font(.subheadline)
+                    .font(.inter(size: 14))
 
                     Spacer(minLength: 40)
                 }
@@ -206,6 +231,46 @@ struct RegisterView: View {
                     Image(systemName: "chevron.left")
                         .foregroundStyle(Color.appAccent)
                 }
+            }
+        }
+    }
+
+    private func handleAppleSignUp(_ result: Result<ASAuthorization, Error>) {
+        switch result {
+        case .success(let authorization):
+            do {
+                let appleResult = try AppleSignInService.shared.handleAuthorization(authorization)
+                Task {
+                    // Format full name if available
+                    var fullName: String? = nil
+                    if let nameComponents = appleResult.fullName {
+                        let formatter = PersonNameComponentsFormatter()
+                        let formattedName = formatter.string(from: nameComponents)
+                        if !formattedName.isEmpty {
+                            fullName = formattedName
+                        }
+                    }
+
+                    do {
+                        _ = try await APIService.shared.authenticateWithApple(
+                            identityToken: appleResult.identityToken,
+                            authorizationCode: appleResult.authorizationCode,
+                            email: appleResult.email,
+                            fullName: fullName
+                        )
+                    } catch {
+                        await MainActor.run {
+                            authViewModel.errorMessage = error.localizedDescription
+                        }
+                    }
+                }
+            } catch {
+                authViewModel.errorMessage = error.localizedDescription
+            }
+        case .failure(let error):
+            let authError = error as? ASAuthorizationError
+            if authError?.code != .canceled {
+                authViewModel.errorMessage = error.localizedDescription
             }
         }
     }

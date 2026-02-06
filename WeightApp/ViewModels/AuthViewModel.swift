@@ -133,6 +133,64 @@ class AuthViewModel: ObservableObject {
         }
     }
 
+    func signInWithApple() async -> AuthResult {
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            let result = try await AppleSignInService.shared.signIn()
+
+            // Format full name if available
+            var fullName: String? = nil
+            if let nameComponents = result.fullName {
+                let formatter = PersonNameComponentsFormatter()
+                let formattedName = formatter.string(from: nameComponents)
+                if !formattedName.isEmpty {
+                    fullName = formattedName
+                }
+            }
+
+            // TODO: When backend is ready, uncomment:
+            // let response = try await APIService.shared.authenticateWithApple(
+            //     identityToken: result.identityToken,
+            //     authorizationCode: result.authorizationCode,
+            //     email: result.email,
+            //     fullName: fullName
+            // )
+            // isNewUser = response.isNewUser ?? false
+            // showPostAuthFlow = true
+            // isAuthenticated = true
+            // userId = response.userId
+            // await SyncService.shared.performInitialSync(isNewUser: isNewUser)
+            // isLoading = false
+            // return .success
+
+            // For now, call the placeholder which will throw notImplemented
+            _ = try await APIService.shared.authenticateWithApple(
+                identityToken: result.identityToken,
+                authorizationCode: result.authorizationCode,
+                email: result.email,
+                fullName: fullName
+            )
+
+            isLoading = false
+            return .success
+        } catch let error as AppleSignInService.AppleSignInError {
+            if case .cancelled = error {
+                // User cancelled - don't show error message
+                isLoading = false
+                return .error
+            }
+            errorMessage = error.localizedDescription
+            isLoading = false
+            return .error
+        } catch {
+            errorMessage = error.localizedDescription
+            isLoading = false
+            return .error
+        }
+    }
+
     func logout(onDataCleanup: @escaping () -> Void) async {
         isLoading = true
         errorMessage = nil

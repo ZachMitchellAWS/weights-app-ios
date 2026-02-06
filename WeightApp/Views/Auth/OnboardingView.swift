@@ -98,7 +98,7 @@ struct OnboardingView: View {
                         }
                     } label: {
                         Text("Continue")
-                            .font(.body.weight(.semibold))
+                            .font(.interSemiBold(size: 16))
                             .foregroundStyle(.black.opacity(buttonEnabled ? 1 : 0.5))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
@@ -190,12 +190,12 @@ private struct OnboardingPageOne: View {
             // Text
             VStack(spacing: 12) {
                 Text("Track Your Lifts")
-                    .font(.title.weight(.bold))
+                    .font(.bebasNeue(size: 32))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
                 Text("Log sets and watch your progress grow")
-                    .font(.body)
+                    .font(.inter(size: 16))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
@@ -209,7 +209,7 @@ private struct OnboardingPageOne: View {
                 // Today's Sets
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Today")
-                        .font(.caption.weight(.semibold))
+                        .font(.interSemiBold(size: 12))
                         .foregroundStyle(.white.opacity(0.7))
 
                     GeometryReader { _ in
@@ -228,7 +228,7 @@ private struct OnboardingPageOne: View {
                 // Previous Day Sets
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Previous Day")
-                        .font(.caption.weight(.semibold))
+                        .font(.interSemiBold(size: 12))
                         .foregroundStyle(.white.opacity(0.7))
 
                     GeometryReader { _ in
@@ -279,7 +279,7 @@ private struct SetSquareOnboarding: View {
     var body: some View {
         VStack(spacing: 2) {
             Text(reps)
-                .font(.caption.weight(.bold))
+                .font(.interSemiBold(size: 12))
                 .foregroundStyle(.white)
             Text(weight)
                 .font(.system(size: 9))
@@ -410,12 +410,12 @@ private struct OnboardingPageTwo: View {
             // Text
             VStack(spacing: 12) {
                 Text("Measure Your Progress")
-                    .font(.title.weight(.bold))
+                    .font(.bebasNeue(size: 32))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
                 Text("Watch your estimated 1RM grow over time")
-                    .font(.body)
+                    .font(.inter(size: 16))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
@@ -437,7 +437,7 @@ private struct OnboardingPageTwo: View {
                         Spacer()
                         Text("150")
                     }
-                    .font(.caption2)
+                    .font(.inter(size: 10))
                     .foregroundStyle(.white.opacity(0.5))
                     .frame(width: 28, height: 140)
                     .padding(.trailing, 4)
@@ -548,12 +548,12 @@ private struct OnboardingPageThree: View {
             // Text
             VStack(spacing: 12) {
                 Text("Get Stronger")
-                    .font(.title.weight(.bold))
+                    .font(.bebasNeue(size: 32))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
                 Text("Follow suggestions to progressively overload")
-                    .font(.body)
+                    .font(.inter(size: 16))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
             }
@@ -566,22 +566,22 @@ private struct OnboardingPageThree: View {
                 // Header row
                 HStack(spacing: 8) {
                     Text("WEIGHT")
-                        .font(.caption2.weight(.bold))
+                        .font(.interSemiBold(size: 10))
                         .foregroundStyle(Color(white: 0.5))
                         .frame(maxWidth: .infinity)
 
                     Text("REPS")
-                        .font(.caption2.weight(.bold))
+                        .font(.interSemiBold(size: 10))
                         .foregroundStyle(Color(white: 0.5))
                         .frame(maxWidth: .infinity)
 
                     Text("EST. 1RM")
-                        .font(.caption2.weight(.bold))
+                        .font(.interSemiBold(size: 10))
                         .foregroundStyle(Color(white: 0.5))
                         .frame(maxWidth: .infinity)
 
                     Text("GAIN")
-                        .font(.caption2.weight(.bold))
+                        .font(.interSemiBold(size: 10))
                         .foregroundStyle(Color.appAccent)
                         .frame(maxWidth: .infinity)
                 }
@@ -625,22 +625,22 @@ private struct OnboardingSuggestionRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(suggestion.weight)
-                .font(.subheadline.weight(.semibold))
+                .font(.interSemiBold(size: 14))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
 
             Text(suggestion.reps)
-                .font(.subheadline.weight(.semibold))
+                .font(.interSemiBold(size: 14))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
 
             Text(suggestion.est1RM)
-                .font(.subheadline.weight(.semibold))
+                .font(.interSemiBold(size: 14))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
 
             Text(suggestion.gain)
-                .font(.subheadline.weight(.semibold))
+                .font(.interSemiBold(size: 14))
                 .foregroundStyle(.green)
                 .frame(maxWidth: .infinity)
         }
@@ -669,7 +669,7 @@ private struct LegendDot: View {
                 .fill(color)
                 .frame(width: 8, height: 8)
             Text(label)
-                .font(.caption2)
+                .font(.inter(size: 10))
                 .foregroundStyle(.white.opacity(0.7))
         }
     }
@@ -696,12 +696,12 @@ private struct OnboardingExerciseSelection: View {
             // Header text
             VStack(spacing: 12) {
                 Text("Try It Out")
-                    .font(.title.weight(.bold))
+                    .font(.bebasNeue(size: 32))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
                 Text("Pick any exercise to get started")
-                    .font(.body)
+                    .font(.inter(size: 16))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
@@ -740,8 +740,7 @@ private struct OnboardingExerciseCard: View {
             onSelect()
         } label: {
             VStack(spacing: 12) {
-                Image(systemName: exerciseIcon(for: exercise))
-                    .font(.system(size: 36))
+                ExerciseIconView(exercise: exercise, size: 90)
                     .foregroundStyle(Color.appAccent)
 
                 Text(exercise.name)
@@ -752,8 +751,8 @@ private struct OnboardingExerciseCard: View {
                     .minimumScaleFactor(0.8)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 140)
-            .padding(12)
+            .padding(.vertical, 16)
+            .padding(.horizontal, 12)
             .background(
                 LinearGradient(
                     colors: [Color(white: 0.18), Color(white: 0.14)],
@@ -768,26 +767,5 @@ private struct OnboardingExerciseCard: View {
             )
         }
         .buttonStyle(.plain)
-    }
-
-    private func exerciseIcon(for exercise: Exercises) -> String {
-        switch exercise.name.lowercased() {
-        case let name where name.contains("bench"):
-            return "figure.strengthtraining.traditional"
-        case let name where name.contains("squat"):
-            return "figure.squat"
-        case let name where name.contains("deadlift"):
-            return "figure.cooldown"
-        case let name where name.contains("press") && name.contains("overhead"):
-            return "figure.arms.open"
-        case let name where name.contains("row"):
-            return "figure.rowing"
-        case let name where name.contains("pull"):
-            return "figure.climbing"
-        case let name where name.contains("dip"):
-            return "figure.core.training"
-        default:
-            return "dumbbell.fill"
-        }
     }
 }

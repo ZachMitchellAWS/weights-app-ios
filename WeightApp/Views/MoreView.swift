@@ -31,10 +31,13 @@ struct MoreView: View {
     @State private var showLogoutConfirmation = false
     @State private var userPropertiesAlertMessage = ""
     @State private var isUpdatingProperties = false
+    @State private var isPopulating28Days = false
+    @State private var isPopulatingToday = false
     @State private var showExerciseIds = false
     @State private var showMemberSince = false
     @State private var showTokenExpiry = false
     @State private var showUpsellPreview = false
+    @State private var showExerciseIcons = false
     @State private var copiedToast: String?
 
     @State private var tempBodyweight: Double = 0
@@ -211,7 +214,7 @@ struct MoreView: View {
                                     .padding(.leading, 24)
                                 Text("Premium")
                                     .foregroundStyle(Color.appAccent)
-                                    .font(.subheadline.weight(.medium))
+                                    .font(.subheadline.weight(.semibold))
                                 Spacer()
                             }
                         } else {
@@ -230,7 +233,7 @@ struct MoreView: View {
                                     Spacer()
                                     Text("Upgrade")
                                         .foregroundStyle(Color.appAccent)
-                                        .font(.caption.weight(.medium))
+                                        .font(.caption.weight(.semibold))
                                 }
                             }
                             .buttonStyle(.plain)
@@ -383,32 +386,44 @@ struct MoreView: View {
 
                     if showDeveloper {
                         Button {
-                            populateSimulatedData()
-                            showDataPopulatedAlert = true
+                            Task {
+                                await populateSimulatedData()
+                            }
                         } label: {
                             HStack {
                                 Text("Populate 28 Days of Data")
                                     .foregroundStyle(.primary)
                                     .padding(.leading, 32)
                                 Spacer()
-                                Image(systemName: "wand.and.stars")
-                                    .foregroundStyle(Color.appAccent)
+                                if isPopulating28Days {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "wand.and.stars")
+                                        .foregroundStyle(Color.appAccent)
+                                }
                             }
                         }
+                        .disabled(isPopulating28Days)
 
                         Button {
-                            populateTodayData()
-                            showTodayDataPopulatedAlert = true
+                            Task {
+                                await populateTodayData()
+                            }
                         } label: {
                             HStack {
                                 Text("Populate Today Data")
                                     .foregroundStyle(.primary)
                                     .padding(.leading, 32)
                                 Spacer()
-                                Image(systemName: "calendar.badge.plus")
-                                    .foregroundStyle(Color.appAccent)
+                                if isPopulatingToday {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "calendar.badge.plus")
+                                        .foregroundStyle(Color.appAccent)
+                                }
                             }
                         }
+                        .disabled(isPopulatingToday)
 
                         Button {
                             Task {
@@ -563,6 +578,19 @@ struct MoreView: View {
                                 .padding(.leading, 32)
                         }
 
+                        Button {
+                            showExerciseIcons = true
+                        } label: {
+                            HStack {
+                                Text("Show Exercise Icons")
+                                    .foregroundStyle(.primary)
+                                    .padding(.leading, 32)
+                                Spacer()
+                                Image(systemName: "photo.on.rectangle")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
                         Button(role: .destructive) {
                             showDeleteConfirmation = true
                         } label: {
@@ -593,6 +621,9 @@ struct MoreView: View {
                 UpsellView { _ in
                     showUpsellPreview = false
                 }
+            }
+            .sheet(isPresented: $showExerciseIcons) {
+                ExerciseIconsPreviewSheet(exercises: exercises)
             }
             .alert("Data Populated", isPresented: $showDataPopulatedAlert) {
                 Button("OK") { }
@@ -637,7 +668,7 @@ struct MoreView: View {
             .overlay(alignment: .bottom) {
                 if let toast = copiedToast {
                     Text(toast)
-                        .font(.subheadline.weight(.medium))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
@@ -672,7 +703,7 @@ struct MoreView: View {
                         .frame(height: 8)
 
                     Text("Set Bodyweight")
-                        .font(.title2)
+                        .font(.title2.weight(.bold))
                         .fontWeight(.semibold)
                         .foregroundStyle(.white)
 
@@ -697,7 +728,7 @@ struct MoreView: View {
                         .frame(maxWidth: .infinity)
 
                         Text("lbs")
-                            .font(.title2)
+                            .font(.title2.weight(.bold))
                             .foregroundStyle(.white.opacity(0.7))
                             .padding(.trailing, 40)
                     }
@@ -747,7 +778,9 @@ struct MoreView: View {
 
     // MARK: - Helper Functions
 
-    private func populateSimulatedData() {
+    private func populateSimulatedData() async {
+        isPopulating28Days = true
+
         // Clear all existing LiftSet and Estimated1RM data first
         for liftSet in liftSets {
             modelContext.delete(liftSet)
@@ -761,6 +794,7 @@ struct MoreView: View {
 
         // Ensure we have exercises
         if exercises.isEmpty {
+            isPopulating28Days = false
             return
         }
 
@@ -778,6 +812,7 @@ struct MoreView: View {
 
         // Track max 1RM per exercise for progression
         var exerciseMaxes: [String: Double] = [:]
+        var createdSets: [LiftSet] = []
 
         for daysAgo in (1...28).reversed() {
             guard let workoutDate = calendar.date(byAdding: .day, value: -daysAgo, to: now) else { continue }
@@ -841,6 +876,7 @@ struct MoreView: View {
                     set.createdAt = currentTime
                     set.createdTimezone = TimeZone.current.identifier
                     modelContext.insert(set)
+                    createdSets.append(set)
 
                     // Update max if this is a PR (last set)
                     if setNum == 7 {
@@ -857,14 +893,29 @@ struct MoreView: View {
         }
 
         try? modelContext.save()
+
+        // Sync to backend
+        do {
+            let dtos = createdSets.map { LiftSetDTO(from: $0) }
+            _ = try await APIService.shared.createLiftSets(dtos)
+            showDataPopulatedAlert = true
+        } catch {
+            userPropertiesAlertMessage = "Data created locally but failed to sync: \(error.localizedDescription)"
+            showUserPropertiesAlert = true
+        }
+
+        isPopulating28Days = false
     }
 
-    private func populateTodayData() {
+    private func populateTodayData() async {
+        isPopulatingToday = true
+
         let calendar = Calendar.current
         let now = Date()
 
         // Ensure we have exercises
         if exercises.isEmpty {
+            isPopulatingToday = false
             return
         }
 
@@ -889,6 +940,7 @@ struct MoreView: View {
 
         // Start workout at a reasonable time today
         var currentTime = calendar.date(bySettingHour: 10, minute: 0, second: 0, of: now) ?? now
+        var createdSets: [LiftSet] = []
 
         for exercise in exercises {
             let currentMax = getBase1RM(for: exercise.name)
@@ -919,6 +971,7 @@ struct MoreView: View {
                 set.createdAt = currentTime
                 set.createdTimezone = TimeZone.current.identifier
                 modelContext.insert(set)
+                createdSets.append(set)
 
                 // Add some time between sets (2-4 minutes)
                 currentTime = calendar.date(byAdding: .minute, value: Int.random(in: 2...4), to: currentTime) ?? currentTime
@@ -929,6 +982,18 @@ struct MoreView: View {
         }
 
         try? modelContext.save()
+
+        // Sync to backend
+        do {
+            let dtos = createdSets.map { LiftSetDTO(from: $0) }
+            _ = try await APIService.shared.createLiftSets(dtos)
+            showTodayDataPopulatedAlert = true
+        } catch {
+            userPropertiesAlertMessage = "Data created locally but failed to sync: \(error.localizedDescription)"
+            showUserPropertiesAlert = true
+        }
+
+        isPopulatingToday = false
     }
 
     private func updateUserProperties() async {
@@ -1220,5 +1285,49 @@ struct RangeSliderView: View {
             }
         }
         .frame(height: thumbSize)
+    }
+}
+
+// MARK: - Exercise Icons Preview Sheet
+
+struct ExerciseIconsPreviewSheet: View {
+    let exercises: [Exercises]
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            GeometryReader { geometry in
+                let iconSize = geometry.size.width * 0.75
+
+                ZStack {
+                    Color.black.ignoresSafeArea()
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 40) {
+                            ForEach(exercises.sorted { $0.name < $1.name }, id: \.id) { exercise in
+                                ExerciseIconView(exercise: exercise, size: iconSize)
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+                        .scrollTargetLayout()
+                        .padding(.horizontal, (geometry.size.width - iconSize) / 2)
+                    }
+                    .scrollTargetBehavior(.viewAligned)
+                    .contentMargins(.horizontal, 0, for: .scrollContent)
+                }
+            }
+            .navigationTitle("Exercise Icons")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .foregroundStyle(Color.appAccent)
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
     }
 }

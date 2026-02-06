@@ -51,7 +51,7 @@ struct PlateSelectionView: View {
                                     } label: {
                                         Image(systemName: "trash")
                                             .foregroundStyle(.red)
-                                            .font(.title3)
+                                            .font(.system(size: 20))
                                     }
                                 }
                                 .padding(.horizontal, 20)
@@ -73,7 +73,7 @@ struct PlateSelectionView: View {
                     } label: {
                         HStack {
                             Image(systemName: "plus.circle.fill")
-                                .font(.title2)
+                                .font(.system(size: 22))
                             Text("ADD WEIGHT INCREMENT")
                                 .font(.headline)
                         }

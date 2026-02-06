@@ -275,7 +275,7 @@ struct ExerciseGroupRow: View {
                             .frame(width: 8, height: 24)
 
                         Text("\(set.reps) × \(set.weight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
-                            .font(.subheadline)
+                            .font(.callout)
                             .foregroundStyle(.white)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)

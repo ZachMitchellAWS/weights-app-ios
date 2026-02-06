@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SafariServices
+import AuthenticationServices
 
 struct AuthView: View {
     @ObservedObject var authViewModel: AuthViewModel
@@ -48,7 +49,7 @@ struct AuthView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.black
+                Color(white: 0.08)
                     .ignoresSafeArea()
 
                 ScrollView {
@@ -64,11 +65,11 @@ struct AuthView: View {
 
                                 VStack(spacing: 4) {
                                     Text("Lift the Bull")
-                                        .font(.largeTitle.weight(.bold))
+                                        .font(.bebasNeue(size: 34))
                                         .foregroundStyle(.white)
 
                                     Text("Progressive Overload Tracker")
-                                        .font(.subheadline)
+                                        .font(.inter(size: 14))
                                         .foregroundStyle(.white.opacity(0.6))
                                 }
                             }
@@ -105,7 +106,7 @@ struct AuthView: View {
                                     authViewModel.errorMessage = nil
                                 } label: {
                                     Text("Sign Up")
-                                        .font(.subheadline.weight(.semibold))
+                                        .font(.interSemiBold(size: 14))
                                         .foregroundStyle(authMode == .signUp ? .black : .white.opacity(0.5))
                                         .frame(maxWidth: .infinity)
                                         .contentShape(Rectangle())
@@ -119,7 +120,7 @@ struct AuthView: View {
                                     authViewModel.errorMessage = nil
                                 } label: {
                                     Text("Login")
-                                        .font(.subheadline.weight(.semibold))
+                                        .font(.interSemiBold(size: 14))
                                         .foregroundStyle(authMode == .login ? .black : .white.opacity(0.5))
                                         .frame(maxWidth: .infinity)
                                         .contentShape(Rectangle())
@@ -136,14 +137,14 @@ struct AuthView: View {
                             // Email Field
                             VStack(alignment: .leading, spacing: 6) {
                                 Text("Email")
-                                    .font(.subheadline.weight(.semibold))
+                                    .font(.interSemiBold(size: 14))
                                     .foregroundStyle(.white.opacity(0.7))
 
                                 TextField("", text: $email)
                                     .textContentType(.emailAddress)
                                     .keyboardType(.emailAddress)
                                     .autocapitalization(.none)
-                                    .font(.body)
+                                    .font(.inter(size: 16))
                                     .padding(.horizontal, 12)
                                     .frame(height: 40)
                                     .background(Color(white: 0.12))
@@ -153,7 +154,7 @@ struct AuthView: View {
 
                                 if !email.isEmpty && !isValidEmail && focusedField != .email {
                                     Text("Please enter a valid email address")
-                                        .font(.caption)
+                                        .font(.inter(size: 12))
                                         .foregroundStyle(.red)
                                 }
                             }
@@ -161,7 +162,7 @@ struct AuthView: View {
                             // Password Field
                             VStack(alignment: .leading, spacing: 6) {
                                 Text("Password")
-                                    .font(.subheadline.weight(.semibold))
+                                    .font(.interSemiBold(size: 14))
                                     .foregroundStyle(.white.opacity(0.7))
 
                                 HStack {
@@ -173,7 +174,7 @@ struct AuthView: View {
                                         }
                                     }
                                     .textContentType(authMode == .signUp ? .newPassword : .password)
-                                    .font(.body)
+                                    .font(.inter(size: 16))
                                     .focused($focusedField, equals: .password)
 
                                     Button {
@@ -191,7 +192,7 @@ struct AuthView: View {
 
                                 if !password.isEmpty && password.count < 8 && focusedField != .password {
                                     Text("Password must be at least 8 characters")
-                                        .font(.caption)
+                                        .font(.inter(size: 12))
                                         .foregroundStyle(.red)
                                 }
                             }
@@ -202,21 +203,21 @@ struct AuthView: View {
                                     showForgotPassword = true
                                 } label: {
                                     Text("Forgot Password?")
-                                        .font(.subheadline)
+                                        .font(.inter(size: 14))
                                         .foregroundStyle(Color.appAccent)
                                 }
                                 .frame(maxWidth: .infinity)
                             } else {
                                 // Invisible spacer to match login layout
                                 Text(" ")
-                                    .font(.subheadline)
+                                    .font(.inter(size: 14))
                                     .frame(maxWidth: .infinity)
                             }
 
                             // Error Message
                             if let error = authViewModel.errorMessage {
                                 Text(error)
-                                    .font(.caption)
+                                    .font(.inter(size: 12))
                                     .foregroundStyle(.red)
                                     .multilineTextAlignment(.center)
                                     .padding(.horizontal)
@@ -235,7 +236,7 @@ struct AuthView: View {
                                             .tint(.black)
                                     } else {
                                         Text(authMode == .signUp ? "Sign Up" : "Login")
-                                            .font(.subheadline.weight(.semibold))
+                                            .font(.interSemiBold(size: 14))
                                     }
                                 }
                                 .frame(maxWidth: .infinity)
@@ -245,12 +246,37 @@ struct AuthView: View {
                                 .foregroundStyle(.black)
                             }
                             .disabled(authViewModel.isLoading || !canSubmit)
-                            .opacity((authViewModel.isLoading || !canSubmit) ? 0.6 : 1.0)
+                            // .opacity((authViewModel.isLoading || !canSubmit) ? 0.6 : 1.0)
+
+                            // Divider with "or" text
+                            HStack {
+                                Rectangle()
+                                    .fill(Color.white.opacity(0.2))
+                                    .frame(height: 1)
+                                Text("or")
+                                    .font(.inter(size: 12))
+                                    .foregroundStyle(.white.opacity(0.5))
+                                Rectangle()
+                                    .fill(Color.white.opacity(0.2))
+                                    .frame(height: 1)
+                            }
+                            .padding(.top, 8)
+
+                            // Sign in with Apple
+                            SignInWithAppleButton(authMode == .signUp ? .signUp : .signIn) { request in
+                                request.requestedScopes = [.fullName, .email]
+                            } onCompletion: { result in
+                                handleAppleSignIn(result)
+                            }
+                            .signInWithAppleButtonStyle(.white)
+                            .frame(height: 44)
+                            .cornerRadius(10)
+                            .id(authMode)
 
                             // Terms and Privacy footer
                             VStack(spacing: 4) {
                                 Text("By signing up you agree to the")
-                                    .font(.caption)
+                                    .font(.inter(size: 12))
                                     .foregroundStyle(.white.opacity(0.5))
 
                                 HStack(spacing: 4) {
@@ -258,19 +284,19 @@ struct AuthView: View {
                                         showTermsOfService = true
                                     } label: {
                                         Text("Terms of Service")
-                                            .font(.caption)
+                                            .font(.inter(size: 12))
                                             .foregroundStyle(Color.appAccent)
                                     }
 
                                     Text("and")
-                                        .font(.caption)
+                                        .font(.inter(size: 12))
                                         .foregroundStyle(.white.opacity(0.5))
 
                                     Button {
                                         showPrivacyPolicy = true
                                     } label: {
                                         Text("Privacy Policy")
-                                            .font(.caption)
+                                            .font(.inter(size: 12))
                                             .foregroundStyle(Color.appAccent)
                                     }
                                 }
@@ -288,7 +314,7 @@ struct AuthView: View {
                     VStack {
                         Spacer()
                         Text(toastMessage)
-                            .font(.subheadline)
+                            .font(.inter(size: 14))
                             .foregroundStyle(.white)
                             .multilineTextAlignment(.center)
                             .padding(20)
@@ -367,6 +393,46 @@ struct AuthView: View {
             if result != .success {
                 // Reset layout freeze on failure
                 isSubmitting = false
+            }
+        }
+    }
+
+    private func handleAppleSignIn(_ result: Result<ASAuthorization, Error>) {
+        switch result {
+        case .success(let authorization):
+            do {
+                let appleResult = try AppleSignInService.shared.handleAuthorization(authorization)
+                Task {
+                    // Format full name if available
+                    var fullName: String? = nil
+                    if let nameComponents = appleResult.fullName {
+                        let formatter = PersonNameComponentsFormatter()
+                        let formattedName = formatter.string(from: nameComponents)
+                        if !formattedName.isEmpty {
+                            fullName = formattedName
+                        }
+                    }
+
+                    do {
+                        _ = try await APIService.shared.authenticateWithApple(
+                            identityToken: appleResult.identityToken,
+                            authorizationCode: appleResult.authorizationCode,
+                            email: appleResult.email,
+                            fullName: fullName
+                        )
+                    } catch {
+                        await MainActor.run {
+                            authViewModel.errorMessage = error.localizedDescription
+                        }
+                    }
+                }
+            } catch {
+                authViewModel.errorMessage = error.localizedDescription
+            }
+        case .failure(let error):
+            let authError = error as? ASAuthorizationError
+            if authError?.code != .canceled {
+                authViewModel.errorMessage = error.localizedDescription
             }
         }
     }
