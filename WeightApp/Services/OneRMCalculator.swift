@@ -34,7 +34,7 @@ enum OneRMCalculator {
     static func minimizedSuggestions(current1RM: Double, increment: Double) -> [Suggestion] {
         guard increment > 0 else { return [] }
         let base = max(0, current1RM)
-        let repsRange = Array(1...10)
+        let repsRange = Array(1...12)
 
         return repsRange.map { reps in
             let mult: Double = (reps == 1) ? 1.0 : (1.0 + Double(reps)/30.0)

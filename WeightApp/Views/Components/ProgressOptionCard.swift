@@ -17,7 +17,7 @@ struct ProgressOptionCard: View {
         HStack(spacing: 12) {
             // Weight
             Text(formatWeight(suggestion.weight.rounded1()))
-                .font(.title3)
+                .font(.callout)
                 .foregroundStyle(columnHighlighted && sortColumn == .weight ? Color.appAccent : .white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -25,21 +25,21 @@ struct ProgressOptionCard: View {
 
             Divider()
                 .background(.white.opacity(0.2))
-                .frame(height: 24)
+                .frame(height: 20)
 
             // Reps
             Text("\(suggestion.reps)")
-                .font(.title3)
+                .font(.callout)
                 .foregroundStyle(columnHighlighted && sortColumn == .reps ? Color.appAccent : .white)
                 .frame(width: 50)
 
             Divider()
                 .background(.white.opacity(0.2))
-                .frame(height: 24)
+                .frame(height: 20)
 
             // Projected 1RM
             Text(formatWeight(suggestion.projected1RM.rounded1()))
-                .font(.title3)
+                .font(.callout)
                 .foregroundStyle(columnHighlighted && sortColumn == .est1RM ? Color.appAccent : .white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -47,19 +47,19 @@ struct ProgressOptionCard: View {
 
             Divider()
                 .background(.white.opacity(0.2))
-                .frame(height: 24)
+                .frame(height: 20)
 
             // Gain
             let delta = suggestion.delta
             Text("\(delta >= 0 ? "+" : "")\(delta.formatted(.number.precision(.fractionLength(2))))")
-                .font(.title3)
+                .font(.callout)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .foregroundStyle(columnHighlighted && sortColumn == .gain ? Color.appAccent : (delta > 0 ? .green : .white.opacity(0.7)))
                 .frame(width: 65)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color(white: 0.12))

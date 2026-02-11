@@ -59,13 +59,41 @@ struct ErrorResponse: Codable {
 }
 
 struct UserPropertiesRequest: Codable {
-    let availableChangePlates: [Double]?
+    var bodyweight: Double?
+    var availableChangePlates: [Double]?
+    var minReps: Int?
+    var maxReps: Int?
+    var clearBodyweight: Bool = false
+
+    private enum CodingKeys: String, CodingKey {
+        case bodyweight, availableChangePlates, minReps, maxReps
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        if clearBodyweight {
+            try container.encodeNil(forKey: .bodyweight)
+        } else if let bodyweight = bodyweight {
+            try container.encode(bodyweight, forKey: .bodyweight)
+        }
+        if let plates = availableChangePlates {
+            try container.encode(plates, forKey: .availableChangePlates)
+        }
+        if let minReps = minReps {
+            try container.encode(minReps, forKey: .minReps)
+        }
+        if let maxReps = maxReps {
+            try container.encode(maxReps, forKey: .maxReps)
+        }
+    }
 }
 
 struct UserPropertiesResponse: Codable {
     let userId: String
     let bodyweight: Double?
     let availableChangePlates: [Double]?
+    let minReps: Int?
+    let maxReps: Int?
     let createdDatetime: String
     let lastModifiedDatetime: String
 }

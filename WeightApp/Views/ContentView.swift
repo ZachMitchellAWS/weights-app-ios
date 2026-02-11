@@ -27,7 +27,7 @@ struct ContentView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             TrendsView(selectedSetData: selectedSetData, selectedTab: $selectedTab)
-                .tabItem { Label("History", systemImage: "clock") }
+                .tabItem { Label("Trends", systemImage: "chart.line.uptrend.xyaxis") }
                 .tag(0)
 
             CheckInView(selectedSetData: selectedSetData, initialExerciseId: initialExerciseId)
@@ -39,6 +39,8 @@ struct ContentView: View {
                 .tag(2)
         }
         .tint(Color.appAccent)
+        .toolbarBackground(Color.black, for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
         .onChange(of: selectedTab) { _, _ in
             hapticFeedback.impactOccurred()
         }

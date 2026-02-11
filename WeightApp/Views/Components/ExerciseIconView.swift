@@ -18,33 +18,23 @@ struct ExerciseIconView: View {
 
     @ViewBuilder
     private var exerciseIconContent: some View {
-        let name = exercise.name.lowercased()
-        if name.contains("press") && name.contains("overhead") {
-            Image("OverheadPressIcon")
+        let icon = exercise.icon
+
+        if icon.starts(with: "figure.") {
+            // SF Symbol
+            Image(systemName: icon)
+                .font(.system(size: size * 0.8))
+        } else if icon == "OverheadPressIcon" {
+            // Custom asset with scale adjustment
+            Image(icon)
                 .resizable()
                 .scaledToFit()
+                .scaleEffect(1.2)
         } else {
-            Image(systemName: sfSymbolName)
-                .font(.system(size: size * 0.8))
-        }
-    }
-
-    private var sfSymbolName: String {
-        switch exercise.name.lowercased() {
-        case let name where name.contains("bench"):
-            return "figure.strengthtraining.traditional"
-        case let name where name.contains("squat"):
-            return "figure.squat"
-        case let name where name.contains("deadlift"):
-            return "figure.cooldown"
-        case let name where name.contains("row"):
-            return "figure.rowing"
-        case let name where name.contains("pull"):
-            return "figure.climbing"
-        case let name where name.contains("dip"):
-            return "figure.core.training"
-        default:
-            return "dumbbell.fill"
+            // Other custom assets (BenchPressIcon, PullUpIcon, etc.)
+            Image(icon)
+                .resizable()
+                .scaledToFit()
         }
     }
 }

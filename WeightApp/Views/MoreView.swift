@@ -41,7 +41,8 @@ struct MoreView: View {
     @State private var showAlertPreviews = false
     @State private var copiedToast: String?
 
-    @State private var tempBodyweight: Double = 0
+    @State private var tempBodyweight: Double = 150
+    @State private var repRangeDebounceTask: Task<Void, Never>?
 
     private var userProperties: UserProperties {
         if let props = userPropertiesItems.first { return props }
@@ -318,33 +319,34 @@ struct MoreView: View {
                     }
 
                     if showSettings {
-                        // Profile Section (commented out for now)
-                        // VStack(alignment: .leading, spacing: 8) {
-                        //     Text("Profile")
-                        //         .font(.subheadline)
-                        //         .foregroundStyle(.white.opacity(0.7))
-                        //         .padding(.leading, 32)
-                        //
-                        //     Button {
-                        //         tempBodyweight = userProperties.bodyweight ?? 0
-                        //         showWeightInput = true
-                        //     } label: {
-                        //         HStack {
-                        //             Text("Bodyweight")
-                        //                 .foregroundStyle(.primary)
-                        //                 .padding(.leading, 32)
-                        //             Spacer()
-                        //             if let bodyweight = userProperties.bodyweight {
-                        //                 Text("\(bodyweight, specifier: "%.1f") lbs")
-                        //                     .foregroundStyle(.white.opacity(0.5))
-                        //             } else {
-                        //                 Text("Not Set")
-                        //                     .foregroundStyle(.white.opacity(0.5))
-                        //             }
-                        //         }
-                        //     }
-                        // }
-                        // .padding(.vertical, 4)
+                        // Profile Section
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Profile")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.5))
+                                .padding(.leading, 32)
+
+                            Button {
+                                tempBodyweight = userProperties.bodyweight ?? 150
+                                showWeightInput = true
+                            } label: {
+                                HStack {
+                                    Text("Bodyweight")
+                                        .foregroundStyle(.white.opacity(0.7))
+                                        .font(.subheadline)
+                                        .padding(.leading, 40)
+                                    Spacer()
+                                    if let bodyweight = userProperties.bodyweight {
+                                        Text("\(bodyweight, specifier: "%.1f") lbs")
+                                            .foregroundStyle(.white.opacity(0.5))
+                                    } else {
+                                        Text("Not Set")
+                                            .foregroundStyle(.white.opacity(0.5))
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
 
                         // Progress Options Section
                         VStack(alignment: .leading, spacing: 12) {
@@ -353,12 +355,12 @@ struct MoreView: View {
                                 .foregroundStyle(.white.opacity(0.5))
                                 .padding(.leading, 32)
 
-                            // Plate Increments
+                            // Available Change Plates
                             Button {
                                 showPlateSelection = true
                             } label: {
                                 HStack {
-                                    Text("Plate Increments")
+                                    Text("Available Change Plates")
                                         .foregroundStyle(.white.opacity(0.7))
                                         .font(.subheadline)
                                         .padding(.leading, 40)
@@ -385,11 +387,11 @@ struct MoreView: View {
                                 RangeSliderView(
                                     minValue: Binding(
                                         get: { Double(userProperties.minReps) },
-                                        set: { userProperties.minReps = Int($0); try? modelContext.save() }
+                                        set: { userProperties.minReps = Int($0); try? modelContext.save(); scheduleRepRangeSync() }
                                     ),
                                     maxValue: Binding(
                                         get: { Double(userProperties.maxReps) },
-                                        set: { userProperties.maxReps = Int($0); try? modelContext.save() }
+                                        set: { userProperties.maxReps = Int($0); try? modelContext.save(); scheduleRepRangeSync() }
                                     ),
                                     bounds: 1...12,
                                     minSpan: Double(UserProperties.minRepRangeSpan)
@@ -642,6 +644,25 @@ struct MoreView: View {
                             }
                         }
 
+                        // User Samples section
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("User Samples")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.5))
+                                .padding(.leading, 32)
+
+                            ForEach(UserSamples.Cohort.allCases, id: \.self) { cohort in
+                                Toggle(cohort.displayName, isOn: Binding(
+                                    get: { UserSamples.shared.isInCohort(cohort) },
+                                    set: { UserSamples.shared.setCohort(cohort, enabled: $0) }
+                                ))
+                                .font(.subheadline)
+                                .tint(.appAccent)
+                                .padding(.leading, 32)
+                            }
+                        }
+                        .padding(.vertical, 8)
+
                         Button(role: .destructive) {
                             showDeleteConfirmation = true
                         } label: {
@@ -738,6 +759,17 @@ struct MoreView: View {
         }
     }
 
+    private func scheduleRepRangeSync() {
+        repRangeDebounceTask?.cancel()
+        let minReps = userProperties.minReps
+        let maxReps = userProperties.maxReps
+        repRangeDebounceTask = Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            await SyncService.shared.updateRepRange(minReps: minReps, maxReps: maxReps)
+        }
+    }
+
     private func showCopiedToast(_ message: String) {
         copiedToast = message
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -793,10 +825,11 @@ struct MoreView: View {
                     // Buttons
                     HStack(spacing: 16) {
                         Button {
-                            tempBodyweight = 0
+                            tempBodyweight = 150
                             userProperties.bodyweight = nil
                             try? modelContext.save()
                             showWeightInput = false
+                            Task { await SyncService.shared.updateBodyweight(nil) }
                         } label: {
                             Text("Clear")
                                 .font(.headline)
@@ -811,6 +844,7 @@ struct MoreView: View {
                             userProperties.bodyweight = tempBodyweight
                             try? modelContext.save()
                             showWeightInput = false
+                            Task { await SyncService.shared.updateBodyweight(tempBodyweight) }
                         } label: {
                             Text("Done")
                                 .font(.headline)
@@ -1054,8 +1088,14 @@ struct MoreView: View {
         isUpdatingProperties = true
 
         do {
-            let response = try await APIService.shared.updateUserProperties(availableChangePlates: userProperties.availableChangePlates)
-            userPropertiesAlertMessage = "Successfully updated user properties\n\nbodyweight: \(response.bodyweight?.description ?? "nil")"
+            let request = UserPropertiesRequest(
+                bodyweight: userProperties.bodyweight,
+                availableChangePlates: userProperties.availableChangePlates,
+                minReps: userProperties.minReps,
+                maxReps: userProperties.maxReps
+            )
+            let response = try await APIService.shared.updateUserProperties(request)
+            userPropertiesAlertMessage = "Successfully updated user properties\n\nbodyweight: \(response.bodyweight?.description ?? "nil")\nminReps: \(response.minReps?.description ?? "nil")\nmaxReps: \(response.maxReps?.description ?? "nil")"
             showUserPropertiesAlert = true
         } catch {
             userPropertiesAlertMessage = "Failed: \(error.localizedDescription)"
@@ -1483,6 +1523,7 @@ private struct SubmitOverlayPreview: View {
     let intensityLabel: String
     let intensityColor: Color
 
+    @State private var pulse = false
     @State private var iconScale: CGFloat = 0.5
     @State private var iconOpacity: Double = 0
 
@@ -1515,7 +1556,7 @@ private struct SubmitOverlayPreview: View {
                     VStack(spacing: 4) {
                         Text("Increased 1RM by")
                             .font(.subheadline)
-                        Text("+\(delta.formatted(.number.precision(.fractionLength(2)))) lbs")
+                        Text("+\(delta.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
                             .font(.title.weight(.semibold))
                             .foregroundStyle(Color.appLogoColor)
                     }
@@ -1536,17 +1577,23 @@ private struct SubmitOverlayPreview: View {
                 RoundedRectangle(cornerRadius: 16)
                     .strokeBorder(Color.appLogoColor.opacity(0.5), lineWidth: 1.5)
             )
-        }
-        .onAppear {
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.6)) {
-                iconScale = 1.0
-                iconOpacity = 1.0
+            .scaleEffect(pulse ? 1.02 : 1.0)
+            .onAppear {
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.6)) {
+                    iconScale = 1.0
+                    iconOpacity = 1.0
+                }
+                withAnimation(.easeInOut(duration: 0.3).repeatCount(3, autoreverses: true).delay(0.4)) {
+                    pulse = true
+                }
             }
         }
     }
 }
 
 private struct CancelOverlayPreview: View {
+    @State private var pulse = false
+
     private let squareSize: CGFloat = 160
 
     var body: some View {
@@ -1570,6 +1617,12 @@ private struct CancelOverlayPreview: View {
                 RoundedRectangle(cornerRadius: 16)
                     .strokeBorder(Color.appLogoColor.opacity(0.5), lineWidth: 1.5)
             )
+            .scaleEffect(pulse ? 1.02 : 1.0)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.22).repeatCount(2, autoreverses: true)) {
+                    pulse = true
+                }
+            }
         }
     }
 }
@@ -1587,8 +1640,9 @@ private struct ConfirmationOverlayPreview: View {
 
             VStack(spacing: 20) {
                 VStack(spacing: 8) {
-                    Image(systemName: "dumbbell.fill")
-                        .font(.system(size: 50))
+                    Image(systemName: "figure.strengthtraining.traditional")
+                        .font(.system(size: 72))
+                        .frame(width: 90, height: 90)
                         .foregroundStyle(Color.appAccent)
 
                     Text("Bench Press")
@@ -1661,7 +1715,8 @@ private struct ConfirmationOverlayPreview: View {
                 RoundedRectangle(cornerRadius: 20)
                     .strokeBorder(Color.appLogoColor.opacity(0.5), lineWidth: 1.5)
             )
-            .padding(.horizontal, 40)
+            .shadow(color: .black.opacity(0.5), radius: 30, y: 10)
+            .padding(.horizontal, 32)
         }
     }
 }

@@ -15,7 +15,6 @@ struct OnboardingView: View {
     @Query(filter: #Predicate<Exercises> { !$0.deleted }, sort: \Exercises.createdAt) private var exercises: [Exercises]
 
     @State private var currentPage = 0
-    @State private var buttonEnabled = false
     @State private var isExiting = false
     @State private var selectedExerciseId: UUID? = nil
 
@@ -85,29 +84,20 @@ struct OnboardingView: View {
                 // Continue button (hidden on exercise selection page)
                 if currentPage < 3 {
                     Button {
-                        buttonEnabled = false
                         withAnimation(.easeInOut(duration: 0.4)) {
                             currentPage += 1
-                        }
-                        // Enable button again after delay (shorter for last content page)
-                        let delay = currentPage == 2 ? 0.5 : 1.5
-                        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                            withAnimation(.easeInOut(duration: 0.3)) {
-                                buttonEnabled = true
-                            }
                         }
                     } label: {
                         Text("Continue")
                             .font(.interSemiBold(size: 16))
-                            .foregroundStyle(.black.opacity(buttonEnabled ? 1 : 0.5))
+                            .foregroundStyle(.black)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
-                            .background(buttonEnabled ? Color.appAccent : Color.gray)
+                            .background(Color.appAccent)
                             .cornerRadius(12)
-                            .animation(.easeInOut(duration: 0.3), value: buttonEnabled)
                     }
                     .buttonStyle(.plain)
-                    .disabled(!buttonEnabled || isExiting)
+                    .disabled(isExiting)
                     .padding(.horizontal, 32)
                     .padding(.bottom, 50)
                 } else {
@@ -118,14 +108,6 @@ struct OnboardingView: View {
             }
             .opacity(isExiting ? 0 : 1)
             .scaleEffect(isExiting ? 0.95 : 1)
-        }
-        .onAppear {
-            // Enable button after 1.5 second delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    buttonEnabled = true
-                }
-            }
         }
     }
 }

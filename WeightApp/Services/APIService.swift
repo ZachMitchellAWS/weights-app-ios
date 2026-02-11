@@ -240,6 +240,8 @@ class APIService {
         throw APIError.notImplemented("Apple Sign In will be available soon")
     }
 
+    // Note: User properties use String timestamps with standard JSONDecoder (not .iso8601),
+    // while checkin DTOs use Date with .iso8601 decoder via requestWithDateDecoding(). This is intentional.
     func getUserProperties() async throws -> UserPropertiesResponse {
         return try await request(
             endpoint: "/user/properties",
@@ -248,12 +250,11 @@ class APIService {
         )
     }
 
-    func updateUserProperties(availableChangePlates: [Double]?) async throws -> UserPropertiesResponse {
-        let body = UserPropertiesRequest(availableChangePlates: availableChangePlates)
-        return try await request(
+    func updateUserProperties(_ request: UserPropertiesRequest) async throws -> UserPropertiesResponse {
+        return try await self.request(
             endpoint: "/user/properties",
             method: "POST",
-            body: body,
+            body: request,
             headers: APIConfig.commonHeaders,
             requiresAuth: true
         )

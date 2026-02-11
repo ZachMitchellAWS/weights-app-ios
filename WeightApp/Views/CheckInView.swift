@@ -25,6 +25,7 @@ struct CheckInView: View {
 
     @State private var newExercisesName: String = ""
     @State private var newExercisesLoadType: ExerciseLoadType = .barbell
+    @State private var newExercisesIcon: String = "figure.stand"
 
     @State private var showSubmitOverlay = false
     @State private var overlayDidIncrease = false
@@ -54,6 +55,7 @@ struct CheckInView: View {
     @State private var tempBodyweight: Double = 0
     @State private var showEditExerciseName = false
     @State private var editExerciseNameInput: String = ""
+    @State private var editingExerciseIcon: String = "figure.stand"
     @State private var exerciseNotesInput: String = ""
     @State private var showNoExercisesAlert = false
     @State private var isRetryingSync = false
@@ -61,6 +63,7 @@ struct CheckInView: View {
     @State private var showDeleteConfirmation = false
     @State private var deleteConfirmationChecked = false
     @State private var showIncrementSelection = false
+    @State private var showExpandedProgressOptions = false
 
     enum SortColumn {
         case weight, reps, est1RM, gain
@@ -98,6 +101,18 @@ struct CheckInView: View {
     private var estimated1RMsForSelected: [Estimated1RM] {
         guard let ex = selectedExercises else { return [] }
         return allEstimated1RMs.filter { $0.exercise?.id == ex.id }
+    }
+
+    private var hasUnsavedExerciseChanges: Bool {
+        guard let ex = selectedExercises else { return false }
+        let trimmedName = editExerciseNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return false }
+
+        let nameChanged = trimmedName != ex.name
+        let iconChanged = editingExerciseIcon != ex.icon
+        let notesChanged = exerciseNotesInput != (ex.notes ?? "")
+
+        return nameChanged || iconChanged || notesChanged
     }
 
     private struct SetWithPR {
@@ -151,6 +166,19 @@ struct CheckInView: View {
         return OneRMCalculator.current1RM(from: setsForSelected)
     }
 
+    private var lastPRPlusOneSuggestion: OneRMCalculator.Suggestion? {
+        guard let lastPR = setsWithPRInfo.last(where: { $0.wasPR }),
+              lastPR.set.weight > 0 else { return nil }
+        let newReps = lastPR.set.reps + 1
+        guard newReps >= userProperties.minReps,
+              newReps <= userProperties.maxReps else { return nil }
+        let projected = OneRMCalculator.estimate1RM(weight: lastPR.set.weight, reps: newReps)
+        return OneRMCalculator.Suggestion(
+            reps: newReps, weight: lastPR.set.weight,
+            projected1RM: projected, delta: projected - current1RM
+        )
+    }
+
     private var smallestPlateIncrement: Double {
         // Get the smallest available plate weight
         // For barbell: plate × 2 (both sides)
@@ -189,8 +217,19 @@ struct CheckInView: View {
         return OneRMCalculator.minimizedSuggestions(current1RM: current1RM, increment: weightDelta)
     }
 
+    private var filteredSuggestions: [OneRMCalculator.Suggestion] {
+        var filtered = suggestions.filter {
+            $0.reps >= userProperties.minReps && $0.reps <= userProperties.maxReps
+        }
+        if let prPlusOne = lastPRPlusOneSuggestion,
+           !filtered.contains(where: { $0.weight == prPlusOne.weight && $0.reps == prPlusOne.reps }) {
+            filtered.append(prPlusOne)
+        }
+        return filtered
+    }
+
     private var topThreeSuggestions: [OneRMCalculator.Suggestion] {
-        let filtered = suggestions.filter { $0.reps >= userProperties.minReps && $0.reps <= userProperties.maxReps }
+        let filtered = filteredSuggestions
 
         let sorted: [OneRMCalculator.Suggestion]
         switch sortColumn {
@@ -330,7 +369,7 @@ struct CheckInView: View {
             }
             .sheet(isPresented: $showingAddExercises) {
                 addExercisesSheet
-                    .presentationDetents([.height(340)])
+                    .presentationDetents([.fraction(0.92)])
                     .presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showWeightPicker) {
@@ -381,7 +420,7 @@ struct CheckInView: View {
                 }
                 .sheet(isPresented: $showEditExerciseName) {
                     editExerciseNameSheet
-                        .presentationDetents([.medium, .large])
+                        .presentationDetents([.fraction(0.92)])
                         .presentationDragIndicator(.visible)
                 }
                 .sheet(isPresented: $showIncrementSelection) {
@@ -413,13 +452,14 @@ struct CheckInView: View {
                 Button("Cancel") {
                     newExercisesName = ""
                     newExercisesLoadType = .barbell
+                    newExercisesIcon = "figure.stand"
                     showingAddExercises = false
                 }
                 .foregroundStyle(Color.appAccent)
 
                 Spacer()
 
-                Text("Add Exercises")
+                Text("Add Exercise")
                     .font(.headline)
                     .foregroundStyle(.white)
 
@@ -436,9 +476,9 @@ struct CheckInView: View {
             .padding(.top, 20)
 
             VStack(spacing: 16) {
-                // Exercises Name Field
+                // Exercise Name Field
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Exercises Name")
+                    Text("Exercise Name")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.7))
 
@@ -453,6 +493,8 @@ struct CheckInView: View {
                             if newValue.count > maxExercisesNameLength {
                                 newExercisesName = String(newValue.prefix(maxExercisesNameLength))
                             }
+                            // Auto-select icon based on name
+                            newExercisesIcon = IconCarouselPicker.suggestedIcon(for: newValue)
                         }
                 }
 
@@ -488,6 +530,15 @@ struct CheckInView: View {
                         .background(Color(white: 0.12))
                         .cornerRadius(10)
                     }
+                }
+
+                // Icon Picker
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Icon")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.7))
+
+                    IconCarouselPicker(selectedIcon: $newExercisesIcon)
                 }
             }
             .padding(.horizontal, 20)
@@ -1057,8 +1108,8 @@ struct CheckInView: View {
                     saveEditedExercise()
                 }
                 .foregroundStyle(Color.appAccent)
-                .disabled(editExerciseNameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .opacity(editExerciseNameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1.0)
+                .disabled(!hasUnsavedExerciseChanges)
+                .opacity(hasUnsavedExerciseChanges ? 1.0 : 0.5)
             }
             .padding(.horizontal)
             .padding(.top, 24)
@@ -1108,11 +1159,34 @@ struct CheckInView: View {
                             .foregroundStyle(.white.opacity(0.6))
                     }
 
-                    // Notes text field
+                    // Icon Picker
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Notes")
+                        Text("Icon")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.white.opacity(0.7))
+
+                        IconCarouselPicker(selectedIcon: $editingExerciseIcon)
+                    }
+
+                    // Notes text field
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Notes")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.7))
+                            Spacer()
+                            if !exerciseNotesInput.isEmpty {
+                                Button {
+                                    UIPasteboard.general.string = exerciseNotesInput
+                                    hapticFeedback.impactOccurred()
+                                } label: {
+                                    Image(systemName: "doc.on.doc")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.white.opacity(0.5))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
 
                         TextEditor(text: $exerciseNotesInput)
                             .padding(8)
@@ -1353,29 +1427,41 @@ struct CheckInView: View {
             hapticFeedback.impactOccurred()
             showExercisesSelection = true
         } label: {
-            HStack(spacing: 12) {
-                VStack(spacing: 4) {
-                    Text(selectedExercises?.name ?? "Select Exercise")
+            HStack(spacing: 8) {
+                if selectedExercises != nil {
+                    // Selected state: left-aligned with padding for edit button
+                    Text(selectedExercises?.name ?? "")
                         .font(.bebasNeue(size: 22))
                         .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .padding(.leading, 36)
 
-                    if selectedExercises != nil && !setsForSelected.isEmpty {
-                        HStack(spacing: 4) {
-                            Text("Current Estimated 1RM:")
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.6))
+                    Spacer()
+
+                    if !setsForSelected.isEmpty {
+                        HStack(spacing: 6) {
+                            Text("Est. 1RM")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.5))
                             Text(current1RM.rounded1().formatted(.number.precision(.fractionLength(2))))
-                                .font(.title3)
+                                .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(Color.appAccent)
                         }
                     }
+                } else {
+                    // Unselected state: centered text
+                    Spacer()
+                    Text("Select Exercise")
+                        .font(.bebasNeue(size: 22))
+                        .foregroundStyle(.white)
+                    Spacer()
                 }
-                .frame(maxWidth: .infinity)
 
                 Image(systemName: "chevron.down")
                     .foregroundStyle(.white.opacity(0.7))
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
             }
+            .frame(height: 28)
             .padding(.vertical, 10)
             .padding(.horizontal, 16)
             .background(
@@ -1399,6 +1485,7 @@ struct CheckInView: View {
                 Button {
                     hapticFeedback.impactOccurred()
                     editExerciseNameInput = selectedExercises?.name ?? ""
+                    editingExerciseIcon = selectedExercises?.icon ?? "figure.stand"
                     exerciseNotesInput = selectedExercises?.notes ?? ""
                     showEditExerciseName = true
                 } label: {
@@ -1468,19 +1555,18 @@ struct CheckInView: View {
                 .padding(.vertical, 8)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
-                // Overlay text
-                VStack(spacing: 8) {
-                    Text("No Estimates Yet")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-
-                    Text("Your 1RM estimates will appear here")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.7))
-                }
+                // Overlay text (commented out to simplify)
+                // VStack(spacing: 8) {
+                //     Text("No Estimates Yet")
+                //         .font(.subheadline.weight(.semibold))
+                //         .foregroundStyle(.white)
+                //
+                //     Text("Your 1RM estimates will appear here")
+                //         .font(.caption)
+                //         .foregroundStyle(.white.opacity(0.7))
+                // }
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 95)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
     }
 
@@ -1759,18 +1845,18 @@ struct CheckInView: View {
                         }
                     }
 
-                    // Overlay text
-                    VStack(spacing: 8) {
-                        Text("No Sets Yet")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white)
-
-                        Text("Your set intensity will appear here")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.7))
-                    }
+                    // Overlay text (commented out to simplify)
+                    // VStack(spacing: 8) {
+                    //     Text("No Sets Yet")
+                    //         .font(.subheadline.weight(.semibold))
+                    //         .foregroundStyle(.white)
+                    //
+                    //     Text("Your set intensity will appear here")
+                    //         .font(.caption)
+                    //         .foregroundStyle(.white.opacity(0.7))
+                    // }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             } else {
                 VStack(alignment: .leading, spacing: 10) {
                     // Today's Sets
@@ -1947,7 +2033,7 @@ struct CheckInView: View {
             }
             .frame(height: 32)
             .padding(.horizontal, 16)
-            .padding(.top, 12)
+            .padding(.top, 6)
             .padding(.bottom, selectedGraphTab == 1 ? 4 : 10)
 
             // Show PR Only toggle (only visible on Estimated 1RM tab with data)
@@ -1987,18 +2073,21 @@ struct CheckInView: View {
             .padding(.top, selectedGraphTab == 1 ? 2 : 8)
             .padding(.bottom, 6)
 
-            // Legend
-            HStack(spacing: 10) {
-                LegendItem(color: .setEasy, label: "Easy")
-                LegendItem(color: .setModerate, label: "Moderate")
-                LegendItem(color: .setHard, label: "Hard")
-                LegendItem(color: .setNearMax, label: "Redline")
-                LegendItem(color: .setPR, label: "Est. 1RM PR")
+            // Legend (only show when there's data)
+            if (selectedGraphTab == 0 && !(todaysSets.isEmpty && lastDaySets.isEmpty)) ||
+               (selectedGraphTab == 1 && !setsWithPRInfo.isEmpty) {
+                HStack(spacing: 10) {
+                    LegendItem(color: .setEasy, label: "Easy")
+                    LegendItem(color: .setModerate, label: "Moderate")
+                    LegendItem(color: .setHard, label: "Hard")
+                    LegendItem(color: .setNearMax, label: "Redline")
+                    LegendItem(color: .setPR, label: "Est. 1RM PR")
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 4)
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 10)
         }
-        .frame(height: 244)
+        .frame(height: 220)
         .background(
             LinearGradient(
                 colors: [Color(white: 0.18), Color(white: 0.14)],
@@ -2053,7 +2142,7 @@ struct CheckInView: View {
                     }
                 } else {
                     // Has data: show increment/decrement controls
-                    HStack(spacing: 8) {
+                    HStack(spacing: 6) {
                         Button {
                             // If at minimum, open change plates view to add smaller increments
                             if weightDelta <= minWeightDelta {
@@ -2066,7 +2155,7 @@ struct CheckInView: View {
                             }
                         } label: {
                             Image(systemName: "minus.circle.fill")
-                                .font(.system(size: 20))
+                                .font(.system(size: 18))
                                 .foregroundStyle(weightDelta > minWeightDelta ? Color.appAccent : .gray)
                         }
 
@@ -2076,13 +2165,13 @@ struct CheckInView: View {
                         } label: {
                             VStack(spacing: 0) {
                                 Text(weightDelta.formatted(.number.precision(.fractionLength(1))))
-                                    .font(.subheadline.weight(.semibold))
+                                    .font(.caption.weight(.semibold))
                                     .foregroundStyle(.white)
                                 Text("Δ LB")
-                                    .font(.caption2.weight(.bold))
+                                    .font(.system(size: 9, weight: .bold))
                                     .foregroundStyle(Color.appLabel)
                             }
-                            .frame(width: 55)
+                            .frame(width: 45)
                         }
                         .buttonStyle(.plain)
 
@@ -2098,14 +2187,14 @@ struct CheckInView: View {
                             }
                         } label: {
                             Image(systemName: "plus.circle.fill")
-                                .font(.system(size: 20))
+                                .font(.system(size: 18))
                                 .foregroundStyle(weightDelta < maxWeightDelta ? Color.appAccent : .gray)
                         }
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
                     .background(Color(white: 0.12))
-                    .cornerRadius(10)
+                    .cornerRadius(8)
                 }
             }
 
@@ -2113,7 +2202,7 @@ struct CheckInView: View {
                 // Empty state content
                 ProgressOptionsEmptyState()
                     .frame(maxWidth: .infinity)
-                    .frame(height: 135)
+                    .frame(height: 172)
             } else {
                 VStack(spacing: 8) {
                     // Fixed header row with labels
@@ -2241,7 +2330,7 @@ struct CheckInView: View {
                                 }
                                 .padding(.bottom, 8)
                             }
-                            .frame(height: 112)
+                            .frame(height: 140)
                             .onChange(of: sortColumn) { _, _ in
                                 withAnimation {
                                     proxy.scrollTo("top", anchor: .top)
@@ -2286,6 +2375,23 @@ struct CheckInView: View {
                 .stroke(Color.white.opacity(0.1), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
+        .onLongPressGesture(minimumDuration: 0.5) {
+            hapticFeedback.impactOccurred()
+            showExpandedProgressOptions = true
+        }
+        .sheet(isPresented: $showExpandedProgressOptions) {
+            ExpandedProgressOptionsSheet(
+                suggestions: filteredSuggestions,
+                sortColumn: $sortColumn,
+                sortAscending: $sortAscending,
+                onSelect: { suggestion in
+                    selectOption(suggestion)
+                    showExpandedProgressOptions = false
+                }
+            )
+            .presentationDetents([.fraction(0.92)])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     private var logSetSection: some View {
@@ -2450,7 +2556,8 @@ struct CheckInView: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.top, 4)
+        .padding(.bottom, 8)
         .background(
             LinearGradient(
                 colors: [Color(white: 0.18), Color(white: 0.14)],
@@ -2502,7 +2609,7 @@ struct CheckInView: View {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 44, weight: .semibold))
                             .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(Color.setEasy)
+                            .foregroundStyle(.white)
                             .scaleEffect(iconScale)
                             .opacity(iconOpacity)
                     }
@@ -2519,7 +2626,7 @@ struct CheckInView: View {
                         VStack(spacing: 2) {
                             Text(intensityLabel)
                                 .font(.bebasNeue(size: 28))
-                                .foregroundStyle(intensityColor)
+                                .foregroundStyle(.white)
                             Text("Set Logged")
                                 .font(.subheadline)
                                 .foregroundStyle(.white.opacity(0.7))
@@ -2694,7 +2801,7 @@ struct CheckInView: View {
         let trimmed = newExercisesName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        let ex = Exercises(name: trimmed, isCustom: true, loadType: newExercisesLoadType)
+        let ex = Exercises(name: trimmed, isCustom: true, loadType: newExercisesLoadType, icon: newExercisesIcon)
         modelContext.insert(ex)
         selectedExercisesId = ex.id
 
@@ -2703,6 +2810,7 @@ struct CheckInView: View {
 
         newExercisesName = ""
         newExercisesLoadType = .barbell
+        newExercisesIcon = "figure.stand"
         showingAddExercises = false
     }
 
@@ -2911,6 +3019,7 @@ struct CheckInView: View {
         guard !trimmed.isEmpty else { return }
 
         ex.name = trimmed
+        ex.icon = editingExerciseIcon
         ex.notes = exerciseNotesInput.isEmpty ? nil : exerciseNotesInput
         try? modelContext.save()
 
@@ -3361,21 +3470,24 @@ struct ProgressOptionsEmptyState: View {
             )
 
             // Content
-            VStack(spacing: 8) {
+            VStack(spacing: 14) {
                 // Lift the Bull logo with subtle glow
                 Image("LiftTheBullIcon")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 56, height: 56)
+                    .frame(width: 72, height: 72)
                     .foregroundStyle(Color.appLogoColor)
-                    .shadow(color: Color.appLogoColor.opacity(0.3), radius: 12, x: 0, y: 0)
+                    .shadow(color: Color.appLogoColor.opacity(0.3), radius: 14, x: 0, y: 0)
 
                 Text("Log your first set below")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.7))
+                    .font(.interSemiBold(size: 16))
+                    .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
+                    .padding(.top, 6)
             }
+            .offset(y: -11)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -3392,6 +3504,122 @@ struct LegendItem: View {
                 .font(.caption2)
                 .foregroundStyle(.white.opacity(0.7))
         }
+    }
+}
+
+// MARK: - Expanded Progress Options Sheet
+
+struct ExpandedProgressOptionsSheet: View {
+    let suggestions: [OneRMCalculator.Suggestion]
+    @Binding var sortColumn: CheckInView.SortColumn
+    @Binding var sortAscending: Bool
+    let onSelect: (OneRMCalculator.Suggestion) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var columnHighlighted = true
+    private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
+
+    private var sortedSuggestions: [OneRMCalculator.Suggestion] {
+        switch sortColumn {
+        case .weight:
+            return suggestions.sorted { sortAscending ? $0.weight < $1.weight : $0.weight > $1.weight }
+        case .reps:
+            return suggestions.sorted { sortAscending ? $0.reps < $1.reps : $0.reps > $1.reps }
+        case .est1RM, .gain:
+            return suggestions.sorted { sortAscending ? $0.projected1RM < $1.projected1RM : $0.projected1RM > $1.projected1RM }
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Slim title header
+            Text("Progress Options")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .padding(.top, 8)
+
+            // Header row with column labels
+            HStack(spacing: 12) {
+                columnButton(title: "WEIGHT", column: .weight, width: 65)
+                Spacer().frame(width: 1)
+                columnButton(title: "REPS", column: .reps, width: 50)
+                Spacer().frame(width: 1)
+                columnButton(title: "EST. 1RM", column: .est1RM, width: 60)
+                Spacer().frame(width: 1)
+                columnButton(title: "GAIN", column: .gain, width: 65)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Color(white: 0.12))
+
+            // Scrollable options list
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(sortedSuggestions) { suggestion in
+                        ProgressOptionCard(
+                            suggestion: suggestion,
+                            isSelected: false,
+                            sortColumn: sortColumn,
+                            columnHighlighted: columnHighlighted
+                        )
+                        .onTapGesture {
+                            hapticFeedback.impactOccurred()
+                            onSelect(suggestion)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+
+            // Close button
+            Button {
+                dismiss()
+            } label: {
+                Text("Close")
+                    .font(.headline)
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color.appAccent)
+                    .cornerRadius(12)
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
+        }
+        .background(Color.black)
+    }
+
+    private func columnButton(title: String, column: CheckInView.SortColumn, width: CGFloat) -> some View {
+        Button {
+            if sortColumn == column {
+                sortAscending.toggle()
+            } else {
+                sortColumn = column
+                sortAscending = true
+            }
+            hapticFeedback.impactOccurred()
+        } label: {
+            VStack(spacing: 0) {
+                Text(title)
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(sortColumn == column ? Color.appAccent : Color.appLabel)
+                if sortColumn == column || (column == .est1RM && sortColumn == .gain) || (column == .gain && sortColumn == .est1RM) {
+                    Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 8))
+                        .foregroundStyle(Color.appLabel)
+                } else {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8))
+                        .foregroundStyle(Color.clear)
+                }
+            }
+            .frame(width: width, height: 24)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

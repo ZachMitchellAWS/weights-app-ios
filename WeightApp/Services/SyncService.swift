@@ -81,6 +81,12 @@ class SyncService: ObservableObject {
             if let bodyweight = response.bodyweight {
                 userProperties.bodyweight = bodyweight
             }
+            if let minReps = response.minReps {
+                userProperties.minReps = minReps
+            }
+            if let maxReps = response.maxReps {
+                userProperties.maxReps = maxReps
+            }
 
             try? context.save()
 
@@ -94,10 +100,38 @@ class SyncService: ObservableObject {
 
     func updateChangePlates(_ plates: [Double]) async {
         do {
-            _ = try await APIService.shared.updateUserProperties(availableChangePlates: plates)
+            let request = UserPropertiesRequest(availableChangePlates: plates)
+            _ = try await APIService.shared.updateUserProperties(request)
             retryQueue.removePendingUserPropertiesSync()
         } catch {
             print("SyncService: Failed to update change plates: \(error.localizedDescription)")
+            retryQueue.addPendingUserPropertiesSync()
+        }
+    }
+
+    func updateBodyweight(_ bodyweight: Double?) async {
+        do {
+            var request = UserPropertiesRequest()
+            if let bodyweight = bodyweight {
+                request.bodyweight = bodyweight
+            } else {
+                request.clearBodyweight = true
+            }
+            _ = try await APIService.shared.updateUserProperties(request)
+            retryQueue.removePendingUserPropertiesSync()
+        } catch {
+            print("SyncService: Failed to update bodyweight: \(error.localizedDescription)")
+            retryQueue.addPendingUserPropertiesSync()
+        }
+    }
+
+    func updateRepRange(minReps: Int, maxReps: Int) async {
+        do {
+            let request = UserPropertiesRequest(minReps: minReps, maxReps: maxReps)
+            _ = try await APIService.shared.updateUserProperties(request)
+            retryQueue.removePendingUserPropertiesSync()
+        } catch {
+            print("SyncService: Failed to update rep range: \(error.localizedDescription)")
             retryQueue.addPendingUserPropertiesSync()
         }
     }
@@ -109,9 +143,13 @@ class SyncService: ObservableObject {
         let userProperties = fetchOrCreateUserProperties(context: context)
 
         do {
-            _ = try await APIService.shared.updateUserProperties(
-                availableChangePlates: userProperties.availableChangePlates
+            let request = UserPropertiesRequest(
+                bodyweight: userProperties.bodyweight,
+                availableChangePlates: userProperties.availableChangePlates,
+                minReps: userProperties.minReps,
+                maxReps: userProperties.maxReps
             )
+            _ = try await APIService.shared.updateUserProperties(request)
             retryQueue.removePendingUserPropertiesSync()
         } catch {
             retryQueue.incrementUserPropertiesRetryCount()
@@ -522,7 +560,8 @@ class SyncService: ObservableObject {
 
         let defaults = getDefaultExercises()
         for (name, loadType) in defaults {
-            let exercise = Exercises(name: name, isCustom: false, loadType: loadType)
+            let icon = IconCarouselPicker.suggestedIcon(for: name)
+            let exercise = Exercises(name: name, isCustom: false, loadType: loadType, icon: icon)
             context.insert(exercise)
         }
 
@@ -563,7 +602,8 @@ class SyncService: ObservableObject {
         var exerciseDTOs: [ExerciseDTO] = []
 
         for (name, loadType) in defaults {
-            let exercise = Exercises(name: name, isCustom: false, loadType: loadType)
+            let icon = IconCarouselPicker.suggestedIcon(for: name)
+            let exercise = Exercises(name: name, isCustom: false, loadType: loadType, icon: icon)
             context.insert(exercise)
             exerciseDTOs.append(exercise.toDTO())
         }
@@ -601,6 +641,7 @@ class SyncService: ObservableObject {
                     existing.loadType = dto.loadType
                     existing.notes = dto.notes
                     existing.deleted = dto.deleted ?? false
+                    existing.icon = dto.icon ?? "figure.stand"
                 }
             } else {
                 let loadType = ExerciseLoadType(rawValue: dto.loadType) ?? .barbell
@@ -612,7 +653,8 @@ class SyncService: ObservableObject {
                     createdAt: dto.createdDatetime ?? Date(),
                     createdTimezone: dto.createdTimezone,
                     notes: dto.notes,
-                    deleted: dto.deleted ?? false
+                    deleted: dto.deleted ?? false,
+                    icon: dto.icon ?? "figure.stand"
                 )
                 context.insert(exercise)
             }

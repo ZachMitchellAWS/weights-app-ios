@@ -27,7 +27,7 @@ struct WeightAppApp: App {
             modelContainer = try ModelContainer(for: Exercises.self, LiftSet.self, UserProperties.self, Estimated1RM.self, PremiumEntitlement.self)
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
-        }
+         }
     }
 
     var body: some Scene {
@@ -92,6 +92,9 @@ struct WeightAppApp: App {
                 }
             }
             .onAppear {
+                // Initialize user samples on first launch
+                UserSamples.shared.initializeIfNeeded()
+
                 // Wire up ModelContext for SyncService and AuthViewModel
                 let context = modelContainer.mainContext
                 SyncService.shared.setModelContext(context)

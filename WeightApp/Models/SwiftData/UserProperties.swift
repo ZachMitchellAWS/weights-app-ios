@@ -17,7 +17,7 @@ final class UserProperties {
     var bodyweight: Double?
     var availableChangePlates: [Double] = []
     var minReps: Int = 5
-    var maxReps: Int = 10
+    var maxReps: Int = 12
 
     init() {
         self.id = UserProperties.singletonID
@@ -29,7 +29,7 @@ final class UserProperties {
 
     static let defaultAvailableChangePlates: [Double] = [2.5]
     static let defaultMinReps = 5
-    static let defaultMaxReps = 10
+    static let defaultMaxReps = 12
     static let repRangeMax = 12     // Upper bound for rep range slider
     static let minRepRangeSpan = 3  // Minimum difference between min and max
 }
