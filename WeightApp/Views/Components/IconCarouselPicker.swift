@@ -43,7 +43,10 @@ struct IconCarouselPicker: View {
     @State private var hasAppeared = false
 
     static let availableIcons: [String] = [
-        "figure.stand",
+        "LiftTheBullIcon",
+        "DeadliftIcon",
+        "SquatIcon",
+        "DipsIcon",
         "OverheadPressIcon",
         "BenchPressIcon",
         "BarbellRowIcon",
@@ -125,11 +128,7 @@ struct IconCarouselPicker: View {
     private func iconView(for icon: String, size: CGFloat, isSelected: Bool) -> some View {
         let color: Color = isSelected ? .appAccent : .white
 
-        if icon == "figure.stand" {
-            Image(systemName: icon)
-                .font(.system(size: size * 0.9))
-                .foregroundStyle(color)
-        } else if icon == "OverheadPressIcon" {
+        if icon == "OverheadPressIcon" {
             Image(icon)
                 .resizable()
                 .scaledToFit()
@@ -158,8 +157,14 @@ struct IconCarouselPicker: View {
             return "BarbellRowIcon"
         } else if lowered.contains("pull") && lowered.contains("up") {
             return "PullUpIcon"
+        } else if lowered.contains("deadlift") {
+            return "DeadliftIcon"
+        } else if lowered.contains("squat") {
+            return "SquatIcon"
+        } else if lowered.contains("dip") {
+            return "DipsIcon"
         }
 
-        return "figure.stand"
+        return "LiftTheBullIcon"
     }
 }

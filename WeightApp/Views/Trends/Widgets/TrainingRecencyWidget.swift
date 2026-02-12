@@ -15,7 +15,7 @@ struct TrainingRecencyWidget: View {
     }
 
     var body: some View {
-        WidgetCard(title: "Exercise Recency", subtitle: "Last 30 days") {
+        WidgetCard(title: "Exercise Recency", subtitle: "When you last trained each exercise") {
             if recencyData.isEmpty {
                 EmptyWidgetState(icon: "clock", message: "Log sets to see exercise recency")
             } else {
@@ -37,6 +37,24 @@ struct TrainingRecencyWidget: View {
                                 .foregroundStyle(.white.opacity(0.4))
                         }
                     }
+
+                    // Legend
+                    HStack(spacing: 4) {
+                        Text("Less Recent")
+                            .font(.system(size: 8))
+                            .foregroundStyle(.white.opacity(0.4))
+
+                        ForEach([31, 15, 9, 6, 3, 0] as [Int], id: \.self) { days in
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(recencyColor(for: days <= 30 ? days : nil))
+                                .frame(width: 10, height: 10)
+                        }
+
+                        Text("Recent")
+                            .font(.system(size: 8))
+                            .foregroundStyle(.white.opacity(0.4))
+                    }
+                    .padding(.top, 4)
                 }
             }
         }
@@ -57,13 +75,13 @@ struct TrainingRecencyWidget: View {
             return Color(white: 0.2)
         }
         switch days {
-        case 0...1:
+        case 0...2:
             return Color.appAccent
-        case 2...4:
+        case 3...5:
             return Color.appAccent.opacity(0.65)
-        case 5...9:
+        case 6...8:
             return Color.appAccent.opacity(0.4)
-        case 10...19:
+        case 9...14:
             return Color.appAccent.opacity(0.22)
         default:
             return Color.appAccent.opacity(0.12)

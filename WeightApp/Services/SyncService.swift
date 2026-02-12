@@ -641,7 +641,7 @@ class SyncService: ObservableObject {
                     existing.loadType = dto.loadType
                     existing.notes = dto.notes
                     existing.deleted = dto.deleted ?? false
-                    existing.icon = dto.icon ?? "figure.stand"
+                    existing.icon = dto.icon ?? "LiftTheBullIcon"
                 }
             } else {
                 let loadType = ExerciseLoadType(rawValue: dto.loadType) ?? .barbell
@@ -654,7 +654,7 @@ class SyncService: ObservableObject {
                     createdTimezone: dto.createdTimezone,
                     notes: dto.notes,
                     deleted: dto.deleted ?? false,
-                    icon: dto.icon ?? "figure.stand"
+                    icon: dto.icon ?? "LiftTheBullIcon"
                 )
                 context.insert(exercise)
             }

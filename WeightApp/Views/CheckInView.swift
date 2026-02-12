@@ -4,6 +4,9 @@ import Charts
 
 struct CheckInView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
+
+    @State private var today = Calendar.current.startOfDay(for: Date())
 
     @Query(filter: #Predicate<Exercises> { !$0.deleted }, sort: \Exercises.createdAt) private var exercises: [Exercises]
     @Query(filter: #Predicate<LiftSet> { !$0.deleted }, sort: \LiftSet.createdAt, order: .reverse) private var allSets: [LiftSet]
@@ -25,7 +28,7 @@ struct CheckInView: View {
 
     @State private var newExercisesName: String = ""
     @State private var newExercisesLoadType: ExerciseLoadType = .barbell
-    @State private var newExercisesIcon: String = "figure.stand"
+    @State private var newExercisesIcon: String = "LiftTheBullIcon"
 
     @State private var showSubmitOverlay = false
     @State private var overlayDidIncrease = false
@@ -55,8 +58,9 @@ struct CheckInView: View {
     @State private var tempBodyweight: Double = 0
     @State private var showEditExerciseName = false
     @State private var editExerciseNameInput: String = ""
-    @State private var editingExerciseIcon: String = "figure.stand"
+    @State private var editingExerciseIcon: String = "LiftTheBullIcon"
     @State private var exerciseNotesInput: String = ""
+    @State private var showNotesCopied = false
     @State private var showNoExercisesAlert = false
     @State private var isRetryingSync = false
     @State private var showDeleteSection = false
@@ -106,12 +110,13 @@ struct CheckInView: View {
     private var hasUnsavedExerciseChanges: Bool {
         guard let ex = selectedExercises else { return false }
         let trimmedName = editExerciseNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else { return false }
 
+        // Read all @State vars before any early return so SwiftUI tracks them as dependencies
         let nameChanged = trimmedName != ex.name
         let iconChanged = editingExerciseIcon != ex.icon
         let notesChanged = exerciseNotesInput != (ex.notes ?? "")
 
+        guard !trimmedName.isEmpty else { return false }
         return nameChanged || iconChanged || notesChanged
     }
 
@@ -367,6 +372,14 @@ struct CheckInView: View {
                     tempBodyweight = userProperties.bodyweight ?? 0
                 }
             }
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .active {
+                    let currentDay = Calendar.current.startOfDay(for: Date())
+                    if currentDay != today {
+                        today = currentDay
+                    }
+                }
+            }
             .sheet(isPresented: $showingAddExercises) {
                 addExercisesSheet
                     .presentationDetents([.fraction(0.92)])
@@ -452,7 +465,7 @@ struct CheckInView: View {
                 Button("Cancel") {
                     newExercisesName = ""
                     newExercisesLoadType = .barbell
-                    newExercisesIcon = "figure.stand"
+                    newExercisesIcon = "LiftTheBullIcon"
                     showingAddExercises = false
                 }
                 .foregroundStyle(Color.appAccent)
@@ -494,7 +507,7 @@ struct CheckInView: View {
                                 newExercisesName = String(newValue.prefix(maxExercisesNameLength))
                             }
                             // Auto-select icon based on name
-                            newExercisesIcon = IconCarouselPicker.suggestedIcon(for: newValue)
+                            // newExercisesIcon = IconCarouselPicker.suggestedIcon(for: newValue)
                         }
                 }
 
@@ -1175,14 +1188,34 @@ struct CheckInView: View {
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.white.opacity(0.7))
                             Spacer()
-                            if !exerciseNotesInput.isEmpty {
+                            if !exerciseNotesInput.isEmpty || !(selectedExercises?.notes?.isEmpty ?? true) {
                                 Button {
-                                    UIPasteboard.general.string = exerciseNotesInput
+                                    let textToCopy = exerciseNotesInput.isEmpty ? (selectedExercises?.notes ?? "") : exerciseNotesInput
+                                    UIPasteboard.general.string = textToCopy
                                     hapticFeedback.impactOccurred()
+                                    withAnimation {
+                                        showNotesCopied = true
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                        withAnimation {
+                                            showNotesCopied = false
+                                        }
+                                    }
                                 } label: {
-                                    Image(systemName: "doc.on.doc")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.white.opacity(0.5))
+                                    HStack(spacing: 4) {
+                                        if showNotesCopied {
+                                            Image(systemName: "checkmark")
+                                                .font(.caption2)
+                                                .foregroundStyle(Color.appAccent)
+                                            Text("Copied")
+                                                .font(.caption2)
+                                                .foregroundStyle(Color.appAccent)
+                                        } else {
+                                            Image(systemName: "doc.on.doc")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.white.opacity(0.5))
+                                        }
+                                    }
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -1485,7 +1518,7 @@ struct CheckInView: View {
                 Button {
                     hapticFeedback.impactOccurred()
                     editExerciseNameInput = selectedExercises?.name ?? ""
-                    editingExerciseIcon = selectedExercises?.icon ?? "figure.stand"
+                    editingExerciseIcon = selectedExercises?.icon ?? "LiftTheBullIcon"
                     exerciseNotesInput = selectedExercises?.notes ?? ""
                     showEditExerciseName = true
                 } label: {
@@ -1787,7 +1820,7 @@ struct CheckInView: View {
     private var todaysSets: [LiftSet] {
         guard let ex = selectedExercises else { return [] }
         let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
+        let today = self.today
         return allSets.filter { set in
             set.exercise?.id == ex.id &&
             calendar.isDate(set.createdAt, inSameDayAs: today)
@@ -1797,7 +1830,7 @@ struct CheckInView: View {
     private var lastDayDate: Date? {
         guard let ex = selectedExercises else { return nil }
         let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
+        let today = self.today
 
         let previousDays = allSets
             .filter { $0.exercise?.id == ex.id && $0.createdAt < today }
@@ -2810,7 +2843,7 @@ struct CheckInView: View {
 
         newExercisesName = ""
         newExercisesLoadType = .barbell
-        newExercisesIcon = "figure.stand"
+        newExercisesIcon = "LiftTheBullIcon"
         showingAddExercises = false
     }
 
@@ -3141,6 +3174,13 @@ struct ExercisesSelectionView: View {
             Color.black.ignoresSafeArea()
 
             VStack(spacing: 0) {
+                // Title
+                Text("Select Exercise")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .padding(.top, 20)
+                    .padding(.bottom, 12)
+
                 // Search bar
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
@@ -3167,7 +3207,6 @@ struct ExercisesSelectionView: View {
                 .background(Color(white: 0.15))
                 .cornerRadius(10)
                 .padding(.horizontal, 16)
-                .padding(.top, 16)
                 .padding(.bottom, 12)
 
                 if filteredExercises.isEmpty && !searchText.isEmpty {
@@ -3274,6 +3313,7 @@ struct ExercisesCardButton: View {
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .minimumScaleFactor(0.8)
+                    .frame(height: 36, alignment: .top)
             }
             .frame(maxWidth: .infinity)
             .frame(height: 140)

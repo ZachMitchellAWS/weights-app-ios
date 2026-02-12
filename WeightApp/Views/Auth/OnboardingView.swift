@@ -719,6 +719,7 @@ private struct OnboardingExerciseCard: View {
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .minimumScaleFactor(0.8)
+                    .frame(height: 36, alignment: .top)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)

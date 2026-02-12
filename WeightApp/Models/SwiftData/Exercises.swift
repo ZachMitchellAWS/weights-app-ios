@@ -25,7 +25,7 @@ final class Exercises {
     var deleted: Bool
     var icon: String
 
-    init(name: String, isCustom: Bool, loadType: ExerciseLoadType = .barbell, icon: String = "figure.stand") {
+    init(name: String, isCustom: Bool, loadType: ExerciseLoadType = .barbell, icon: String = "LiftTheBullIcon") {
         self.id = UUID()
         self.name = name
         self.isCustom = isCustom
@@ -39,7 +39,7 @@ final class Exercises {
 
     init(id: UUID? = nil, name: String, isCustom: Bool, loadType: ExerciseLoadType = .barbell,
          createdAt: Date = Date(), createdTimezone: String = TimeZone.current.identifier,
-         notes: String? = nil, deleted: Bool = false, icon: String = "figure.stand") {
+         notes: String? = nil, deleted: Bool = false, icon: String = "LiftTheBullIcon") {
         self.id = id ?? UUID()
         self.name = name
         self.isCustom = isCustom
