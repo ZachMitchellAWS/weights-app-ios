@@ -12,13 +12,15 @@ struct ProgressOptionCard: View {
     let isSelected: Bool
     let sortColumn: CheckInView.SortColumn
     let columnHighlighted: Bool
+    var weightColumnHighlighted: Bool = false
 
     var body: some View {
         HStack(spacing: 12) {
             // Weight
             Text(formatWeight(suggestion.weight.rounded1()))
                 .font(.callout)
-                .foregroundStyle(columnHighlighted && sortColumn == .weight ? Color.appAccent : .white)
+                .foregroundStyle((columnHighlighted && sortColumn == .weight) || weightColumnHighlighted ? Color.appAccent : .white)
+                .animation(.easeInOut(duration: 0.15), value: weightColumnHighlighted)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(width: 65)
@@ -62,10 +64,10 @@ struct ProgressOptionCard: View {
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(Color(white: 0.12))
+                .fill(isSelected ? Color.yellow.opacity(0.12) : Color(white: 0.16))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(isSelected ? Color.appAccent : Color.white.opacity(0.15), lineWidth: isSelected ? 2 : 1)
+                        .strokeBorder(isSelected ? Color.yellow : Color.white.opacity(0.15), lineWidth: isSelected ? 2 : 1)
                 )
         )
     }

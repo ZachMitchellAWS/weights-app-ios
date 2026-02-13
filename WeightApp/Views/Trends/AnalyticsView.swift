@@ -20,21 +20,19 @@ struct AnalyticsView: View {
             if isLoaded {
                 ScrollView {
                     VStack(spacing: 16) {
-                        MonthlySummaryWidget(allSets: allSets)
+                        MonthlySnapshotWidget(allSets: allSets)
 
-                        OneRMProgressionWidget(allSets: allSets)
+                        FrequencyCalendarWidget(allSets: allSets)
+
+                        TrainingRecencyWidget(allSets: allSets)
+
+                        OneRMProgressionWidget(allEstimated1RMs: allEstimated1RMs)
 
                         ExerciseVolumeWidget(allSets: allSets)
 
                         WeeklyVolumeWidget(allSets: allSets)
 
-                        IntensityDistributionWidget(allSets: allSets)
-
                         PRTimelineWidget(allSets: allSets)
-
-                        FrequencyCalendarWidget(allSets: allSets)
-
-                        TrainingRecencyWidget(allSets: allSets)
 
                         BestLiftsWidget(allSets: allSets)
                     }

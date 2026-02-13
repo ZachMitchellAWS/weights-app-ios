@@ -155,15 +155,12 @@ struct ExerciseGroupRow: View {
             return .setPR
         }
 
-        switch percentage {
-        case 85...:
-            return .setNearMax
-        case 75..<85:
-            return .setHard
-        case 65..<75:
-            return .setModerate
-        default:
-            return .setEasy
+        let bucket = TrendsCalculator.IntensityBucket.from(percentage: percentage)
+        switch bucket {
+        case .redline: return .setNearMax
+        case .hard: return .setHard
+        case .moderate: return .setModerate
+        default: return .setEasy
         }
     }
 

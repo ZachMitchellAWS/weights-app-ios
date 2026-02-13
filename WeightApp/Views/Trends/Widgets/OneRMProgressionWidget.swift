@@ -9,17 +9,17 @@ import SwiftUI
 import Charts
 
 struct OneRMProgressionWidget: View {
-    let allSets: [LiftSet]
+    let allEstimated1RMs: [Estimated1RM]
 
     @State private var selectedExercise: String?
 
     private var exerciseNames: [String] {
-        TrendsCalculator.exerciseNames(from: allSets)
+        TrendsCalculator.exerciseNames(from: allEstimated1RMs)
     }
 
     private var dataPoints: [TrendsCalculator.OneRMDataPoint] {
         guard let exercise = selectedExercise ?? exerciseNames.first else { return [] }
-        return TrendsCalculator.oneRMProgression(from: allSets, exerciseName: exercise)
+        return TrendsCalculator.oneRMProgression(from: allEstimated1RMs, exerciseName: exercise)
     }
 
     var body: some View {

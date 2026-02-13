@@ -18,7 +18,6 @@ struct CheckInView: View {
 
     @State private var selectedExercisesId: UUID?
     @State private var hasAppliedInitialExercise = false
-    @State private var showingAddExercises = false
 
     @State private var reps: Int = 8
     @State private var weight: Double = 20.0
@@ -26,9 +25,6 @@ struct CheckInView: View {
     @State private var hasSetWeight = false
     @State private var hasSetReps = false
 
-    @State private var newExercisesName: String = ""
-    @State private var newExercisesLoadType: ExerciseLoadType = .barbell
-    @State private var newExercisesIcon: String = "LiftTheBullIcon"
 
     @State private var showSubmitOverlay = false
     @State private var overlayDidIncrease = false
@@ -43,9 +39,6 @@ struct CheckInView: View {
     @State private var currentCalcInput: String = ""    // Current number being typed
     @State private var showRepsPicker = false
     @State private var repsInput: String = ""
-    @State private var showExercisesDetails = false
-    @State private var editingExercisesName = ""
-    @State private var editingExercisesLoadType: ExerciseLoadType = .barbell
     @State private var showLogConfirmation = false
     @State private var showCancelOverlay = false
     @State private var weightDelta: Double = 5.0
@@ -57,17 +50,11 @@ struct CheckInView: View {
     @State private var showBodyweightCapture = false
     @State private var tempBodyweight: Double = 0
     @State private var showEditExerciseName = false
-    @State private var editExerciseNameInput: String = ""
-    @State private var editingExerciseIcon: String = "LiftTheBullIcon"
-    @State private var exerciseNotesInput: String = ""
-    @State private var showNotesCopied = false
     @State private var showNoExercisesAlert = false
     @State private var isRetryingSync = false
-    @State private var showDeleteSection = false
-    @State private var showDeleteConfirmation = false
-    @State private var deleteConfirmationChecked = false
     @State private var showIncrementSelection = false
     @State private var showExpandedProgressOptions = false
+    @State private var showExerciseSelectedOverlay = false
 
     enum SortColumn {
         case weight, reps, est1RM, gain
@@ -75,10 +62,9 @@ struct CheckInView: View {
     @State private var sortColumn: SortColumn = .gain
     @State private var sortAscending: Bool = true
     @State private var columnHighlighted = false
+    @State private var weightColumnHighlighted = false
 
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
-    private let maxNotesLength = 500
-    private let maxExercisesNameLength = 25
     private let lastSelectedExerciseKey = "lastSelectedExerciseId"
 
     private var userProperties: UserProperties {
@@ -107,18 +93,6 @@ struct CheckInView: View {
         return allEstimated1RMs.filter { $0.exercise?.id == ex.id }
     }
 
-    private var hasUnsavedExerciseChanges: Bool {
-        guard let ex = selectedExercises else { return false }
-        let trimmedName = editExerciseNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Read all @State vars before any early return so SwiftUI tracks them as dependencies
-        let nameChanged = trimmedName != ex.name
-        let iconChanged = editingExerciseIcon != ex.icon
-        let notesChanged = exerciseNotesInput != (ex.notes ?? "")
-
-        guard !trimmedName.isEmpty else { return false }
-        return nameChanged || iconChanged || notesChanged
-    }
 
     private struct SetWithPR {
         let set: LiftSet
@@ -261,6 +235,7 @@ struct CheckInView: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
         NavigationStack {
             ZStack {
                 // Main content
@@ -305,6 +280,33 @@ struct CheckInView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                         .zIndex(10)
                         .allowsHitTesting(false)
+                }
+
+                if showExerciseSelectedOverlay, let ex = selectedExercises {
+                    VStack(spacing: 14) {
+                        ExerciseIconView(exercise: ex, size: 72)
+                            .foregroundStyle(Color.appAccent)
+
+                        Text(ex.name)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                    }
+                    .frame(width: 160, height: 160)
+                    .background(
+                        RoundedRectangle(cornerRadius: 20)
+                            .fill(.ultraThinMaterial)
+                            .environment(\.colorScheme, .dark)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20)
+                            .stroke(Color.orange, lineWidth: 2)
+                    )
+                    .shadow(color: .black.opacity(0.5), radius: 20, y: 5)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    .zIndex(10)
+                    .allowsHitTesting(false)
                 }
 
                 if showLogConfirmation {
@@ -353,12 +355,26 @@ struct CheckInView: View {
                     }
                 }
             }
-            .onChange(of: selectedExercisesId) { _, newId in
+            .onChange(of: selectedExercisesId) { oldId, newId in
                 resetToDefaults()
                 validateWeightDelta()
                 // Save selected exercise to UserDefaults
                 if let id = newId {
                     UserDefaults.standard.set(id.uuidString, forKey: lastSelectedExerciseKey)
+                }
+                // Show exercise selected overlay when selection changes (skip initial load)
+                if oldId != nil, oldId != newId, newId != nil, selectedExercises != nil {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                        showExerciseSelectedOverlay = true
+                    }
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_500_000_000)
+                        await MainActor.run {
+                            withAnimation(.easeOut(duration: 0.25)) {
+                                showExerciseSelectedOverlay = false
+                            }
+                        }
+                    }
                 }
             }
             .onChange(of: selectedSetData.shouldPopulate) { _, shouldPopulate in
@@ -380,11 +396,6 @@ struct CheckInView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showingAddExercises) {
-                addExercisesSheet
-                    .presentationDetents([.fraction(0.92)])
-                    .presentationDragIndicator(.visible)
-            }
             .sheet(isPresented: $showWeightPicker) {
                 weightPickerSheet
                     .presentationDetents([.height(500)])
@@ -402,24 +413,19 @@ struct CheckInView: View {
                     .presentationDetents([.height(480)])
                     .presentationDragIndicator(.visible)
             }
-            .sheet(isPresented: $showExercisesDetails) {
-                exerciseDetailsSheet
-                    .presentationDetents([.height(selectedExercises?.isCustom == true ? 420 : 340)])
-                    .presentationDragIndicator(.visible)
-            }
             .sheet(isPresented: $showExercisesSelection) {
                 ExercisesSelectionView(
                     exercises: exercises,
                     selectedExercisesId: $selectedExercisesId,
-                    onAddExercises: {
-                        showExercisesSelection = false
-                        showingAddExercises = true
+                    onExerciseCreated: { name, loadType, movementType, icon in
+                        createExercise(name: name, loadType: loadType, movementType: movementType, icon: icon)
                     },
-                    onEditExercises: { exercise in
+                    onExerciseSaved: { exercise, name, movementType, icon, notes in
+                        saveExercise(exercise, name: name, movementType: movementType, icon: icon, notes: notes)
+                    },
+                    onExerciseDeleted: { exercise in
+                        deleteExercise(exercise)
                         showExercisesSelection = false
-                        editingExercisesName = exercise.name
-                        editingExercisesLoadType = exercise.exerciseLoadType
-                        showExercisesDetails = true
                     }
                 )
                 .presentationDetents([.large])
@@ -432,9 +438,22 @@ struct CheckInView: View {
                         .presentationDragIndicator(.visible)
                 }
                 .sheet(isPresented: $showEditExerciseName) {
-                    editExerciseNameSheet
+                    if let ex = selectedExercises {
+                        NavigationStack {
+                            EditExerciseFormView(
+                                exercise: ex,
+                                showBackChevron: false,
+                                onSave: { exercise, name, movementType, icon, notes in
+                                    saveExercise(exercise, name: name, movementType: movementType, icon: icon, notes: notes)
+                                },
+                                onDelete: { exercise in
+                                    deleteExercise(exercise)
+                                }
+                            )
+                        }
                         .presentationDetents([.fraction(0.92)])
                         .presentationDragIndicator(.visible)
+                    }
                 }
                 .sheet(isPresented: $showIncrementSelection) {
                     AvailableChangePlatesView()
@@ -455,117 +474,10 @@ struct CheckInView: View {
                 }
             .navigationBarHidden(true)
         }
+        }
         .ignoresSafeArea(.keyboard)
     }
 
-    private var addExercisesSheet: some View {
-        VStack(spacing: 24) {
-            // Header
-            HStack {
-                Button("Cancel") {
-                    newExercisesName = ""
-                    newExercisesLoadType = .barbell
-                    newExercisesIcon = "LiftTheBullIcon"
-                    showingAddExercises = false
-                }
-                .foregroundStyle(Color.appAccent)
-
-                Spacer()
-
-                Text("Add Exercise")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-
-                Spacer()
-
-                Button("Add") {
-                    addExercises()
-                }
-                .foregroundStyle(Color.appAccent)
-                .disabled(newExercisesName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .opacity(newExercisesName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1.0)
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
-
-            VStack(spacing: 16) {
-                // Exercise Name Field
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Exercise Name")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.7))
-
-                    TextField("e.g. Romanian Deadlift", text: $newExercisesName)
-                        .textInputAutocapitalization(.words)
-                        .font(.body)
-                        .padding(14)
-                        .background(Color(white: 0.12))
-                        .cornerRadius(10)
-                        .foregroundStyle(.white)
-                        .onChange(of: newExercisesName) { _, newValue in
-                            if newValue.count > maxExercisesNameLength {
-                                newExercisesName = String(newValue.prefix(maxExercisesNameLength))
-                            }
-                            // Auto-select icon based on name
-                            // newExercisesIcon = IconCarouselPicker.suggestedIcon(for: newValue)
-                        }
-                }
-
-                // Load Type Picker
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Load Type")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.7))
-
-                    Menu {
-                        ForEach(ExerciseLoadType.allCases, id: \.self) { type in
-                            Button {
-                                newExercisesLoadType = type
-                            } label: {
-                                HStack {
-                                    Text(type.rawValue)
-                                    if newExercisesLoadType == type {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                        }
-                    } label: {
-                        HStack {
-                            Text(newExercisesLoadType.rawValue)
-                                .foregroundStyle(.white)
-                            Spacer()
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.5))
-                        }
-                        .padding(14)
-                        .background(Color(white: 0.12))
-                        .cornerRadius(10)
-                    }
-                }
-
-                // Icon Picker
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Icon")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.7))
-
-                    IconCarouselPicker(selectedIcon: $newExercisesIcon)
-                }
-            }
-            .padding(.horizontal, 20)
-
-            Spacer()
-        }
-        .background(
-            LinearGradient(
-                colors: [Color(white: 0.18), Color(white: 0.14)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
-    }
 
     private var weightPickerSheet: some View {
         VStack(spacing: 12) {
@@ -1100,360 +1012,7 @@ struct CheckInView: View {
         }
     }
 
-    private var editExerciseNameSheet: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                Button("Cancel") {
-                    showEditExerciseName = false
-                }
-                .foregroundStyle(Color.appAccent)
 
-                Spacer()
-
-                Text("Edit Exercise")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-
-                Spacer()
-
-                Button("Save") {
-                    saveEditedExercise()
-                }
-                .foregroundStyle(Color.appAccent)
-                .disabled(!hasUnsavedExerciseChanges)
-                .opacity(hasUnsavedExerciseChanges ? 1.0 : 0.5)
-            }
-            .padding(.horizontal)
-            .padding(.top, 24)
-            .padding(.bottom, 16)
-
-            ScrollView {
-                VStack(spacing: 20) {
-                    // Name text field
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Name")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.7))
-
-                        TextField("Exercise name", text: $editExerciseNameInput)
-                            .textInputAutocapitalization(.words)
-                            .font(.body)
-                            .padding(14)
-                            .background(Color(white: 0.12))
-                            .cornerRadius(10)
-                            .foregroundStyle(.white)
-                            .onChange(of: editExerciseNameInput) { _, newValue in
-                                if newValue.count > maxExercisesNameLength {
-                                    editExerciseNameInput = String(newValue.prefix(maxExercisesNameLength))
-                                }
-                            }
-
-                        HStack {
-                            Text("\(editExerciseNameInput.count) / \(maxExercisesNameLength)")
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.5))
-                            Spacer()
-                        }
-                    }
-
-                    // Load type (read-only)
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Load Type")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.7))
-
-                        Text(selectedExercises?.exerciseLoadType.rawValue ?? "Unknown")
-                            .font(.body)
-                            .padding(14)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color(white: 0.08))
-                            .cornerRadius(10)
-                            .foregroundStyle(.white.opacity(0.6))
-                    }
-
-                    // Icon Picker
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Icon")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.7))
-
-                        IconCarouselPicker(selectedIcon: $editingExerciseIcon)
-                    }
-
-                    // Notes text field
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Notes")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.7))
-                            Spacer()
-                            if !exerciseNotesInput.isEmpty || !(selectedExercises?.notes?.isEmpty ?? true) {
-                                Button {
-                                    let textToCopy = exerciseNotesInput.isEmpty ? (selectedExercises?.notes ?? "") : exerciseNotesInput
-                                    UIPasteboard.general.string = textToCopy
-                                    hapticFeedback.impactOccurred()
-                                    withAnimation {
-                                        showNotesCopied = true
-                                    }
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                                        withAnimation {
-                                            showNotesCopied = false
-                                        }
-                                    }
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        if showNotesCopied {
-                                            Image(systemName: "checkmark")
-                                                .font(.caption2)
-                                                .foregroundStyle(Color.appAccent)
-                                            Text("Copied")
-                                                .font(.caption2)
-                                                .foregroundStyle(Color.appAccent)
-                                        } else {
-                                            Image(systemName: "doc.on.doc")
-                                                .font(.subheadline)
-                                                .foregroundStyle(.white.opacity(0.5))
-                                        }
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-
-                        TextEditor(text: $exerciseNotesInput)
-                            .padding(8)
-                            .frame(minHeight: 100)
-                            .background(Color(white: 0.12))
-                            .cornerRadius(10)
-                            .foregroundStyle(.white)
-                            .scrollContentBackground(.hidden)
-                            .onChange(of: exerciseNotesInput) { _, newValue in
-                                if newValue.count > maxNotesLength {
-                                    exerciseNotesInput = String(newValue.prefix(maxNotesLength))
-                                }
-                            }
-
-                        HStack {
-                            Text("\(exerciseNotesInput.count) / \(maxNotesLength)")
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.5))
-                            Spacer()
-                        }
-                    }
-
-                    // Delete section (collapsed by default)
-                    VStack(alignment: .leading, spacing: 12) {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                showDeleteSection.toggle()
-                                if !showDeleteSection {
-                                    deleteConfirmationChecked = false
-                                }
-                            }
-                        } label: {
-                            HStack {
-                                Text("Delete")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(.white.opacity(0.5))
-                                Spacer()
-                                Image(systemName: showDeleteSection ? "chevron.down" : "chevron.right")
-                                    .font(.caption)
-                                    .foregroundStyle(.white.opacity(0.3))
-                            }
-                        }
-                        .buttonStyle(.plain)
-
-                        if showDeleteSection {
-                            VStack(spacing: 16) {
-                                Text("Deleting an exercise will permanently remove it and all associated workout data. This action cannot be undone.")
-                                    .font(.caption)
-                                    .foregroundStyle(.white.opacity(0.6))
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                                // Confirmation checkbox (centered)
-                                Button {
-                                    deleteConfirmationChecked.toggle()
-                                } label: {
-                                    HStack(spacing: 12) {
-                                        Image(systemName: deleteConfirmationChecked ? "checkmark.square.fill" : "square")
-                                            .foregroundStyle(deleteConfirmationChecked ? .red : .white.opacity(0.5))
-                                            .font(.system(size: 20))
-                                        Text("I understand this is permanent")
-                                            .font(.subheadline)
-                                            .foregroundStyle(.white.opacity(0.7))
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                                .frame(maxWidth: .infinity)
-
-                                // Delete button
-                                Button {
-                                    showDeleteConfirmation = true
-                                } label: {
-                                    HStack {
-                                        Image(systemName: "trash")
-                                        Text("Delete Exercise")
-                                    }
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(deleteConfirmationChecked ? .white : .white.opacity(0.3))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                    .background(deleteConfirmationChecked ? Color.red : Color.red.opacity(0.2))
-                                    .cornerRadius(10)
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(!deleteConfirmationChecked)
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.top, 4)
-                        }
-                    }
-                    .padding(.top, 16)
-                }
-                .padding(.horizontal)
-            }
-
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            LinearGradient(
-                colors: [Color(white: 0.18), Color(white: 0.14)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-        )
-        .alert("Delete Exercise?", isPresented: $showDeleteConfirmation) {
-            Button("Cancel", role: .cancel) { }
-            Button("Delete", role: .destructive) {
-                performExerciseDeletion()
-            }
-        } message: {
-            Text("This will permanently delete \"\(selectedExercises?.name ?? "this exercise")\" and all its workout history.")
-        }
-        .onDisappear {
-            // Reset delete section state when sheet closes
-            showDeleteSection = false
-            deleteConfirmationChecked = false
-        }
-    }
-
-    private var exerciseDetailsSheet: some View {
-        VStack(spacing: 24) {
-            // Header
-            HStack {
-                Button("Cancel") {
-                    showExercisesDetails = false
-                }
-                .foregroundStyle(Color.appAccent)
-
-                Spacer()
-
-                Text("Exercises Details")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-
-                Spacer()
-
-                Button("Save") {
-                    saveExercisesDetails()
-                }
-                .foregroundStyle(Color.appAccent)
-                .disabled(editingExercisesName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .opacity(editingExercisesName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1.0)
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
-
-            VStack(spacing: 16) {
-                // Exercises Name Field
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Exercises Name")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.7))
-
-                    TextField("Exercises name", text: $editingExercisesName)
-                        .textInputAutocapitalization(.words)
-                        .font(.body)
-                        .padding(14)
-                        .background(Color(white: 0.12))
-                        .cornerRadius(10)
-                        .foregroundStyle(.white)
-                        .onChange(of: editingExercisesName) { _, newValue in
-                            if newValue.count > maxExercisesNameLength {
-                                editingExercisesName = String(newValue.prefix(maxExercisesNameLength))
-                            }
-                        }
-                }
-
-                // Load Type Picker
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Load Type")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.7))
-
-                    Menu {
-                        ForEach(ExerciseLoadType.allCases, id: \.self) { type in
-                            Button {
-                                editingExercisesLoadType = type
-                            } label: {
-                                HStack {
-                                    Text(type.rawValue)
-                                    if editingExercisesLoadType == type {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                        }
-                    } label: {
-                        HStack {
-                            Text(editingExercisesLoadType.rawValue)
-                                .foregroundStyle(.white)
-                            Spacer()
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.5))
-                        }
-                        .padding(14)
-                        .background(Color(white: 0.12))
-                        .cornerRadius(10)
-                    }
-                }
-
-                // Delete button for custom exercises
-                if selectedExercises?.isCustom == true {
-                    Button {
-                        deleteExercises()
-                    } label: {
-                        HStack {
-                            Image(systemName: "trash")
-                            Text("Delete Exercises")
-                        }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Color.red.opacity(0.15))
-                        .cornerRadius(10)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 20)
-
-            Spacer()
-        }
-        .background(
-            LinearGradient(
-                colors: [Color(white: 0.18), Color(white: 0.14)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
-    }
 
     private var styledExercisesSelector: some View {
         Button {
@@ -1517,9 +1076,6 @@ struct CheckInView: View {
             if selectedExercises != nil {
                 Button {
                     hapticFeedback.impactOccurred()
-                    editExerciseNameInput = selectedExercises?.name ?? ""
-                    editingExerciseIcon = selectedExercises?.icon ?? "LiftTheBullIcon"
-                    exerciseNotesInput = selectedExercises?.notes ?? ""
                     showEditExerciseName = true
                 } label: {
                     HStack {
@@ -1652,15 +1208,12 @@ struct CheckInView: View {
             }
 
             // Otherwise, color by percentage of current 1RM (intensity)
-            switch percentage {
-            case 85...:
-                return [.setNearMax, .setNearMax.opacity(0.8)]
-            case 75..<85:
-                return [.setHard, .setHard.opacity(0.8)]
-            case 65..<75:
-                return [.setModerate, .setModerate.opacity(0.8)]
-            default:
-                return [.setEasy, .setEasy.opacity(0.8)]
+            let bucket = TrendsCalculator.IntensityBucket.from(percentage: percentage)
+            switch bucket {
+            case .redline: return [.setNearMax, .setNearMax.opacity(0.8)]
+            case .hard: return [.setHard, .setHard.opacity(0.8)]
+            case .moderate: return [.setModerate, .setModerate.opacity(0.8)]
+            default: return [.setEasy, .setEasy.opacity(0.8)]
             }
         }
 
@@ -2041,7 +1594,7 @@ struct CheckInView: View {
                         selectedGraphTab = 0
                         hapticFeedback.impactOccurred()
                     } label: {
-                        Text("Set Intensity")
+                        Text("Sets")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(selectedGraphTab == 0 ? .black : .white.opacity(0.5))
                             .frame(maxWidth: .infinity)
@@ -2054,7 +1607,7 @@ struct CheckInView: View {
                         selectedGraphTab = 1
                         hapticFeedback.impactOccurred()
                     } label: {
-                        Text("Estimated 1RM")
+                        Text("Set Intensity")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(selectedGraphTab == 1 ? .black : .white.opacity(0.5))
                             .frame(maxWidth: .infinity)
@@ -2067,12 +1620,13 @@ struct CheckInView: View {
             .frame(height: 32)
             .padding(.horizontal, 16)
             .padding(.top, 6)
-            .padding(.bottom, selectedGraphTab == 1 ? 4 : 10)
+            .padding(.bottom, 4)
 
             // Show PR Only toggle (only visible on Estimated 1RM tab with data)
-            if selectedGraphTab == 1 && !setsWithPRInfo.isEmpty {
-                HStack(spacing: 4) {
-                    Spacer()
+            // Always reserve the height so picker position stays consistent across tabs
+            HStack(spacing: 4) {
+                Spacer()
+                if selectedGraphTab == 1 && !setsWithPRInfo.isEmpty {
                     Button {
                         showPROnly.toggle()
                     } label: {
@@ -2087,9 +1641,9 @@ struct CheckInView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 24)
-                .frame(height: 14)
             }
+            .padding(.horizontal, 24)
+            .frame(height: 14)
 
             // Content
             VStack {
@@ -2103,8 +1657,8 @@ struct CheckInView: View {
             }
             .frame(height: 136)
             .padding(.horizontal, 16)
-            .padding(.top, selectedGraphTab == 1 ? 2 : 8)
-            .padding(.bottom, 6)
+            .padding(.top, 6)
+            .padding(.bottom, 4)
 
             // Legend (only show when there's data)
             if (selectedGraphTab == 0 && !(todaysSets.isEmpty && lastDaySets.isEmpty)) ||
@@ -2117,7 +1671,7 @@ struct CheckInView: View {
                     LegendItem(color: .setPR, label: "Est. 1RM PR")
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 4)
+                .padding(.bottom, 2)
             }
         }
         .frame(height: 220)
@@ -2156,6 +1710,7 @@ struct CheckInView: View {
                             .foregroundStyle(.white.opacity(0.7))
                     }
                 }
+                .padding(.leading, 4)
 
                 Spacer()
 
@@ -2175,16 +1730,23 @@ struct CheckInView: View {
                     }
                 } else {
                     // Has data: show increment/decrement controls
+//                    Button {
+//                        hapticFeedback.impactOccurred()
+//                        showIncrementSelection = true
+//                    } label: {
+//                        WeightPlateIcon(size: 16)
+//                            .padding(7)
+//                            .background(Color(white: 0.12))
+//                            .cornerRadius(8)
+//                    }
+
                     HStack(spacing: 6) {
                         Button {
-                            // If at minimum, open change plates view to add smaller increments
-                            if weightDelta <= minWeightDelta {
-                                hapticFeedback.impactOccurred()
-                                showIncrementSelection = true
-                            } else if let currentIndex = availableWeightDeltas.firstIndex(where: { abs($0 - weightDelta) < 0.01 }),
+                            if let currentIndex = availableWeightDeltas.firstIndex(where: { abs($0 - weightDelta) < 0.01 }),
                                currentIndex > 0 {
                                 weightDelta = availableWeightDeltas[currentIndex - 1]
                                 hapticFeedback.impactOccurred()
+                                highlightWeightColumn()
                             }
                         } label: {
                             Image(systemName: "minus.circle.fill")
@@ -2209,14 +1771,11 @@ struct CheckInView: View {
                         .buttonStyle(.plain)
 
                         Button {
-                            // If at maximum, open change plates view
-                            if weightDelta >= maxWeightDelta {
-                                hapticFeedback.impactOccurred()
-                                showIncrementSelection = true
-                            } else if let currentIndex = availableWeightDeltas.firstIndex(where: { abs($0 - weightDelta) < 0.01 }),
+                            if let currentIndex = availableWeightDeltas.firstIndex(where: { abs($0 - weightDelta) < 0.01 }),
                                currentIndex < availableWeightDeltas.count - 1 {
                                 weightDelta = availableWeightDeltas[currentIndex + 1]
                                 hapticFeedback.impactOccurred()
+                                highlightWeightColumn()
                             }
                         } label: {
                             Image(systemName: "plus.circle.fill")
@@ -2228,6 +1787,18 @@ struct CheckInView: View {
                     .padding(.vertical, 4)
                     .background(Color(white: 0.12))
                     .cornerRadius(8)
+
+                    Button {
+                        hapticFeedback.impactOccurred()
+                        showExpandedProgressOptions = true
+                    } label: {
+                        Image(systemName: "arrow.up.backward.and.arrow.down.forward")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.5))
+                            .padding(8)
+                            .background(Color(white: 0.12))
+                            .cornerRadius(8)
+                    }
                 }
             }
 
@@ -2352,7 +1923,8 @@ struct CheckInView: View {
                                             suggestion: suggestion,
                                             isSelected: isOptionSelected(suggestion),
                                             sortColumn: sortColumn,
-                                            columnHighlighted: columnHighlighted
+                                            columnHighlighted: columnHighlighted,
+                                            weightColumnHighlighted: weightColumnHighlighted
                                         )
                                         .onTapGesture {
                                             hapticFeedback.impactOccurred()
@@ -2392,8 +1964,8 @@ struct CheckInView: View {
                 }
             }
         }
-        .padding(.top, 16)
-        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.horizontal, 10)
         .padding(.bottom, 0)
         .background(
             LinearGradient(
@@ -2408,10 +1980,6 @@ struct CheckInView: View {
                 .stroke(Color.white.opacity(0.1), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
-        .onLongPressGesture(minimumDuration: 0.5) {
-            hapticFeedback.impactOccurred()
-            showExpandedProgressOptions = true
-        }
         .sheet(isPresented: $showExpandedProgressOptions) {
             ExpandedProgressOptionsSheet(
                 suggestions: filteredSuggestions,
@@ -2419,10 +1987,9 @@ struct CheckInView: View {
                 sortAscending: $sortAscending,
                 onSelect: { suggestion in
                     selectOption(suggestion)
-                    showExpandedProgressOptions = false
                 }
             )
-            .presentationDetents([.fraction(0.92)])
+            .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
     }
@@ -2830,21 +2397,59 @@ struct CheckInView: View {
         }
     }
 
-    private func addExercises() {
-        let trimmed = newExercisesName.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func createExercise(name: String, loadType: ExerciseLoadType, movementType: ExerciseMovementType, icon: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        let ex = Exercises(name: trimmed, isCustom: true, loadType: newExercisesLoadType, icon: newExercisesIcon)
+        let ex = Exercises(name: trimmed, isCustom: true, loadType: loadType, movementType: movementType, icon: icon)
         modelContext.insert(ex)
         selectedExercisesId = ex.id
 
         // Sync new custom exercise to backend
         Task { await SyncService.shared.syncExercise(ex) }
+    }
 
-        newExercisesName = ""
-        newExercisesLoadType = .barbell
-        newExercisesIcon = "LiftTheBullIcon"
-        showingAddExercises = false
+    private func saveExercise(_ exercise: Exercises, name: String, movementType: ExerciseMovementType, icon: String, notes: String?) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        exercise.name = trimmed
+        exercise.icon = icon
+        exercise.exerciseMovementType = movementType
+        exercise.notes = notes
+        try? modelContext.save()
+
+        // Sync edited exercise to backend
+        Task { await SyncService.shared.syncExercise(exercise) }
+    }
+
+    private func deleteExercise(_ exercise: Exercises) {
+        let exerciseId = exercise.id
+
+        // Delete associated sets
+        let setsToDelete = allSets.filter { $0.exercise?.id == exercise.id }
+        for set in setsToDelete {
+            modelContext.delete(set)
+        }
+
+        // Delete associated 1RM records
+        let estimatesToDelete = allEstimated1RMs.filter { $0.exercise?.id == exercise.id }
+        for estimate in estimatesToDelete {
+            modelContext.delete(estimate)
+        }
+
+        // Delete the exercise
+        modelContext.delete(exercise)
+        try? modelContext.save()
+
+        // Close the edit sheet if open
+        showEditExerciseName = false
+
+        // Select a different exercise
+        selectedExercisesId = exercises.first(where: { $0.id != exercise.id })?.id
+
+        // Sync deletion to backend immediately
+        Task { await SyncService.shared.deleteExercise(exerciseId) }
     }
 
     private func resetToDefaults() {
@@ -2927,6 +2532,16 @@ struct CheckInView: View {
         }
     }
 
+    private func highlightWeightColumn() {
+        weightColumnHighlighted = true
+        Task {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            await MainActor.run {
+                weightColumnHighlighted = false
+            }
+        }
+    }
+
     private func selectOption(_ suggestion: OneRMCalculator.Suggestion) {
         reps = suggestion.reps
         weight = suggestion.weight
@@ -3003,19 +2618,13 @@ struct CheckInView: View {
             // Use THIS set's estimated 1RM, not the running max
             let setEstimate = OneRMCalculator.estimate1RM(weight: weight, reps: reps)
             let percentage = before > 0 ? (setEstimate / before) * 100 : 100.0
-            switch percentage {
-            case 85...:
-                overlayIntensityColor = .setNearMax
-                overlayIntensityLabel = "Redline"
-            case 75..<85:
-                overlayIntensityColor = .setHard
-                overlayIntensityLabel = "Hard"
-            case 65..<75:
-                overlayIntensityColor = .setModerate
-                overlayIntensityLabel = "Moderate"
-            default:
-                overlayIntensityColor = .setEasy
-                overlayIntensityLabel = "Easy"
+            let bucket = TrendsCalculator.IntensityBucket.from(percentage: percentage)
+            overlayIntensityLabel = bucket.rawValue
+            switch bucket {
+            case .redline: overlayIntensityColor = .setNearMax
+            case .hard: overlayIntensityColor = .setHard
+            case .moderate: overlayIntensityColor = .setModerate
+            default: overlayIntensityColor = .setEasy
             }
         }
 
@@ -3033,94 +2642,6 @@ struct CheckInView: View {
         }
     }
 
-    private func saveExercisesDetails() {
-        guard let ex = selectedExercises else { return }
-
-        let trimmed = editingExercisesName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        ex.name = trimmed
-        ex.exerciseLoadType = editingExercisesLoadType
-
-        showExercisesDetails = false
-    }
-
-    private func saveEditedExercise() {
-        guard let ex = selectedExercises else { return }
-
-        let trimmed = editExerciseNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        ex.name = trimmed
-        ex.icon = editingExerciseIcon
-        ex.notes = exerciseNotesInput.isEmpty ? nil : exerciseNotesInput
-        try? modelContext.save()
-
-        // Sync edited exercise to backend
-        Task { await SyncService.shared.syncExercise(ex) }
-
-        showEditExerciseName = false
-    }
-
-    private func performExerciseDeletion() {
-        guard let ex = selectedExercises else { return }
-
-        let exerciseId = ex.id
-
-        // Delete associated sets
-        let setsToDelete = allSets.filter { $0.exercise?.id == ex.id }
-        for set in setsToDelete {
-            modelContext.delete(set)
-        }
-
-        // Delete associated 1RM records
-        let estimatesToDelete = allEstimated1RMs.filter { $0.exercise?.id == ex.id }
-        for estimate in estimatesToDelete {
-            modelContext.delete(estimate)
-        }
-
-        // Delete the exercise
-        modelContext.delete(ex)
-        try? modelContext.save()
-
-        // Close the edit sheet
-        showEditExerciseName = false
-
-        // Select a different exercise
-        selectedExercisesId = exercises.first(where: { $0.id != ex.id })?.id
-
-        // Sync deletion to backend immediately
-        Task { await SyncService.shared.deleteExercise(exerciseId) }
-    }
-
-    private func deleteExercises() {
-        guard let ex = selectedExercises, ex.isCustom else { return }
-
-        let exerciseId = ex.id
-
-        // Delete associated sets
-        let setsToDelete = allSets.filter { $0.exercise?.id == ex.id }
-        for set in setsToDelete {
-            modelContext.delete(set)
-        }
-
-        // Delete associated 1RM records
-        let estimatesToDelete = allEstimated1RMs.filter { $0.exercise?.id == ex.id }
-        for estimate in estimatesToDelete {
-            modelContext.delete(estimate)
-        }
-
-        // Delete the exercise
-        modelContext.delete(ex)
-
-        // Select a different exercise
-        selectedExercisesId = exercises.first(where: { $0.id != ex.id })?.id
-
-        // Sync deletion to backend
-        Task { await SyncService.shared.deleteExercise(exerciseId) }
-
-        showExercisesDetails = false
-    }
 
     private func retryFetchExercises() {
         isRetryingSync = true
@@ -3145,14 +2666,520 @@ struct CheckInView: View {
     }
 }
 
+enum ExerciseNavDestination: Hashable {
+    case newExercise(prefillName: String)
+    case editExercise(exerciseId: UUID)
+}
+
+struct NewExerciseFormView: View {
+    let initialName: String
+    let onCreate: (_ name: String, _ loadType: ExerciseLoadType, _ movementType: ExerciseMovementType, _ icon: String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name: String
+    @State private var loadType: ExerciseLoadType = .barbell
+    @State private var movementType: ExerciseMovementType = .other
+    @State private var icon: String = "LiftTheBullIcon"
+
+    private let maxNameLength = 25
+
+    init(initialName: String, onCreate: @escaping (_ name: String, _ loadType: ExerciseLoadType, _ movementType: ExerciseMovementType, _ icon: String) -> Void) {
+        self.initialName = initialName
+        self.onCreate = onCreate
+        self._name = State(initialValue: initialName)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Color.appAccent)
+                }
+
+                Spacer()
+
+                Text("New Exercise")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(.white)
+
+                Spacer()
+
+                Button {
+                    onCreate(name.trimmingCharacters(in: .whitespacesAndNewlines), loadType, movementType, icon)
+                    dismiss()
+                } label: {
+                    Text("Add")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.appAccent)
+                        .cornerRadius(20)
+                }
+                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .opacity(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1.0)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, 24)
+
+            ScrollView {
+                VStack(spacing: 16) {
+                    // Exercise Name Field
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Exercise Name")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.7))
+
+                        TextField("e.g. Romanian Deadlift", text: $name)
+                            .textInputAutocapitalization(.words)
+                            .font(.body)
+                            .padding(14)
+                            .background(Color(white: 0.12))
+                            .cornerRadius(10)
+                            .foregroundStyle(.white)
+                            .onChange(of: name) { _, newValue in
+                                if newValue.count > maxNameLength {
+                                    name = String(newValue.prefix(maxNameLength))
+                                }
+                            }
+                    }
+
+                    // Load Type Picker
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Load Type")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.7))
+
+                        Menu {
+                            ForEach(ExerciseLoadType.allCases, id: \.self) { type in
+                                Button {
+                                    loadType = type
+                                } label: {
+                                    HStack {
+                                        Text(type.rawValue)
+                                        if loadType == type {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Text(loadType.rawValue)
+                                    .foregroundStyle(.white)
+                                Spacer()
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.5))
+                            }
+                            .padding(14)
+                            .background(Color(white: 0.12))
+                            .cornerRadius(10)
+                        }
+                    }
+
+                    // Movement Type Picker
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Movement Type")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.7))
+
+                        Menu {
+                            ForEach(ExerciseMovementType.allCases, id: \.self) { type in
+                                Button {
+                                    movementType = type
+                                } label: {
+                                    HStack {
+                                        Text(type.rawValue)
+                                        if movementType == type {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Text(movementType.rawValue)
+                                    .foregroundStyle(.white)
+                                Spacer()
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.5))
+                            }
+                            .padding(14)
+                            .background(Color(white: 0.12))
+                            .cornerRadius(10)
+                        }
+                    }
+
+                    // Icon Picker
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Icon")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.7))
+
+                        IconCarouselPicker(selectedIcon: $icon)
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+
+            Spacer()
+        }
+        .background(Color.black.ignoresSafeArea())
+        .navigationBarHidden(true)
+    }
+}
+
+struct EditExerciseFormView: View {
+    let exercise: Exercises
+    let onSave: (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void
+    let onDelete: ((_ exercise: Exercises) -> Void)?
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name: String
+    @State private var movementType: ExerciseMovementType
+    @State private var icon: String
+    @State private var notesInput: String
+    @State private var showDeleteSection = false
+    @State private var showDeleteConfirmation = false
+    @State private var deleteConfirmationChecked = false
+    @State private var showNotesCopied = false
+
+    private let maxNameLength = 25
+    private let maxNotesLength = 500
+    private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
+
+    /// Whether this view is shown inside a NavigationStack (push) or standalone sheet
+    let showBackChevron: Bool
+
+    init(exercise: Exercises,
+         showBackChevron: Bool = true,
+         onSave: @escaping (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void,
+         onDelete: ((_ exercise: Exercises) -> Void)? = nil) {
+        self.exercise = exercise
+        self.showBackChevron = showBackChevron
+        self.onSave = onSave
+        self.onDelete = onDelete
+        self._name = State(initialValue: exercise.name)
+        self._movementType = State(initialValue: exercise.exerciseMovementType)
+        self._icon = State(initialValue: exercise.icon)
+        self._notesInput = State(initialValue: exercise.notes ?? "")
+    }
+
+    private var hasUnsavedChanges: Bool {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nameChanged = trimmedName != exercise.name
+        let iconChanged = icon != exercise.icon
+        let notesChanged = notesInput != (exercise.notes ?? "")
+        let movementTypeChanged = movementType != exercise.exerciseMovementType
+        guard !trimmedName.isEmpty else { return false }
+        return nameChanged || iconChanged || notesChanged || movementTypeChanged
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                if showBackChevron {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(Color.appAccent)
+                    }
+                } else {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .foregroundStyle(Color.appAccent)
+                }
+
+                Spacer()
+
+                Text("Edit Exercise")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(.white)
+
+                Spacer()
+
+                Button {
+                    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    onSave(exercise, trimmed, movementType, icon, notesInput.isEmpty ? nil : notesInput)
+                    dismiss()
+                } label: {
+                    Text("Save")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.appAccent)
+                        .cornerRadius(20)
+                }
+                .disabled(!hasUnsavedChanges)
+                .opacity(hasUnsavedChanges ? 1.0 : 0.5)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, showBackChevron ? 20 : 24)
+            .padding(.bottom, 16)
+
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Name text field
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Name")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.7))
+
+                        TextField("Exercise name", text: $name)
+                            .textInputAutocapitalization(.words)
+                            .font(.body)
+                            .padding(14)
+                            .background(Color(white: 0.12))
+                            .cornerRadius(10)
+                            .foregroundStyle(.white)
+                            .onChange(of: name) { _, newValue in
+                                if newValue.count > maxNameLength {
+                                    name = String(newValue.prefix(maxNameLength))
+                                }
+                            }
+
+                        HStack {
+                            Text("\(name.count) / \(maxNameLength)")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.5))
+                            Spacer()
+                        }
+                    }
+
+                    // Load type (read-only)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Load Type")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.7))
+
+                        Text(exercise.exerciseLoadType.rawValue)
+                            .font(.body)
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(white: 0.08))
+                            .cornerRadius(10)
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
+
+                    // Movement Type Picker
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Movement Type")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.7))
+
+                        Menu {
+                            ForEach(ExerciseMovementType.allCases, id: \.self) { type in
+                                Button {
+                                    movementType = type
+                                } label: {
+                                    HStack {
+                                        Text(type.rawValue)
+                                        if movementType == type {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Text(movementType.rawValue)
+                                    .foregroundStyle(.white)
+                                Spacer()
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.5))
+                            }
+                            .padding(14)
+                            .background(Color(white: 0.12))
+                            .cornerRadius(10)
+                        }
+                    }
+
+                    // Icon Picker
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Icon")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.7))
+
+                        IconCarouselPicker(selectedIcon: $icon)
+                    }
+
+                    // Notes text field
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Notes")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.7))
+                            Spacer()
+                            if !notesInput.isEmpty || !(exercise.notes?.isEmpty ?? true) {
+                                Button {
+                                    let textToCopy = notesInput.isEmpty ? (exercise.notes ?? "") : notesInput
+                                    UIPasteboard.general.string = textToCopy
+                                    hapticFeedback.impactOccurred()
+                                    withAnimation {
+                                        showNotesCopied = true
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                        withAnimation {
+                                            showNotesCopied = false
+                                        }
+                                    }
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        if showNotesCopied {
+                                            Image(systemName: "checkmark")
+                                                .font(.caption2)
+                                                .foregroundStyle(Color.appAccent)
+                                            Text("Copied")
+                                                .font(.caption2)
+                                                .foregroundStyle(Color.appAccent)
+                                        } else {
+                                            Image(systemName: "doc.on.doc")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.white.opacity(0.5))
+                                        }
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+
+                        TextEditor(text: $notesInput)
+                            .padding(8)
+                            .frame(minHeight: 100)
+                            .background(Color(white: 0.12))
+                            .cornerRadius(10)
+                            .foregroundStyle(.white)
+                            .scrollContentBackground(.hidden)
+                            .onChange(of: notesInput) { _, newValue in
+                                if newValue.count > maxNotesLength {
+                                    notesInput = String(newValue.prefix(maxNotesLength))
+                                }
+                            }
+
+                        HStack {
+                            Text("\(notesInput.count) / \(maxNotesLength)")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.5))
+                            Spacer()
+                        }
+                    }
+
+                    // Delete section (collapsed by default)
+                    if onDelete != nil {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    showDeleteSection.toggle()
+                                    if !showDeleteSection {
+                                        deleteConfirmationChecked = false
+                                    }
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Delete")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.white.opacity(0.5))
+                                    Spacer()
+                                    Image(systemName: showDeleteSection ? "chevron.down" : "chevron.right")
+                                        .font(.caption)
+                                        .foregroundStyle(.white.opacity(0.3))
+                                }
+                            }
+                            .buttonStyle(.plain)
+
+                            if showDeleteSection {
+                                VStack(spacing: 16) {
+                                    Text("Deleting an exercise will permanently remove it and all associated workout data. This action cannot be undone.")
+                                        .font(.caption)
+                                        .foregroundStyle(.white.opacity(0.6))
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                                    // Confirmation checkbox (centered)
+                                    Button {
+                                        deleteConfirmationChecked.toggle()
+                                    } label: {
+                                        HStack(spacing: 12) {
+                                            Image(systemName: deleteConfirmationChecked ? "checkmark.square.fill" : "square")
+                                                .foregroundStyle(deleteConfirmationChecked ? .red : .white.opacity(0.5))
+                                                .font(.system(size: 20))
+                                            Text("I understand this is permanent")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.white.opacity(0.7))
+                                        }
+                                    }
+                                    .buttonStyle(.plain)
+                                    .frame(maxWidth: .infinity)
+
+                                    // Delete button
+                                    Button {
+                                        showDeleteConfirmation = true
+                                    } label: {
+                                        HStack {
+                                            Image(systemName: "trash")
+                                            Text("Delete Exercise")
+                                        }
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(deleteConfirmationChecked ? .white : .white.opacity(0.3))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                        .background(deleteConfirmationChecked ? Color.red : Color.red.opacity(0.2))
+                                        .cornerRadius(10)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(!deleteConfirmationChecked)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.top, 4)
+                            }
+                        }
+                        .padding(.top, 16)
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.ignoresSafeArea())
+        .navigationBarHidden(true)
+        .alert("Delete Exercise?", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                onDelete?(exercise)
+            }
+        } message: {
+            Text("This will permanently delete \"\(exercise.name)\" and all its workout history.")
+        }
+    }
+}
+
 struct ExercisesSelectionView: View {
     let exercises: [Exercises]
     @Binding var selectedExercisesId: UUID?
-    let onAddExercises: () -> Void
-    let onEditExercises: (Exercises) -> Void
+    let onExerciseCreated: (_ name: String, _ loadType: ExerciseLoadType, _ movementType: ExerciseMovementType, _ icon: String) -> Void
+    let onExerciseSaved: (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void
+    let onExerciseDeleted: (_ exercise: Exercises) -> Void
     @Environment(\.dismiss) private var dismiss
 
+    @State private var navigationPath = NavigationPath()
     @State private var searchText = ""
+    @State private var collapsedSections: Set<ExerciseMovementType> = []
     @FocusState private var isSearchFocused: Bool
 
     private let columns = [
@@ -3169,126 +3196,189 @@ struct ExercisesSelectionView: View {
             .sorted { $0.name < $1.name }
     }
 
+    private var groupedExercises: [(ExerciseMovementType, [Exercises])] {
+        let grouped = Dictionary(grouping: filteredExercises) { $0.exerciseMovementType }
+        return ExerciseMovementType.allCases.compactMap { type in
+            guard let exercises = grouped[type], !exercises.isEmpty else { return nil }
+            return (type, exercises)
+        }
+    }
+
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
+        NavigationStack(path: $navigationPath) {
+            ZStack {
+                Color.black.ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                // Title
-                Text("Select Exercise")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .padding(.top, 20)
-                    .padding(.bottom, 12)
+                VStack(spacing: 0) {
+                    // Header with title and add button
+                    HStack {
+                        Text("Select Exercise")
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(.white)
 
-                // Search bar
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.white.opacity(0.5))
-                        .font(.system(size: 16))
+                        Spacer()
 
-                    TextField("Search exercises", text: $searchText)
-                        .foregroundStyle(.white)
-                        .tint(Color.appAccent)
-                        .focused($isSearchFocused)
-
-                    if !searchText.isEmpty {
                         Button {
-                            searchText = ""
+                            navigationPath.append(ExerciseNavDestination.newExercise(prefillName: searchText.trimmingCharacters(in: .whitespacesAndNewlines)))
                         } label: {
-                            Image(systemName: "xmark.circle.fill")
+                            HStack(spacing: 6) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 14, weight: .bold))
+                                Text("New")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                            .foregroundStyle(Color.appAccent)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Color.appAccent.opacity(0.15))
+                            .cornerRadius(20)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, 16)
+
+                    // Search bar
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.white.opacity(0.5))
+                            .font(.system(size: 16))
+
+                        TextField("Search exercises", text: $searchText)
+                            .foregroundStyle(.white)
+                            .tint(Color.appAccent)
+                            .focused($isSearchFocused)
+
+                        if !searchText.isEmpty {
+                            Button {
+                                searchText = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.white.opacity(0.5))
+                                    .font(.system(size: 16))
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(Color(white: 0.12))
+                    .cornerRadius(10)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 16)
+
+                    if filteredExercises.isEmpty && !searchText.isEmpty {
+                        VStack(spacing: 16) {
+                            Spacer()
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 40))
+                                .foregroundStyle(.white.opacity(0.3))
+                            Text("No exercises found")
+                                .font(.headline)
                                 .foregroundStyle(.white.opacity(0.5))
-                                .font(.system(size: 16))
+                            Button {
+                                navigationPath.append(ExerciseNavDestination.newExercise(prefillName: searchText))
+                            } label: {
+                                Text("Add \"\(searchText)\" as new exercise")
+                                    .font(.subheadline)
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                            Spacer()
+                        }
+                    } else {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 24) {
+                                ForEach(groupedExercises, id: \.0) { movementType, sectionExercises in
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        // Section header
+                                        Button {
+                                            withAnimation(.easeInOut(duration: 0.25)) {
+                                                if collapsedSections.contains(movementType) {
+                                                    collapsedSections.remove(movementType)
+                                                } else {
+                                                    collapsedSections.insert(movementType)
+                                                }
+                                            }
+                                        } label: {
+                                            HStack(spacing: 10) {
+                                                Text(movementType.rawValue.uppercased())
+                                                    .font(.caption.weight(.bold))
+                                                    .foregroundStyle(.white.opacity(0.5))
+                                                    .tracking(1.2)
+
+                                                Text("\(sectionExercises.count)")
+                                                    .font(.caption2.weight(.bold))
+                                                    .foregroundStyle(.white.opacity(0.4))
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 2)
+                                                    .background(Color.white.opacity(0.1))
+                                                    .cornerRadius(4)
+
+                                                Rectangle()
+                                                    .fill(Color.white.opacity(0.1))
+                                                    .frame(height: 1)
+
+                                                Image(systemName: collapsedSections.contains(movementType) ? "chevron.right" : "chevron.down")
+                                                    .font(.system(size: 13, weight: .semibold))
+                                                    .foregroundStyle(.white.opacity(0.4))
+                                            }
+                                            .padding(.horizontal, 20)
+                                            .padding(.vertical, 6)
+                                            .contentShape(Rectangle())
+                                        }
+                                        .buttonStyle(.plain)
+
+                                        // Exercise cards
+                                        if !collapsedSections.contains(movementType) {
+                                            LazyVGrid(columns: columns, spacing: 12) {
+                                                ForEach(sectionExercises) { exercise in
+                                                    ExercisesCardButton(
+                                                        exercise: exercise,
+                                                        isSelected: selectedExercisesId == exercise.id,
+                                                        onSelect: {
+                                                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                                            selectedExercisesId = exercise.id
+                                                            dismiss()
+                                                        },
+                                                        onEdit: {
+                                                            navigationPath.append(ExerciseNavDestination.editExercise(exerciseId: exercise.id))
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                            .padding(.horizontal, 20)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.bottom, 20)
                         }
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(Color(white: 0.15))
-                .cornerRadius(10)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
-
-                if filteredExercises.isEmpty && !searchText.isEmpty {
-                    // Empty search results
-                    VStack(spacing: 16) {
-                        Spacer()
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 40))
-                            .foregroundStyle(.white.opacity(0.3))
-                        Text("No exercises found")
-                            .font(.headline)
-                            .foregroundStyle(.white.opacity(0.5))
-                        Button {
-                            dismiss()
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                onAddExercises()
-                            }
-                        } label: {
-                            Text("Add \"\(searchText)\" as new exercise")
-                                .font(.subheadline)
-                                .foregroundStyle(Color.appAccent)
-                        }
-                        Spacer()
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .navigationBarHidden(true)
+            .navigationDestination(for: ExerciseNavDestination.self) { destination in
+                switch destination {
+                case .newExercise(let prefillName):
+                    NewExerciseFormView(initialName: prefillName) { name, loadType, movementType, icon in
+                        onExerciseCreated(name, loadType, movementType, icon)
                     }
-                } else {
-                    ScrollView {
-                        LazyVGrid(columns: columns, spacing: 12) {
-                            // Add Exercises Button (only show when not searching)
-                            if searchText.isEmpty {
-                                Button {
-                                    onAddExercises()
-                                } label: {
-                                    VStack(spacing: 12) {
-                                        Image(systemName: "plus.circle.fill")
-                                            .font(.system(size: 36))
-                                            .foregroundStyle(Color.appAccent)
-
-                                        Text("Add Exercise")
-                                            .font(.subheadline.weight(.semibold))
-                                            .foregroundStyle(.white)
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 140)
-                                    .padding(12)
-                                    .background(
-                                        LinearGradient(
-                                            colors: [Color(white: 0.18), Color(white: 0.14)],
-                                            startPoint: .top,
-                                            endPoint: .bottom
-                                        )
-                                    )
-                                    .cornerRadius(16)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 16)
-                                            .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
-                                            .foregroundStyle(Color.appAccent.opacity(0.5))
-                                    )
-                                }
-                                .buttonStyle(.plain)
+                case .editExercise(let exerciseId):
+                    if let exercise = exercises.first(where: { $0.id == exerciseId }) {
+                        EditExerciseFormView(
+                            exercise: exercise,
+                            onSave: { exercise, name, movementType, icon, notes in
+                                onExerciseSaved(exercise, name, movementType, icon, notes)
+                            },
+                            onDelete: { exercise in
+                                onExerciseDeleted(exercise)
                             }
-
-                            ForEach(filteredExercises) { exercise in
-                                ExercisesCardButton(
-                                    exercise: exercise,
-                                    isSelected: selectedExercisesId == exercise.id,
-                                    onSelect: {
-                                        selectedExercisesId = exercise.id
-                                        dismiss()
-                                    },
-                                    onEdit: {
-                                        onEditExercises(exercise)
-                                    }
-                                )
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 16)
+                        )
                     }
                 }
             }
         }
-        .scrollDismissesKeyboard(.interactively)
     }
 }
 
@@ -3395,15 +3485,12 @@ struct SetSquareView: View {
             }
         } else {
             let percentage = currentMax > 0 ? (setEstimated1RM / currentMax) * 100 : 100.0
-            switch percentage {
-            case 85...:
-                color = .setNearMax
-            case 75..<85:
-                color = .setHard
-            case 65..<75:
-                color = .setModerate
-            default:
-                color = .setEasy
+            let bucket = TrendsCalculator.IntensityBucket.from(percentage: percentage)
+            switch bucket {
+            case .redline: color = .setNearMax
+            case .hard: color = .setHard
+            case .moderate: color = .setModerate
+            default: color = .setEasy
             }
         }
 
@@ -3547,6 +3634,30 @@ struct LegendItem: View {
     }
 }
 
+// MARK: - Weight Plate Icon
+
+struct WeightPlateIcon: View {
+    var size: CGFloat = 16
+    var color: Color = .white.opacity(0.5)
+
+    var body: some View {
+        ZStack {
+            // Outer plate
+            Circle()
+                .stroke(color, lineWidth: size * 0.15)
+                .frame(width: size, height: size)
+            // Inner ring
+            Circle()
+                .stroke(color, lineWidth: size * 0.1)
+                .frame(width: size * 0.55, height: size * 0.55)
+            // Center hole
+            Circle()
+                .fill(color)
+                .frame(width: size * 0.18, height: size * 0.18)
+        }
+    }
+}
+
 // MARK: - Expanded Progress Options Sheet
 
 struct ExpandedProgressOptionsSheet: View {
@@ -3556,7 +3667,8 @@ struct ExpandedProgressOptionsSheet: View {
     let onSelect: (OneRMCalculator.Suggestion) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var columnHighlighted = true
+    @State private var columnHighlighted = false
+    @State private var selectedSuggestion: OneRMCalculator.Suggestion?
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
 
     private var sortedSuggestions: [OneRMCalculator.Suggestion] {
@@ -3572,13 +3684,26 @@ struct ExpandedProgressOptionsSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Slim title header
-            Text("Progress Options")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .padding(.top, 8)
+            // Title header
+            VStack(spacing: 4) {
+                Text("Progress Options")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(.white)
+                HStack(spacing: 3) {
+                    Text("Sets to")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.7))
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 8))
+                        .foregroundStyle(.white.opacity(0.7))
+                    Text("Estimated 1RM")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .padding(.top, 8)
 
             // Header row with column labels
             HStack(spacing: 12) {
@@ -3593,20 +3718,24 @@ struct ExpandedProgressOptionsSheet: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .background(Color(white: 0.12))
+            .cornerRadius(10)
+            .padding(.horizontal, 8)
 
             // Scrollable options list
             ScrollView {
-                VStack(spacing: 8) {
+                VStack(spacing: 12) {
                     ForEach(sortedSuggestions) { suggestion in
                         ProgressOptionCard(
                             suggestion: suggestion,
-                            isSelected: false,
+                            isSelected: selectedSuggestion?.id == suggestion.id,
                             sortColumn: sortColumn,
                             columnHighlighted: columnHighlighted
                         )
                         .onTapGesture {
                             hapticFeedback.impactOccurred()
-                            onSelect(suggestion)
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                selectedSuggestion = suggestion
+                            }
                         }
                     }
                 }
@@ -3614,11 +3743,14 @@ struct ExpandedProgressOptionsSheet: View {
                 .padding(.vertical, 12)
             }
 
-            // Close button
+            // Done button
             Button {
+                if let selected = selectedSuggestion {
+                    onSelect(selected)
+                }
                 dismiss()
             } label: {
-                Text("Close")
+                Text("Done")
                     .font(.headline)
                     .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
@@ -3629,7 +3761,7 @@ struct ExpandedProgressOptionsSheet: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
         }
-        .background(Color.black)
+        .background(Color(white: 0.08))
     }
 
     private func columnButton(title: String, column: CheckInView.SortColumn, width: CGFloat) -> some View {
@@ -3641,6 +3773,15 @@ struct ExpandedProgressOptionsSheet: View {
                 sortAscending = true
             }
             hapticFeedback.impactOccurred()
+
+            // Fleeting highlight
+            columnHighlighted = true
+            Task {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                await MainActor.run {
+                    columnHighlighted = false
+                }
+            }
         } label: {
             VStack(spacing: 0) {
                 Text(title)

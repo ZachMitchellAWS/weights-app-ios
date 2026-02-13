@@ -19,6 +19,7 @@ struct ExerciseDTO: Codable {
     let createdDatetime: Date?
     let deleted: Bool?
     let icon: String?
+    let movementType: String?
 
     init(from exercise: Exercises) {
         self.exerciseItemId = exercise.id
@@ -30,9 +31,10 @@ struct ExerciseDTO: Codable {
         self.createdDatetime = exercise.createdAt
         self.deleted = exercise.deleted
         self.icon = exercise.icon
+        self.movementType = exercise.movementType
     }
 
-    init(exerciseItemId: UUID, name: String, isCustom: Bool, loadType: String, createdTimezone: String, notes: String?, createdDatetime: Date? = nil, deleted: Bool? = nil, icon: String? = nil) {
+    init(exerciseItemId: UUID, name: String, isCustom: Bool, loadType: String, createdTimezone: String, notes: String?, createdDatetime: Date? = nil, deleted: Bool? = nil, icon: String? = nil, movementType: String? = nil) {
         self.exerciseItemId = exerciseItemId
         self.name = name
         self.isCustom = isCustom
@@ -42,6 +44,7 @@ struct ExerciseDTO: Codable {
         self.createdDatetime = createdDatetime
         self.deleted = deleted
         self.icon = icon
+        self.movementType = movementType
     }
 }
 

@@ -23,7 +23,8 @@ struct FrequencyCalendarWidget: View {
     }
 
     private var weeks: [[Date]] {
-        let calendar = Calendar.current
+        var calendar = Calendar.current
+        calendar.firstWeekday = 2 // Monday
         let today = calendar.startOfDay(for: Date())
         guard let startDate = calendar.date(byAdding: .weekOfYear, value: -11, to: today) else { return [] }
         let weekStart = calendar.startOfWeek(for: startDate)
@@ -52,52 +53,54 @@ struct FrequencyCalendarWidget: View {
             if activityData.isEmpty {
                 EmptyWidgetState(icon: "calendar", message: "Log sets to see your training frequency")
             } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    // Day labels
-                    HStack(alignment: .top, spacing: 2) {
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text("M").font(.system(size: 8)).foregroundStyle(.white.opacity(0.4))
-                            Text("T").font(.system(size: 8)).foregroundStyle(.white.opacity(0.4))
-                            Text("W").font(.system(size: 8)).foregroundStyle(.white.opacity(0.4))
-                            Text("T").font(.system(size: 8)).foregroundStyle(.white.opacity(0.4))
-                            Text("F").font(.system(size: 8)).foregroundStyle(.white.opacity(0.4))
-                            Text("S").font(.system(size: 8)).foregroundStyle(.white.opacity(0.4))
-                            Text("S").font(.system(size: 8)).foregroundStyle(.white.opacity(0.4))
+                VStack(spacing: 8) {
+                    // Day labels + Calendar grid
+                    HStack(alignment: .top, spacing: 3) {
+                        VStack(spacing: 3) {
+                            ForEach(["M", "T", "W", "T", "F", "S", "S"], id: \.self) { label in
+                                Text(label)
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundStyle(.white.opacity(0.4))
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            }
                         }
-                        .frame(width: 12)
+                        .frame(width: 14)
 
                         // Calendar grid
-                        HStack(spacing: 2) {
-                            ForEach(weeks, id: \.first) { week in
-                                VStack(spacing: 2) {
-                                    ForEach(week, id: \.self) { day in
-                                        let setCount = activityByDate[Calendar.current.startOfDay(for: day)] ?? 0
-                                        Rectangle()
-                                            .fill(colorForActivity(setCount))
-                                            .frame(width: 10, height: 10)
-                                            .cornerRadius(2)
-                                    }
+                        ForEach(weeks, id: \.first) { week in
+                            VStack(spacing: 3) {
+                                ForEach(week, id: \.self) { day in
+                                    let setCount = activityByDate[Calendar.current.startOfDay(for: day)] ?? 0
+                                    Rectangle()
+                                        .fill(colorForActivity(setCount))
+                                        .aspectRatio(1, contentMode: .fit)
+                                        .cornerRadius(3)
                                 }
                             }
                         }
                     }
+                    .frame(maxWidth: .infinity)
 
                     // Legend
                     HStack(spacing: 4) {
+                        Spacer()
+
                         Text("Less")
-                            .font(.system(size: 8))
+                            .font(.system(size: 9))
                             .foregroundStyle(.white.opacity(0.4))
 
                         ForEach([0, 1, 3, 5, 8], id: \.self) { level in
                             Rectangle()
                                 .fill(colorForActivity(level))
-                                .frame(width: 10, height: 10)
+                                .frame(width: 12, height: 12)
                                 .cornerRadius(2)
                         }
 
                         Text("More")
-                            .font(.system(size: 8))
+                            .font(.system(size: 9))
                             .foregroundStyle(.white.opacity(0.4))
+
+                        Spacer()
                     }
                 }
             }

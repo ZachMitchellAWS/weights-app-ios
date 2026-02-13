@@ -15,7 +15,7 @@ struct TrainingRecencyWidget: View {
     }
 
     var body: some View {
-        WidgetCard(title: "Exercise Recency", subtitle: "When you last trained each exercise") {
+        WidgetCard(title: "Exercise Activity", subtitle: "Days since last session") {
             if recencyData.isEmpty {
                 EmptyWidgetState(icon: "clock", message: "Log sets to see exercise recency")
             } else {

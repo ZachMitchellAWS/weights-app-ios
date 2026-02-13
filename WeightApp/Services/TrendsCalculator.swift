@@ -60,6 +60,21 @@ struct TrendsCalculator {
             case .pr: return "setPR"
             }
         }
+
+        /// Classify a percentage-of-max into an intensity bucket.
+        /// Does not handle PR detection — caller should check for PRs first.
+        static func from(percentage: Double) -> IntensityBucket {
+            switch percentage {
+            case 85...:
+                return .redline
+            case 75..<85:
+                return .hard
+            case 55..<75:
+                return .moderate
+            default:
+                return .easy
+            }
+        }
     }
 
     struct IntensityDistribution {
@@ -107,15 +122,13 @@ struct TrendsCalculator {
                 distribution.pr += 1
             } else if currentMax > 0 {
                 let percentage = (setEstimated1RM / currentMax) * 100
-                switch percentage {
-                case 85...:
-                    distribution.redline += 1
-                case 75..<85:
-                    distribution.hard += 1
-                case 65..<75:
-                    distribution.moderate += 1
-                default:
-                    distribution.easy += 1
+                let bucket = IntensityBucket.from(percentage: percentage)
+                switch bucket {
+                case .redline: distribution.redline += 1
+                case .hard: distribution.hard += 1
+                case .moderate: distribution.moderate += 1
+                case .easy: distribution.easy += 1
+                case .pr: distribution.pr += 1
                 }
             } else {
                 // First set for this exercise, count as PR
@@ -288,25 +301,25 @@ struct TrendsCalculator {
         let isPR: Bool
     }
 
-    static func oneRMProgression(from sets: [LiftSet], exerciseName: String) -> [OneRMDataPoint] {
-        let exerciseSets = sets.filter { $0.exercise?.name == exerciseName }
+    static func oneRMProgression(from estimated1RMs: [Estimated1RM], exerciseName: String) -> [OneRMDataPoint] {
+        let exerciseRecords = estimated1RMs.filter { $0.exercise?.name == exerciseName }
             .sorted { $0.createdAt < $1.createdAt }
 
         var dataPoints: [OneRMDataPoint] = []
-        var currentMax: Double = 0
+        var previousValue: Double = 0
 
-        for set in exerciseSets {
-            let estimated1RM = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
-            let isPR = estimated1RM > currentMax
-
-            if isPR {
-                currentMax = estimated1RM
-            }
-
-            dataPoints.append(OneRMDataPoint(date: set.createdAt, value: estimated1RM, isPR: isPR))
+        for record in exerciseRecords {
+            let isPR = record.value > previousValue
+            dataPoints.append(OneRMDataPoint(date: record.createdAt, value: record.value, isPR: isPR))
+            previousValue = record.value
         }
 
         return dataPoints
+    }
+
+    static func exerciseNames(from estimated1RMs: [Estimated1RM]) -> [String] {
+        let names = Set(estimated1RMs.compactMap { $0.exercise?.name })
+        return names.sorted()
     }
 
     static func exerciseNames(from sets: [LiftSet]) -> [String] {
@@ -356,7 +369,10 @@ struct TrendsCalculator {
 
 extension Calendar {
     func startOfWeek(for date: Date) -> Date {
-        let components = dateComponents([.yearForWeekOfYear, .weekOfYear], from: date)
-        return self.date(from: components) ?? date
+        // Always use Monday as start of week to match the M-S day labels
+        var cal = self
+        cal.firstWeekday = 2 // Monday
+        let components = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date)
+        return cal.date(from: components) ?? date
     }
 }

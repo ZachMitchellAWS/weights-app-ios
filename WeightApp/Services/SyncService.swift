@@ -559,9 +559,9 @@ class SyncService: ObservableObject {
         guard existingExercises.isEmpty else { return }
 
         let defaults = getDefaultExercises()
-        for (name, loadType) in defaults {
+        for (name, loadType, movementType) in defaults {
             let icon = IconCarouselPicker.suggestedIcon(for: name)
-            let exercise = Exercises(name: name, isCustom: false, loadType: loadType, icon: icon)
+            let exercise = Exercises(name: name, isCustom: false, loadType: loadType, movementType: movementType, icon: icon)
             context.insert(exercise)
         }
 
@@ -601,9 +601,9 @@ class SyncService: ObservableObject {
         let defaults = getDefaultExercises()
         var exerciseDTOs: [ExerciseDTO] = []
 
-        for (name, loadType) in defaults {
+        for (name, loadType, movementType) in defaults {
             let icon = IconCarouselPicker.suggestedIcon(for: name)
-            let exercise = Exercises(name: name, isCustom: false, loadType: loadType, icon: icon)
+            let exercise = Exercises(name: name, isCustom: false, loadType: loadType, movementType: movementType, icon: icon)
             context.insert(exercise)
             exerciseDTOs.append(exercise.toDTO())
         }
@@ -642,14 +642,19 @@ class SyncService: ObservableObject {
                     existing.notes = dto.notes
                     existing.deleted = dto.deleted ?? false
                     existing.icon = dto.icon ?? "LiftTheBullIcon"
+                    if let mt = dto.movementType {
+                        existing.movementType = mt
+                    }
                 }
             } else {
                 let loadType = ExerciseLoadType(rawValue: dto.loadType) ?? .barbell
+                let movementType = ExerciseMovementType(rawValue: dto.movementType ?? "") ?? .other
                 let exercise = Exercises(
                     id: dto.exerciseItemId,
                     name: dto.name,
                     isCustom: dto.isCustom,
                     loadType: loadType,
+                    movementType: movementType,
                     createdAt: dto.createdDatetime ?? Date(),
                     createdTimezone: dto.createdTimezone,
                     notes: dto.notes,
@@ -663,15 +668,15 @@ class SyncService: ObservableObject {
         try? context.save()
     }
 
-    private func getDefaultExercises() -> [(String, ExerciseLoadType)] {
+    private func getDefaultExercises() -> [(String, ExerciseLoadType, ExerciseMovementType)] {
         return [
-            ("Deadlift", .barbell),
-            ("Squat", .barbell),
-            ("Bench Press", .barbell),
-            ("Overhead Press", .barbell),
-            ("Barbell Row", .barbell),
-            ("Pull Ups", .singleLoad),
-            ("Dips", .singleLoad)
+            ("Deadlift", .barbell, .hinge),
+            ("Squat", .barbell, .squat),
+            ("Bench Press", .barbell, .push),
+            ("Overhead Press", .barbell, .push),
+            ("Barbell Row", .barbell, .pull),
+            ("Pull Ups", .singleLoad, .pull),
+            ("Dips", .singleLoad, .push)
         ]
     }
 

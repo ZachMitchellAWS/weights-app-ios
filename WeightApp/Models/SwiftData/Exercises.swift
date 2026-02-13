@@ -13,6 +13,15 @@ enum ExerciseLoadType: String, Codable, CaseIterable {
     case singleLoad = "Single Load"
 }
 
+enum ExerciseMovementType: String, Codable, CaseIterable {
+    case push = "Push"
+    case pull = "Pull"
+    case hinge = "Hinge"
+    case squat = "Squat"
+    case core = "Core"
+    case other = "Other"
+}
+
 @Model
 final class Exercises {
     @Attribute(.unique) var id: UUID
@@ -24,20 +33,23 @@ final class Exercises {
     var notes: String?
     var deleted: Bool
     var icon: String
+    var movementType: String?
 
-    init(name: String, isCustom: Bool, loadType: ExerciseLoadType = .barbell, icon: String = "LiftTheBullIcon") {
+    init(name: String, isCustom: Bool, loadType: ExerciseLoadType = .barbell, movementType: ExerciseMovementType = .other, icon: String = "LiftTheBullIcon") {
         self.id = UUID()
         self.name = name
         self.isCustom = isCustom
         self.createdAt = Date()
         self.createdTimezone = TimeZone.current.identifier
         self.loadType = loadType.rawValue
+        self.movementType = movementType.rawValue
         self.notes = nil
         self.deleted = false
         self.icon = icon
     }
 
     init(id: UUID? = nil, name: String, isCustom: Bool, loadType: ExerciseLoadType = .barbell,
+         movementType: ExerciseMovementType = .other,
          createdAt: Date = Date(), createdTimezone: String = TimeZone.current.identifier,
          notes: String? = nil, deleted: Bool = false, icon: String = "LiftTheBullIcon") {
         self.id = id ?? UUID()
@@ -46,6 +58,7 @@ final class Exercises {
         self.createdAt = createdAt
         self.createdTimezone = createdTimezone
         self.loadType = loadType.rawValue
+        self.movementType = movementType.rawValue
         self.notes = notes
         self.deleted = deleted
         self.icon = icon
@@ -60,5 +73,13 @@ final class Exercises {
             return ExerciseLoadType(rawValue: loadType) ?? .barbell
         }
         set { loadType = newValue.rawValue }
+    }
+
+    var exerciseMovementType: ExerciseMovementType {
+        get {
+            guard let raw = movementType else { return .other }
+            return ExerciseMovementType(rawValue: raw) ?? .other
+        }
+        set { movementType = newValue.rawValue }
     }
 }
