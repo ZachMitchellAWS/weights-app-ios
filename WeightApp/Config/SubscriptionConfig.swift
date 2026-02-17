@@ -9,8 +9,8 @@ import Foundation
 
 enum SubscriptionConfig {
     // MARK: - Product IDs (configure in App Store Connect)
-    static let monthlyProductId = "com.weightapp.premium.monthly"
-    static let yearlyProductId = "com.weightapp.premium.yearly"
+    static let monthlyProductId = "com.weightapp.premium.monthly.499"
+    static let yearlyProductId = "com.weightapp.premium.yearly.3999"
 
     // MARK: - Display Prices (fallback when StoreKit unavailable)
     static let monthlyDisplayPrice = "$4.99"

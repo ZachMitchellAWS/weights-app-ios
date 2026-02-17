@@ -50,6 +50,20 @@ struct PendingLiftSetOperation: Codable, Equatable {
     }
 }
 
+struct PendingSequenceOperation: Codable, Equatable {
+    let sequenceId: UUID
+    let operationType: PendingOperationType
+    var retryCount: Int
+    let createdAt: Date
+
+    init(sequenceId: UUID, operationType: PendingOperationType) {
+        self.sequenceId = sequenceId
+        self.operationType = operationType
+        self.retryCount = 0
+        self.createdAt = Date()
+    }
+}
+
 struct PendingEstimated1RMOperation: Codable, Equatable {
     let estimated1RMId: UUID
     let liftSetId: UUID  // Used for delete operations (API uses liftSetId)
@@ -73,6 +87,7 @@ class SyncRetryQueue {
     private let userPropertiesKey = "SyncRetryQueue.PendingUserPropertiesSync"
     private let liftSetOperationsKey = "SyncRetryQueue.PendingLiftSetOperations"
     private let estimated1RMOperationsKey = "SyncRetryQueue.PendingEstimated1RMOperations"
+    private let sequenceOperationsKey = "SyncRetryQueue.PendingSequenceOperations"
     private let maxRetries = 10
 
     private init() {}
@@ -113,10 +128,11 @@ class SyncRetryQueue {
         UserDefaults.standard.removeObject(forKey: userPropertiesKey)
         UserDefaults.standard.removeObject(forKey: liftSetOperationsKey)
         UserDefaults.standard.removeObject(forKey: estimated1RMOperationsKey)
+        UserDefaults.standard.removeObject(forKey: sequenceOperationsKey)
     }
 
     func hasPendingOperations() -> Bool {
-        return !loadOperations().isEmpty || !loadLiftSetOperations().isEmpty || !loadEstimated1RMOperations().isEmpty
+        return !loadOperations().isEmpty || !loadLiftSetOperations().isEmpty || !loadEstimated1RMOperations().isEmpty || !loadSequenceOperations().isEmpty
     }
 
     // MARK: - User Properties Sync Methods
@@ -338,6 +354,75 @@ class SyncRetryQueue {
             UserDefaults.standard.set(data, forKey: estimated1RMOperationsKey)
         } catch {
             print("SyncRetryQueue: Failed to encode pending estimated 1RM operations: \(error)")
+        }
+    }
+
+    // MARK: - Sequence Operations
+
+    func addPendingSequenceUpsert(sequenceId: UUID) {
+        addSequenceOperation(PendingSequenceOperation(sequenceId: sequenceId, operationType: .upsert))
+    }
+
+    func addPendingSequenceDelete(sequenceId: UUID) {
+        addSequenceOperation(PendingSequenceOperation(sequenceId: sequenceId, operationType: .delete))
+    }
+
+    func removePendingSequenceOperation(sequenceId: UUID) {
+        var operations = loadSequenceOperations()
+        operations.removeAll { $0.sequenceId == sequenceId }
+        saveSequenceOperations(operations)
+    }
+
+    func getPendingSequenceOperations() -> [PendingSequenceOperation] {
+        return loadSequenceOperations()
+    }
+
+    func incrementSequenceRetryCount(for sequenceId: UUID) {
+        var operations = loadSequenceOperations()
+        if let index = operations.firstIndex(where: { $0.sequenceId == sequenceId }) {
+            operations[index].retryCount += 1
+            if operations[index].retryCount >= maxRetries {
+                operations.remove(at: index)
+            }
+        }
+        saveSequenceOperations(operations)
+    }
+
+    func hasSequencePendingOperations() -> Bool {
+        return !loadSequenceOperations().isEmpty
+    }
+
+    private func addSequenceOperation(_ operation: PendingSequenceOperation) {
+        var operations = loadSequenceOperations()
+
+        if let existingIndex = operations.firstIndex(where: { $0.sequenceId == operation.sequenceId }) {
+            operations[existingIndex] = operation
+        } else {
+            operations.append(operation)
+        }
+
+        saveSequenceOperations(operations)
+    }
+
+    private func loadSequenceOperations() -> [PendingSequenceOperation] {
+        guard let data = UserDefaults.standard.data(forKey: sequenceOperationsKey) else {
+            return []
+        }
+
+        do {
+            return try JSONDecoder().decode([PendingSequenceOperation].self, from: data)
+        } catch {
+            print("SyncRetryQueue: Failed to decode pending sequence operations: \(error)")
+            return []
+        }
+    }
+
+    private func saveSequenceOperations(_ operations: [PendingSequenceOperation]) {
+        do {
+            let data = try JSONEncoder().encode(operations)
+            UserDefaults.standard.set(data, forKey: sequenceOperationsKey)
+        } catch {
+            print("SyncRetryQueue: Failed to encode pending sequence operations: \(error)")
         }
     }
 }

@@ -33,6 +33,13 @@ struct ConfirmPasswordResetRequest: Codable {
     let newPassword: String
 }
 
+struct AppleSignInRequest: Codable {
+    let identityToken: String
+    let authorizationCode: String
+    let email: String?
+    let fullName: String?
+}
+
 // MARK: - Response Models
 
 struct AuthResponse: Codable {
@@ -42,6 +49,7 @@ struct AuthResponse: Codable {
     let refreshToken: String
     let accessTokenExpiresIn: Int
     let refreshTokenExpiresIn: Int
+    let isNewUser: Bool?
 }
 
 struct RefreshResponse: Codable {

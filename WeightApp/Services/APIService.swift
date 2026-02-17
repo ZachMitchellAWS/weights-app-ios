@@ -227,17 +227,24 @@ class APIService {
     }
 
     func authenticateWithApple(identityToken: String, authorizationCode: String, email: String?, fullName: String?) async throws -> AuthResponse {
-        // TODO: Implement when backend endpoint exists
-        // let body = AppleSignInRequest(identityToken: identityToken, authorizationCode: authorizationCode, email: email, fullName: fullName)
-        // let response: AuthResponse = try await request(
-        //     endpoint: "/auth/apple-signin",
-        //     method: "POST",
-        //     body: body,
-        //     headers: APIConfig.commonHeaders
-        // )
-        // KeychainService.shared.saveTokens(...)
-        // return response
-        throw APIError.notImplemented("Apple Sign In will be available soon")
+        let body = AppleSignInRequest(identityToken: identityToken, authorizationCode: authorizationCode, email: email, fullName: fullName)
+        let response: AuthResponse = try await request(
+            endpoint: "/auth/apple-signin",
+            method: "POST",
+            body: body,
+            headers: APIConfig.commonHeaders
+        )
+
+        KeychainService.shared.saveTokens(
+            accessToken: response.accessToken,
+            refreshToken: response.refreshToken,
+            userId: response.userId,
+            accessTokenExpiresIn: response.accessTokenExpiresIn,
+            refreshTokenExpiresIn: response.refreshTokenExpiresIn,
+            email: response.emailAddress
+        )
+
+        return response
     }
 
     // Note: User properties use String timestamps with standard JSONDecoder (not .iso8601),
@@ -352,6 +359,36 @@ class APIService {
         let body = DeleteEstimated1RMsRequest(liftSetIds: liftSetIds)
         return try await requestWithDateDecoding(
             endpoint: "/checkin/estimated-1rm",
+            method: "DELETE",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    // MARK: - Sequence Sync Endpoints
+
+    func getSequences() async throws -> GetSequencesResponse {
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/sequences",
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+
+    func upsertSequences(_ sequences: [SequenceDTO]) async throws -> UpsertSequencesResponse {
+        let body = UpsertSequencesRequest(sequences: sequences)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/sequences",
+            method: "POST",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    func deleteSequences(_ sequenceIds: [UUID]) async throws -> DeleteSequencesResponse {
+        let body = DeleteSequencesRequest(sequenceIds: sequenceIds)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/sequences",
             method: "DELETE",
             body: body,
             requiresAuth: true

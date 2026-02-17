@@ -238,34 +238,8 @@ struct RegisterView: View {
     private func handleAppleSignUp(_ result: Result<ASAuthorization, Error>) {
         switch result {
         case .success(let authorization):
-            do {
-                let appleResult = try AppleSignInService.shared.handleAuthorization(authorization)
-                Task {
-                    // Format full name if available
-                    var fullName: String? = nil
-                    if let nameComponents = appleResult.fullName {
-                        let formatter = PersonNameComponentsFormatter()
-                        let formattedName = formatter.string(from: nameComponents)
-                        if !formattedName.isEmpty {
-                            fullName = formattedName
-                        }
-                    }
-
-                    do {
-                        _ = try await APIService.shared.authenticateWithApple(
-                            identityToken: appleResult.identityToken,
-                            authorizationCode: appleResult.authorizationCode,
-                            email: appleResult.email,
-                            fullName: fullName
-                        )
-                    } catch {
-                        await MainActor.run {
-                            authViewModel.errorMessage = error.localizedDescription
-                        }
-                    }
-                }
-            } catch {
-                authViewModel.errorMessage = error.localizedDescription
+            Task {
+                _ = await authViewModel.handleAppleAuthorization(authorization)
             }
         case .failure(let error):
             let authError = error as? ASAuthorizationError

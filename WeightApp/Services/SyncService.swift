@@ -56,6 +56,10 @@ class SyncService: ObservableObject {
             print("SyncService: Initial exercise sync failed: \(error.localizedDescription)")
         }
 
+        // Step 2.5: Sync sequences (references exerciseIds, so must run after exercises)
+        await syncSequencesFromBackend()
+        await processSequenceRetryQueue()
+
         // Step 3: Sync lift sets (runs after exercises so exercise references exist)
         await syncLiftSetsFromBackend()
         await processLiftSetRetryQueue()
@@ -515,6 +519,138 @@ class SyncService: ObservableObject {
 
     private func fetchAllEstimated1RMs(context: ModelContext) -> [Estimated1RM] {
         let descriptor = FetchDescriptor<Estimated1RM>()
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    // MARK: - Sequence Sync
+
+    /// Fetches all sequences from backend and imports them locally, then pushes any local-only sequences
+    func syncSequencesFromBackend() async {
+        guard let context = modelContext else { return }
+
+        do {
+            let response = try await APIService.shared.getSequences()
+            await importSequencesFromBackend(response.sequences, context: context)
+
+            // Push any local-only sequences (e.g. from UserDefaults migration)
+            let allLocal = fetchAllSequences(context: context)
+            let backendIds = Set(response.sequences.map { $0.sequenceId })
+            let localOnly = allLocal.filter { !$0.deleted && !backendIds.contains($0.id) }
+
+            if !localOnly.isEmpty {
+                let dtos = localOnly.map { $0.toDTO() }
+                do {
+                    _ = try await APIService.shared.upsertSequences(dtos)
+                } catch {
+                    print("SyncService: Failed to push local sequences: \(error.localizedDescription)")
+                    for seq in localOnly {
+                        retryQueue.addPendingSequenceUpsert(sequenceId: seq.id)
+                    }
+                }
+            }
+
+            print("SyncService: Completed sequence sync, fetched \(response.sequences.count) from backend")
+        } catch {
+            print("SyncService: Failed to sync sequences: \(error.localizedDescription)")
+        }
+    }
+
+    /// Syncs a single sequence to the backend
+    func syncSequence(_ sequence: WorkoutSequence) async {
+        let dto = sequence.toDTO()
+
+        do {
+            _ = try await APIService.shared.upsertSequences([dto])
+            retryQueue.removePendingSequenceOperation(sequenceId: sequence.id)
+        } catch {
+            print("SyncService: Failed to sync sequence \(sequence.id): \(error.localizedDescription)")
+            retryQueue.addPendingSequenceUpsert(sequenceId: sequence.id)
+        }
+    }
+
+    /// Deletes a sequence from the backend (soft delete)
+    func deleteSequence(_ sequenceId: UUID) async {
+        do {
+            _ = try await APIService.shared.deleteSequences([sequenceId])
+            retryQueue.removePendingSequenceOperation(sequenceId: sequenceId)
+        } catch {
+            print("SyncService: Failed to delete sequence \(sequenceId): \(error.localizedDescription)")
+            retryQueue.addPendingSequenceDelete(sequenceId: sequenceId)
+        }
+    }
+
+    /// Process pending sequence operations from retry queue
+    func processSequenceRetryQueue() async {
+        guard let context = modelContext else { return }
+
+        let pendingOperations = retryQueue.getPendingSequenceOperations()
+
+        for operation in pendingOperations {
+            switch operation.operationType {
+            case .upsert:
+                if let sequence = fetchSequence(by: operation.sequenceId, context: context) {
+                    do {
+                        _ = try await APIService.shared.upsertSequences([sequence.toDTO()])
+                        retryQueue.removePendingSequenceOperation(sequenceId: operation.sequenceId)
+                    } catch {
+                        retryQueue.incrementSequenceRetryCount(for: operation.sequenceId)
+                    }
+                } else {
+                    retryQueue.removePendingSequenceOperation(sequenceId: operation.sequenceId)
+                }
+
+            case .delete:
+                do {
+                    _ = try await APIService.shared.deleteSequences([operation.sequenceId])
+                    retryQueue.removePendingSequenceOperation(sequenceId: operation.sequenceId)
+                } catch {
+                    retryQueue.incrementSequenceRetryCount(for: operation.sequenceId)
+                }
+            }
+        }
+    }
+
+    private func importSequencesFromBackend(_ dtos: [SequenceDTO], context: ModelContext) async {
+        let existingSequences = fetchAllSequences(context: context)
+        let existingIds = Set(existingSequences.map { $0.id })
+
+        for dto in dtos {
+            if dto.deleted == true {
+                if let existing = existingSequences.first(where: { $0.id == dto.sequenceId }) {
+                    existing.deleted = true
+                }
+                continue
+            }
+
+            if existingIds.contains(dto.sequenceId) {
+                if let existing = existingSequences.first(where: { $0.id == dto.sequenceId }) {
+                    existing.name = dto.name
+                    existing.exerciseIds = dto.exerciseIds
+                    existing.deleted = dto.deleted ?? false
+                }
+            } else {
+                let sequence = WorkoutSequence(
+                    id: dto.sequenceId,
+                    name: dto.name,
+                    exerciseIds: dto.exerciseIds,
+                    createdAt: dto.createdDatetime ?? Date(),
+                    createdTimezone: dto.createdTimezone,
+                    deleted: dto.deleted ?? false
+                )
+                context.insert(sequence)
+            }
+        }
+
+        try? context.save()
+    }
+
+    private func fetchSequence(by id: UUID, context: ModelContext) -> WorkoutSequence? {
+        let descriptor = FetchDescriptor<WorkoutSequence>(predicate: #Predicate { $0.id == id })
+        return try? context.fetch(descriptor).first
+    }
+
+    private func fetchAllSequences(context: ModelContext) -> [WorkoutSequence] {
+        let descriptor = FetchDescriptor<WorkoutSequence>()
         return (try? context.fetch(descriptor)) ?? []
     }
 

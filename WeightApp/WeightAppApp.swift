@@ -24,7 +24,7 @@ struct WeightAppApp: App {
 
         // Create the model container
         do {
-            modelContainer = try ModelContainer(for: Exercises.self, LiftSet.self, UserProperties.self, Estimated1RM.self, PremiumEntitlement.self)
+            modelContainer = try ModelContainer(for: Exercises.self, LiftSet.self, UserProperties.self, Estimated1RM.self, PremiumEntitlement.self, WorkoutSequence.self)
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
          }
@@ -100,11 +100,15 @@ struct WeightAppApp: App {
                 SyncService.shared.setModelContext(context)
                 authViewModel.setModelContext(context)
 
+                // Migrate workout sequences from UserDefaults to SwiftData
+                WorkoutSequenceStore.migrateToSwiftData(context: context)
+
                 // Process any pending sync operations on app launch
                 if authViewModel.isAuthenticated {
                     Task {
                         await SyncService.shared.processRetryQueue()
                         await SyncService.shared.processUserPropertiesRetryQueue()
+                        await SyncService.shared.processSequenceRetryQueue()
                         await SyncService.shared.processLiftSetRetryQueue()
                         await SyncService.shared.processEstimated1RMRetryQueue()
                     }
