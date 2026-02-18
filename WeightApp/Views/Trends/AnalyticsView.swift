@@ -8,8 +8,8 @@
 import SwiftUI
 
 struct AnalyticsView: View {
-    let allSets: [LiftSet]
-    let allEstimated1RMs: [Estimated1RM]
+    let allSets: [LiftSets]
+    let allEstimated1RMs: [Estimated1RMs]
 
     // Static flag to track if we've ever loaded (persists across view recreation)
     private static var hasEverLoaded = false

@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct TrainingRecencyWidget: View {
-    let allSets: [LiftSet]
+    let allSets: [LiftSets]
 
     private var recencyData: [TrendsCalculator.ExerciseRecency] {
         TrendsCalculator.exerciseRecency(from: allSets)

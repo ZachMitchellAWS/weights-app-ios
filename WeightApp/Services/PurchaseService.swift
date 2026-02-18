@@ -9,7 +9,7 @@ import Foundation
 import StoreKit
 import Combine
 
-/// Placeholder service for StoreKit 2 integration
+/// StoreKit 2 purchase service
 /// All product IDs, prices, and configuration come from SubscriptionConfig
 @MainActor
 class PurchaseService: ObservableObject {
@@ -30,9 +30,14 @@ class PurchaseService: ObservableObject {
                 SubscriptionConfig.monthlyProductId,
                 SubscriptionConfig.yearlyProductId
             ]
+            print("[PurchaseService] Requesting product IDs: \(productIds)")
             products = try await Product.products(for: productIds)
+            print("[PurchaseService] Loaded \(products.count) products: \(products.map { $0.id })")
+            if products.isEmpty {
+                print("[PurchaseService] No products returned — check App Store Connect or StoreKit config file")
+            }
         } catch {
-            print("Failed to load products: \(error)")
+            print("[PurchaseService] Failed to load products: \(error)")
         }
     }
 
@@ -49,16 +54,23 @@ class PurchaseService: ObservableObject {
     // MARK: - Purchasing
 
     /// Purchase a subscription product
-    /// - Parameter product: The product to purchase
+    /// - Parameters:
+    ///   - product: The product to purchase
+    ///   - userId: Optional user ID to attach as appAccountToken (links purchase to user for Apple webhooks)
     /// - Returns: The transaction if successful
-    func purchase(_ product: Product) async throws -> Transaction? {
+    func purchase(_ product: Product, userId: String? = nil) async throws -> Transaction? {
         purchaseInProgress = true
         purchaseError = nil
 
         defer { purchaseInProgress = false }
 
         do {
-            let result = try await product.purchase()
+            var options: Set<Product.PurchaseOption> = []
+            if let userId, let token = UUID(uuidString: userId) {
+                options.insert(.appAccountToken(token))
+            }
+
+            let result = try await product.purchase(options: options)
 
             switch result {
             case .success(let verification):
@@ -109,12 +121,25 @@ class PurchaseService: ObservableObject {
     // MARK: - Transaction Listening
 
     /// Listen for transaction updates (call on app launch)
+    /// Syncs entitlements with backend when renewals or other transaction updates arrive
     func listenForTransactions() -> Task<Void, Error> {
         return Task.detached {
             for await result in Transaction.updates {
                 do {
                     let transaction = try self.checkVerified(result)
-                    // TODO: Update entitlement based on transaction
+                    let originalId = String(transaction.originalID)
+
+                    // Sync with backend
+                    do {
+                        _ = try await EntitlementsService.shared.processTransactions(
+                            originalTransactionIds: [originalId]
+                        )
+                        // Refresh local entitlement status from backend
+                        await EntitlementsService.shared.syncEntitlementStatus()
+                    } catch {
+                        print("Failed to sync transaction with backend: \(error)")
+                    }
+
                     await transaction.finish()
                 } catch {
                     print("Transaction verification failed: \(error)")

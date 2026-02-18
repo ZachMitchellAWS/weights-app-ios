@@ -15,8 +15,8 @@ struct AccountDetailView: View {
     @State private var showLogoutConfirmation = false
 
     @Query private var allExercises: [Exercises]
-    @Query private var allLiftSets: [LiftSet]
-    @Query private var allEstimated1RMs: [Estimated1RM]
+    @Query private var allLiftSets: [LiftSets]
+    @Query private var allEstimated1RMs: [Estimated1RMs]
     @Query private var allUserProperties: [UserProperties]
 
     private var email: String {

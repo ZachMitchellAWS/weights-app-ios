@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct FrequencyCalendarWidget: View {
-    let allSets: [LiftSet]
+    let allSets: [LiftSets]
 
     private var activityData: [TrendsCalculator.DayActivity] {
         TrendsCalculator.trainingFrequency(from: allSets, weeks: 12)

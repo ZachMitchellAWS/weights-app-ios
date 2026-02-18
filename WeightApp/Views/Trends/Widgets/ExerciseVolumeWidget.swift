@@ -9,7 +9,7 @@ import SwiftUI
 import Charts
 
 struct ExerciseVolumeWidget: View {
-    let allSets: [LiftSet]
+    let allSets: [LiftSets]
 
     @State private var selectedExercise: String?
 

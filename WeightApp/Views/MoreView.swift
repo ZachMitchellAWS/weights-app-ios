@@ -12,10 +12,10 @@ struct MoreView: View {
     @ObservedObject var authViewModel: AuthViewModel
     @Environment(\.modelContext) private var modelContext
     @Query private var userPropertiesItems: [UserProperties]
-    @Query private var premiumEntitlementItems: [PremiumEntitlement]
+    @Query private var entitlementItems: [Entitlements]
     @Query(filter: #Predicate<Exercises> { !$0.deleted }) private var exercises: [Exercises]
-    @Query private var liftSets: [LiftSet]
-    @Query private var estimated1RMs: [Estimated1RM]
+    @Query private var liftSets: [LiftSets]
+    @Query private var estimated1RMs: [Estimated1RMs]
 
     @State private var showAccount = false
     @State private var showSettings = false
@@ -39,6 +39,11 @@ struct MoreView: View {
     @State private var showUpsellPreview = false
     @State private var showExerciseIcons = false
     @State private var showAlertPreviews = false
+    @State private var showEntitlementDetails = false
+    @State private var isReplayingTransaction = false
+    @State private var replayTransactionResult: String?
+    @State private var isRestoringPurchases = false
+    @State private var isSyncingPurchases = false
     @State private var copiedToast: String?
 
     @State private var tempBodyweight: Double = 150
@@ -51,21 +56,21 @@ struct MoreView: View {
         return props
     }
 
-    private var premiumEntitlement: PremiumEntitlement {
-        if let entitlement = premiumEntitlementItems.first { return entitlement }
-        let entitlement = PremiumEntitlement()
+    private var entitlement: Entitlements {
+        if let entitlement = entitlementItems.first { return entitlement }
+        let entitlement = Entitlements()
         modelContext.insert(entitlement)
         return entitlement
     }
 
     private var isPremiumEnabled: Bool {
-        get { premiumEntitlement.isPremium }
+        get { entitlement.isPremium }
         nonmutating set {
-            premiumEntitlement.isPremium = newValue
+            entitlement.isPremium = newValue
             if !newValue {
-                premiumEntitlement.subscriptionType = nil
-                premiumEntitlement.expiresAt = nil
-                premiumEntitlement.transactionId = nil
+                entitlement.subscriptionType = nil
+                entitlement.expiresAt = nil
+                entitlement.transactionId = nil
             }
             try? modelContext.save()
         }
@@ -276,6 +281,67 @@ struct MoreView: View {
                             .buttonStyle(.plain)
                         }
 
+                        // Restore Purchases
+                        Button {
+                            Task {
+                                isRestoringPurchases = true
+                                await PurchaseService.shared.restorePurchases()
+                                isRestoringPurchases = false
+                            }
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "arrow.clockwise")
+                                    .foregroundStyle(.white.opacity(0.4))
+                                    .font(.system(size: 14))
+                                    .frame(width: 20)
+                                    .padding(.leading, 24)
+                                Text("Restore Purchases")
+                                    .foregroundStyle(.white)
+                                    .font(.subheadline)
+                                Spacer()
+                                if isRestoringPurchases {
+                                    ProgressView()
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isRestoringPurchases || isSyncingPurchases)
+
+                        // Sync Purchases
+                        Button {
+                            Task {
+                                isSyncingPurchases = true
+                                do {
+                                    let response = try await EntitlementsService.shared.processTransactions(originalTransactionIds: [])
+                                    await EntitlementsService.shared.updateLocalEntitlement(
+                                        from: response,
+                                        transactionId: entitlement.transactionId ?? "",
+                                        context: modelContext
+                                    )
+                                } catch {
+                                    print("Sync purchases failed: \(error)")
+                                }
+                                isSyncingPurchases = false
+                            }
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                    .foregroundStyle(.white.opacity(0.4))
+                                    .font(.system(size: 14))
+                                    .frame(width: 20)
+                                    .padding(.leading, 24)
+                                Text("Sync Purchases")
+                                    .foregroundStyle(.white)
+                                    .font(.subheadline)
+                                Spacer()
+                                if isSyncingPurchases {
+                                    ProgressView()
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isRestoringPurchases || isSyncingPurchases)
+
                         // Logout Button
                         Button(role: .destructive) {
                             showLogoutConfirmation = true
@@ -425,260 +491,363 @@ struct MoreView: View {
                     }
 
                     if showDeveloper {
-                        Button {
-                            Task {
-                                await populateSimulatedData()
-                            }
-                        } label: {
-                            HStack {
-                                Text("Populate 28 Days of Data")
-                                    .foregroundStyle(.primary)
-                                    .padding(.leading, 32)
-                                Spacer()
-                                if isPopulating28Days {
-                                    ProgressView()
-                                } else {
-                                    Image(systemName: "wand.and.stars")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-                        }
-                        .disabled(isPopulating28Days)
-
-                        Button {
-                            Task {
-                                await populateTodayData()
-                            }
-                        } label: {
-                            HStack {
-                                Text("Populate Today Data")
-                                    .foregroundStyle(.primary)
-                                    .padding(.leading, 32)
-                                Spacer()
-                                if isPopulatingToday {
-                                    ProgressView()
-                                } else {
-                                    Image(systemName: "calendar.badge.plus")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-                        }
-                        .disabled(isPopulatingToday)
-
-                        Button {
-                            Task {
-                                await updateUserProperties()
-                            }
-                        } label: {
-                            HStack {
-                                Text("Update User Properties")
-                                    .foregroundStyle(.primary)
-                                    .padding(.leading, 32)
-                                Spacer()
-                                if isUpdatingProperties {
-                                    ProgressView()
-                                } else {
-                                    Image(systemName: "person.crop.circle.badge.checkmark")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-                        }
-                        .disabled(isUpdatingProperties)
-
-                        Button {
-                            authViewModel.isNewUser = true
-                            authViewModel.showPostAuthFlow = true
-                        } label: {
-                            HStack {
-                                Text("Replay Onboarding")
-                                    .foregroundStyle(.primary)
-                                    .padding(.leading, 32)
-                                Spacer()
-                                Image(systemName: "arrow.counterclockwise")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        Button {
-                            authViewModel.isNewUser = false
-                            authViewModel.showPostAuthFlow = true
-                        } label: {
-                            HStack {
-                                Text("Replay Welcome Back")
-                                    .foregroundStyle(.primary)
-                                    .padding(.leading, 32)
-                                Spacer()
-                                Image(systemName: "hand.wave")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        Button {
-                            showUpsellPreview = true
-                        } label: {
-                            HStack {
-                                Text("Show Premium Upsell")
-                                    .foregroundStyle(.primary)
-                                    .padding(.leading, 32)
-                                Spacer()
-                                Image(systemName: "crown")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        // Premium Status Toggle
-                        HStack {
-                            Text("Premium Status")
-                                .foregroundStyle(.primary)
-                                .padding(.leading, 32)
-                            Spacer()
-                            Toggle("", isOn: Binding(
-                                get: { isPremiumEnabled },
-                                set: { isPremiumEnabled = $0 }
-                            ))
-                            .labelsHidden()
-                            .tint(Color.appAccent)
-                        }
-
-                        Button {
-                            withAnimation {
-                                showExerciseIds.toggle()
-                            }
-                        } label: {
-                            HStack {
-                                Text("Show Exercise IDs")
-                                    .foregroundStyle(.primary)
-                                    .padding(.leading, 32)
-                                Spacer()
-                                Image(systemName: showExerciseIds ? "eye.fill" : "eye")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        if showExerciseIds {
-                            ForEach(exercises.sorted { $0.name < $1.name }, id: \.id) { exercise in
-                                HStack {
-                                    Text(exercise.name)
-                                        .foregroundStyle(.white.opacity(0.7))
-                                        .padding(.leading, 48)
-                                        .lineLimit(1)
-                                    Spacer()
-                                    Text(exercise.id.uuidString.prefix(8) + "...")
-                                        .foregroundStyle(.white.opacity(0.5))
-                                        .font(.system(.caption, design: .monospaced))
-                                        .textSelection(.enabled)
-                                }
-                            }
-                        }
-
-                        Button {
-                            withAnimation {
-                                showMemberSince.toggle()
-                            }
-                        } label: {
-                            HStack {
-                                Text("Show Member Since")
-                                    .foregroundStyle(.primary)
-                                    .padding(.leading, 32)
-                                Spacer()
-                                Image(systemName: showMemberSince ? "calendar.circle.fill" : "calendar.circle")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        if showMemberSince {
-                            HStack {
-                                Text("Member Since")
-                                    .foregroundStyle(.white.opacity(0.7))
-                                    .padding(.leading, 48)
-                                Spacer()
-                                Text(memberSinceDate)
-                                    .foregroundStyle(.white.opacity(0.5))
-                                    .font(.system(.caption, design: .monospaced))
-                            }
-                        }
-
-                        Button {
-                            withAnimation {
-                                showTokenExpiry.toggle()
-                            }
-                        } label: {
-                            HStack {
-                                Text("Token Expiry Info")
-                                    .foregroundStyle(.primary)
-                                    .padding(.leading, 32)
-                                Spacer()
-                                Image(systemName: showTokenExpiry ? "clock.fill" : "clock")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        if showTokenExpiry {
-                            TokenExpiryView()
-                                .padding(.leading, 32)
-                        }
-
-                        Button {
-                            showExerciseIcons = true
-                        } label: {
-                            HStack {
-                                Text("Show Exercise Icons")
-                                    .foregroundStyle(.primary)
-                                    .padding(.leading, 32)
-                                Spacer()
-                                Image(systemName: "photo.on.rectangle")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        Button {
-                            showAlertPreviews = true
-                        } label: {
-                            HStack {
-                                Text("Preview Alerts")
-                                    .foregroundStyle(.primary)
-                                    .padding(.leading, 32)
-                                Spacer()
-                                Image(systemName: "bell.badge")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        // User Samples section
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("User Samples")
-                                .font(.caption)
+                        // MARK: Test Data
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Test Data")
+                                .font(.subheadline)
                                 .foregroundStyle(.white.opacity(0.5))
                                 .padding(.leading, 32)
 
-                            ForEach(UserSamples.Cohort.allCases, id: \.self) { cohort in
-                                Toggle(cohort.displayName, isOn: Binding(
-                                    get: { UserSamples.shared.isInCohort(cohort) },
-                                    set: { UserSamples.shared.setCohort(cohort, enabled: $0) }
-                                ))
-                                .font(.subheadline)
-                                .tint(.appAccent)
-                                .padding(.leading, 32)
+                            Button {
+                                Task {
+                                    await populateSimulatedData()
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Populate 28 Days of Data")
+                                        .foregroundStyle(.primary)
+                                        .padding(.leading, 40)
+                                    Spacer()
+                                    if isPopulating28Days {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "wand.and.stars")
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+                                }
                             }
-                        }
-                        .padding(.vertical, 8)
+                            .disabled(isPopulating28Days)
 
-                        Button(role: .destructive) {
-                            showDeleteConfirmation = true
-                        } label: {
-                            HStack {
-                                Text("Delete All Workout Data")
-                                    .foregroundStyle(.red)
-                                    .padding(.leading, 32)
-                                Spacer()
-                                Image(systemName: "trash")
-                                    .foregroundStyle(.red)
+                            Button {
+                                Task {
+                                    await populateTodayData()
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Populate Today Data")
+                                        .foregroundStyle(.primary)
+                                        .padding(.leading, 40)
+                                    Spacer()
+                                    if isPopulatingToday {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "calendar.badge.plus")
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+                                }
+                            }
+                            .disabled(isPopulatingToday)
+
+                            Button {
+                                Task {
+                                    await updateUserProperties()
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Update User Properties")
+                                        .foregroundStyle(.primary)
+                                        .padding(.leading, 40)
+                                    Spacer()
+                                    if isUpdatingProperties {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "person.crop.circle.badge.checkmark")
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+                                }
+                            }
+                            .disabled(isUpdatingProperties)
+                        }
+                        .padding(.vertical, 4)
+
+                        // MARK: Flows & Previews
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Flows & Previews")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.5))
+                                .padding(.leading, 32)
+
+                            Button {
+                                authViewModel.isNewUser = true
+                                authViewModel.showPostAuthFlow = true
+                            } label: {
+                                HStack {
+                                    Text("Replay Onboarding")
+                                        .foregroundStyle(.primary)
+                                        .padding(.leading, 40)
+                                    Spacer()
+                                    Image(systemName: "arrow.counterclockwise")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            Button {
+                                authViewModel.isNewUser = false
+                                authViewModel.showPostAuthFlow = true
+                            } label: {
+                                HStack {
+                                    Text("Replay Welcome Back")
+                                        .foregroundStyle(.primary)
+                                        .padding(.leading, 40)
+                                    Spacer()
+                                    Image(systemName: "hand.wave")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            Button {
+                                showUpsellPreview = true
+                            } label: {
+                                HStack {
+                                    Text("Show Premium Upsell")
+                                        .foregroundStyle(.primary)
+                                        .padding(.leading, 40)
+                                    Spacer()
+                                    Image(systemName: "crown")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            Button {
+                                showAlertPreviews = true
+                            } label: {
+                                HStack {
+                                    Text("Preview Alerts")
+                                        .foregroundStyle(.primary)
+                                        .padding(.leading, 40)
+                                    Spacer()
+                                    Image(systemName: "bell.badge")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            Button {
+                                showExerciseIcons = true
+                            } label: {
+                                HStack {
+                                    Text("Show Exercise Icons")
+                                        .foregroundStyle(.primary)
+                                        .padding(.leading, 40)
+                                    Spacer()
+                                    Image(systemName: "photo.on.rectangle")
+                                        .foregroundStyle(Color.appAccent)
+                                }
                             }
                         }
+                        .padding(.vertical, 4)
+
+                        // MARK: Entitlements
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Entitlements")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.5))
+                                .padding(.leading, 32)
+
+                            HStack {
+                                Text("Premium Status")
+                                    .foregroundStyle(.primary)
+                                    .padding(.leading, 40)
+                                Spacer()
+                                Toggle("", isOn: Binding(
+                                    get: { isPremiumEnabled },
+                                    set: { isPremiumEnabled = $0 }
+                                ))
+                                .labelsHidden()
+                                .tint(Color.appAccent)
+                            }
+
+                            Button {
+                                withAnimation {
+                                    showEntitlementDetails.toggle()
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Entitlements Details")
+                                        .foregroundStyle(.primary)
+                                        .padding(.leading, 40)
+                                    Spacer()
+                                    Image(systemName: showEntitlementDetails ? "eye.fill" : "eye")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            if showEntitlementDetails {
+                                EntitlementDetailsView(entitlement: entitlement)
+                            }
+
+                            Button {
+                                Task {
+                                    isReplayingTransaction = true
+                                    replayTransactionResult = nil
+                                    do {
+                                        let response = try await EntitlementsService.shared.processTransactions(
+                                            originalTransactionIds: ["2000001123058480"]
+                                        )
+                                        await EntitlementsService.shared.updateLocalEntitlement(
+                                            from: response,
+                                            transactionId: "2000001123058480",
+                                            context: modelContext
+                                        )
+                                        replayTransactionResult = "Success"
+                                    } catch {
+                                        replayTransactionResult = "Error: \(error)"
+                                    }
+                                    isReplayingTransaction = false
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Replay Transaction")
+                                        .foregroundStyle(.primary)
+                                        .padding(.leading, 40)
+                                    Spacer()
+                                    if isReplayingTransaction {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "arrow.clockwise.circle")
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+                                }
+                            }
+                            .disabled(isReplayingTransaction)
+
+                            if let result = replayTransactionResult {
+                                Text(result)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(result.hasPrefix("Error") ? .red.opacity(0.8) : .green.opacity(0.8))
+                                    .padding(.leading, 48)
+                            }
+                        }
+                        .padding(.vertical, 4)
+
+                        // MARK: Debug
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Debug")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.5))
+                                .padding(.leading, 32)
+
+                            Button {
+                                withAnimation {
+                                    showExerciseIds.toggle()
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Show Exercise IDs")
+                                        .foregroundStyle(.primary)
+                                        .padding(.leading, 40)
+                                    Spacer()
+                                    Image(systemName: showExerciseIds ? "eye.fill" : "eye")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            if showExerciseIds {
+                                ForEach(exercises.sorted { $0.name < $1.name }, id: \.id) { exercise in
+                                    HStack {
+                                        Text(exercise.name)
+                                            .foregroundStyle(.white.opacity(0.7))
+                                            .padding(.leading, 48)
+                                            .lineLimit(1)
+                                        Spacer()
+                                        Text(exercise.id.uuidString.prefix(8) + "...")
+                                            .foregroundStyle(.white.opacity(0.5))
+                                            .font(.system(.caption, design: .monospaced))
+                                            .textSelection(.enabled)
+                                    }
+                                }
+                            }
+
+                            Button {
+                                withAnimation {
+                                    showMemberSince.toggle()
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Show Member Since")
+                                        .foregroundStyle(.primary)
+                                        .padding(.leading, 40)
+                                    Spacer()
+                                    Image(systemName: showMemberSince ? "calendar.circle.fill" : "calendar.circle")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            if showMemberSince {
+                                HStack {
+                                    Text("Member Since")
+                                        .foregroundStyle(.white.opacity(0.7))
+                                        .padding(.leading, 48)
+                                    Spacer()
+                                    Text(memberSinceDate)
+                                        .foregroundStyle(.white.opacity(0.5))
+                                        .font(.system(.caption, design: .monospaced))
+                                }
+                            }
+
+                            Button {
+                                withAnimation {
+                                    showTokenExpiry.toggle()
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Token Expiry Info")
+                                        .foregroundStyle(.primary)
+                                        .padding(.leading, 40)
+                                    Spacer()
+                                    Image(systemName: showTokenExpiry ? "clock.fill" : "clock")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            if showTokenExpiry {
+                                TokenExpiryView()
+                                    .padding(.leading, 32)
+                            }
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("User Samples")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.5))
+                                    .padding(.leading, 40)
+
+                                ForEach(UserSamples.Cohort.allCases, id: \.self) { cohort in
+                                    Toggle(cohort.displayName, isOn: Binding(
+                                        get: { UserSamples.shared.isInCohort(cohort) },
+                                        set: { UserSamples.shared.setCohort(cohort, enabled: $0) }
+                                    ))
+                                    .font(.subheadline)
+                                    .tint(.appAccent)
+                                    .padding(.leading, 40)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+
+                        // MARK: Danger Zone
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Danger Zone")
+                                .font(.subheadline)
+                                .foregroundStyle(.red.opacity(0.5))
+                                .padding(.leading, 32)
+
+                            Button(role: .destructive) {
+                                showDeleteConfirmation = true
+                            } label: {
+                                HStack {
+                                    Text("Delete All Workout Data")
+                                        .foregroundStyle(.red)
+                                        .padding(.leading, 40)
+                                    Spacer()
+                                    Image(systemName: "trash")
+                                        .foregroundStyle(.red)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
                     }
                 } footer: {
                     if showDeveloper {
-                        Text("Generates realistic training data for the past 28 days. Update user properties sends a test API call. Replay onboarding/welcome back shows the post-auth flows. Premium Status toggles premium features on/off for testing. Show Exercise IDs displays UUIDs for debugging. Delete all workout data removes all LiftSet and Estimated1RM entries.")
+                        Text("Generates realistic training data for the past 28 days. Update user properties sends a test API call. Replay onboarding/welcome back shows the post-auth flows. Premium Status toggles premium features on/off for testing. Show Exercise IDs displays UUIDs for debugging. Delete all workout data removes all LiftSets and Estimated1RMs entries.")
                     }
                 }
             }
@@ -721,7 +890,7 @@ struct MoreView: View {
                     deleteAllWorkoutData()
                 }
             } message: {
-                Text("This will permanently delete all LiftSet and Estimated1RM entries. This action cannot be undone.")
+                Text("This will permanently delete all LiftSets and Estimated1RMs entries. This action cannot be undone.")
             }
             .alert("Data Deleted", isPresented: $showDataDeletedAlert) {
                 Button("OK") { }
@@ -869,7 +1038,7 @@ struct MoreView: View {
     private func populateSimulatedData() async {
         isPopulating28Days = true
 
-        // Clear all existing LiftSet and Estimated1RM data first
+        // Clear all existing LiftSets and Estimated1RMs data first
         for liftSet in liftSets {
             modelContext.delete(liftSet)
         }
@@ -900,7 +1069,7 @@ struct MoreView: View {
 
         // Track max 1RM per exercise for progression
         var exerciseMaxes: [String: Double] = [:]
-        var createdSets: [LiftSet] = []
+        var createdSets: [LiftSets] = []
 
         for daysAgo in (1...28).reversed() {
             guard let workoutDate = calendar.date(byAdding: .day, value: -daysAgo, to: now) else { continue }
@@ -960,7 +1129,7 @@ struct MoreView: View {
                     // Using Brzycki formula: 1RM = weight * (36 / (37 - reps))
                     let calculatedWeight = roundToAttainable(target1RM * (37.0 - Double(reps)) / 36.0)
 
-                    let set = LiftSet(exercise: exercise, reps: reps, weight: calculatedWeight)
+                    let set = LiftSets(exercise: exercise, reps: reps, weight: calculatedWeight)
                     set.createdAt = currentTime
                     set.createdTimezone = TimeZone.current.identifier
                     modelContext.insert(set)
@@ -1028,7 +1197,7 @@ struct MoreView: View {
 
         // Start workout at a reasonable time today
         var currentTime = calendar.date(bySettingHour: 10, minute: 0, second: 0, of: now) ?? now
-        var createdSets: [LiftSet] = []
+        var createdSets: [LiftSets] = []
 
         for exercise in exercises {
             let currentMax = getBase1RM(for: exercise.name)
@@ -1055,7 +1224,7 @@ struct MoreView: View {
                 // Using Brzycki formula: 1RM = weight * (36 / (37 - reps))
                 let calculatedWeight = roundToAttainable(target1RM * (37.0 - Double(reps)) / 36.0)
 
-                let set = LiftSet(exercise: exercise, reps: reps, weight: calculatedWeight)
+                let set = LiftSets(exercise: exercise, reps: reps, weight: calculatedWeight)
                 set.createdAt = currentTime
                 set.createdTimezone = TimeZone.current.identifier
                 modelContext.insert(set)
@@ -1106,12 +1275,12 @@ struct MoreView: View {
     }
 
     private func deleteAllWorkoutData() {
-        // Delete all LiftSet items
+        // Delete all LiftSets items
         for liftSet in liftSets {
             modelContext.delete(liftSet)
         }
 
-        // Delete all Estimated1RM items
+        // Delete all Estimated1RMs items
         for estimated1RM in estimated1RMs {
             modelContext.delete(estimated1RM)
         }
@@ -1513,6 +1682,53 @@ struct AlertPreviewsSheet: View {
             ConfirmationOverlayPreview(onDismiss: { selectedPreview = nil })
         }
     }
+
+}
+
+// MARK: - Entitlement Details Subview
+
+private struct EntitlementDetailsView: View {
+    let entitlement: Entitlements
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            row("isPremium", value: "\(entitlement.isPremium)")
+            row("isActive", value: "\(entitlement.isActive)")
+            row("subscriptionType", value: entitlement.subscriptionType ?? "nil")
+            row("expiresAt", value: entitlement.expiresAt?.formatted(.dateTime) ?? "nil")
+            if let expiresAt = entitlement.expiresAt {
+                TimelineView(.periodic(from: .now, by: 1.0)) { context in
+                    row("expiresIn", value: countdownString(from: context.date, to: expiresAt))
+                }
+            }
+            row("transactionId", value: entitlement.transactionId ?? "nil")
+            row("id", value: entitlement.id.uuidString)
+        }
+        .padding(.leading, 48)
+        .padding(.vertical, 4)
+    }
+
+    private func row(_ label: String, value: String) -> some View {
+        HStack {
+            Text(label)
+                .foregroundStyle(.white.opacity(0.5))
+                .font(.system(.caption, design: .monospaced))
+            Spacer()
+            Text(value)
+                .foregroundStyle(.white.opacity(0.7))
+                .font(.system(.caption, design: .monospaced))
+                .textSelection(.enabled)
+        }
+    }
+
+    private func countdownString(from now: Date, to target: Date) -> String {
+        let remaining = Int(target.timeIntervalSince(now))
+        guard remaining > 0 else { return "expired" }
+        let h = remaining / 3600
+        let m = (remaining % 3600) / 60
+        let s = remaining % 60
+        return String(format: "%02d:%02d:%02d", h, m, s)
+    }
 }
 
 // MARK: - Alert Preview Components
@@ -1547,7 +1763,7 @@ private struct SubmitOverlayPreview: View {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 44, weight: .semibold))
                         .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(Color.setEasy)
+                        .foregroundStyle(.white)
                         .scaleEffect(iconScale)
                         .opacity(iconOpacity)
                 }
@@ -1559,12 +1775,14 @@ private struct SubmitOverlayPreview: View {
                         Text("+\(delta.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
                             .font(.title.weight(.semibold))
                             .foregroundStyle(Color.appLogoColor)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
                     }
                 } else {
                     VStack(spacing: 2) {
                         Text(intensityLabel)
                             .font(.bebasNeue(size: 28))
-                            .foregroundStyle(intensityColor)
+                            .foregroundStyle(.white)
                         Text("Set Logged")
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(0.7))

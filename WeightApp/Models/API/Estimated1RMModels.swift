@@ -18,7 +18,7 @@ struct Estimated1RMDTO: Codable {
     let createdDatetime: Date
     let lastModifiedDatetime: Date?
 
-    init(from estimated1RM: Estimated1RM) {
+    init(from estimated1RM: Estimated1RMs) {
         self.estimated1RMId = estimated1RM.id
         self.liftSetId = estimated1RM.setId
         self.exerciseId = estimated1RM.exercise?.id ?? UUID()
@@ -69,9 +69,9 @@ struct DeleteEstimated1RMsResponse: Codable {
     let notFoundIds: [UUID]
 }
 
-// MARK: - Estimated1RM Extension
+// MARK: - Estimated1RMs Extension
 
-extension Estimated1RM {
+extension Estimated1RMs {
     func toDTO() -> Estimated1RMDTO {
         return Estimated1RMDTO(from: self)
     }

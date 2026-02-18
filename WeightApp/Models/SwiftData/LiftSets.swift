@@ -1,5 +1,5 @@
 //
-//  LiftSet.swift
+//  LiftSets.swift
 //  WeightApp
 //
 //  Created by Zach Mitchell on 1/13/26.
@@ -9,7 +9,7 @@ import Foundation
 import SwiftData
 
 @Model
-final class LiftSet {
+final class LiftSets {
     @Attribute(.unique) var id: UUID
     var createdAt: Date
     var createdTimezone: String

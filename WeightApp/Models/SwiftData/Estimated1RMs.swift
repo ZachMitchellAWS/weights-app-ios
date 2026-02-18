@@ -1,5 +1,5 @@
 //
-//  Estimated1RM.swift
+//  Estimated1RMs.swift
 //  WeightApp
 //
 //  Created by Zach Mitchell on 1/13/26.
@@ -9,7 +9,7 @@ import Foundation
 import SwiftData
 
 @Model
-final class Estimated1RM {
+final class Estimated1RMs {
     @Attribute(.unique) var id: UUID
     var createdAt: Date
     var createdTimezone: String

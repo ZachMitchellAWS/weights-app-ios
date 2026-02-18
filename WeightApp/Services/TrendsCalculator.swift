@@ -16,7 +16,7 @@ struct TrendsCalculator {
         let volume: Double
     }
 
-    static func weeklyVolume(from sets: [LiftSet], weeks: Int = 8) -> [WeeklyVolume] {
+    static func weeklyVolume(from sets: [LiftSets], weeks: Int = 8) -> [WeeklyVolume] {
         let calendar = Calendar.current
         guard let cutoffDate = calendar.date(byAdding: .weekOfYear, value: -weeks, to: Date()) else {
             return []
@@ -37,7 +37,7 @@ struct TrendsCalculator {
         return result.sorted { $0.weekStart < $1.weekStart }
     }
 
-    static func exerciseWeeklyVolume(from sets: [LiftSet], exerciseName: String, weeks: Int = 8) -> [WeeklyVolume] {
+    static func exerciseWeeklyVolume(from sets: [LiftSets], exerciseName: String, weeks: Int = 8) -> [WeeklyVolume] {
         let exerciseSets = sets.filter { $0.exercise?.name == exerciseName }
         return weeklyVolume(from: exerciseSets, weeks: weeks)
     }
@@ -100,7 +100,7 @@ struct TrendsCalculator {
         }
     }
 
-    static func intensityDistribution(from sets: [LiftSet], days: Int = 30) -> IntensityDistribution {
+    static func intensityDistribution(from sets: [LiftSets], days: Int = 30) -> IntensityDistribution {
         let calendar = Calendar.current
         guard let cutoffDate = calendar.date(byAdding: .day, value: -days, to: Date()) else {
             return IntensityDistribution()
@@ -154,7 +154,7 @@ struct TrendsCalculator {
         }
     }
 
-    static func prTimeline(from sets: [LiftSet]) -> [PREvent] {
+    static func prTimeline(from sets: [LiftSets]) -> [PREvent] {
         var events: [PREvent] = []
         let byExercise = Dictionary(grouping: sets) { $0.exercise?.id }
 
@@ -190,7 +190,7 @@ struct TrendsCalculator {
         let lastPRDate: Date?
     }
 
-    static func bestLifts(from sets: [LiftSet], limit: Int = 5) -> [BestLift] {
+    static func bestLifts(from sets: [LiftSets], limit: Int = 5) -> [BestLift] {
         let byExercise = Dictionary(grouping: sets) { $0.exercise?.name ?? "Unknown" }
 
         return byExercise.compactMap { exerciseName, exerciseSets -> BestLift? in
@@ -222,7 +222,7 @@ struct TrendsCalculator {
         let setCount: Int
     }
 
-    static func trainingFrequency(from sets: [LiftSet], weeks: Int = 12) -> [DayActivity] {
+    static func trainingFrequency(from sets: [LiftSets], weeks: Int = 12) -> [DayActivity] {
         let calendar = Calendar.current
         guard let cutoffDate = calendar.date(byAdding: .weekOfYear, value: -weeks, to: Date()) else {
             return []
@@ -261,7 +261,7 @@ struct TrendsCalculator {
         }
     }
 
-    static func monthlySummary(from sets: [LiftSet]) -> MonthlySummary {
+    static func monthlySummary(from sets: [LiftSets]) -> MonthlySummary {
         let calendar = Calendar.current
         let now = Date()
         let currentMonthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now))!
@@ -301,7 +301,7 @@ struct TrendsCalculator {
         let isPR: Bool
     }
 
-    static func oneRMProgression(from estimated1RMs: [Estimated1RM], exerciseName: String) -> [OneRMDataPoint] {
+    static func oneRMProgression(from estimated1RMs: [Estimated1RMs], exerciseName: String) -> [OneRMDataPoint] {
         let exerciseRecords = estimated1RMs.filter { $0.exercise?.name == exerciseName }
             .sorted { $0.createdAt < $1.createdAt }
 
@@ -317,12 +317,12 @@ struct TrendsCalculator {
         return dataPoints
     }
 
-    static func exerciseNames(from estimated1RMs: [Estimated1RM]) -> [String] {
+    static func exerciseNames(from estimated1RMs: [Estimated1RMs]) -> [String] {
         let names = Set(estimated1RMs.compactMap { $0.exercise?.name })
         return names.sorted()
     }
 
-    static func exerciseNames(from sets: [LiftSet]) -> [String] {
+    static func exerciseNames(from sets: [LiftSets]) -> [String] {
         let names = Set(sets.compactMap { $0.exercise?.name })
         return names.sorted()
     }
@@ -335,7 +335,7 @@ struct TrendsCalculator {
         let daysSinceLastSet: Int? // nil = no sets in last 30 days
     }
 
-    static func exerciseRecency(from sets: [LiftSet], days: Int = 30) -> [ExerciseRecency] {
+    static func exerciseRecency(from sets: [LiftSets], days: Int = 30) -> [ExerciseRecency] {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         let activeSets = sets.filter { !$0.deleted && $0.exercise != nil }

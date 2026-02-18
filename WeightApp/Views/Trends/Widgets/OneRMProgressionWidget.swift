@@ -9,7 +9,7 @@ import SwiftUI
 import Charts
 
 struct OneRMProgressionWidget: View {
-    let allEstimated1RMs: [Estimated1RM]
+    let allEstimated1RMs: [Estimated1RMs]
 
     @State private var selectedExercise: String?
 

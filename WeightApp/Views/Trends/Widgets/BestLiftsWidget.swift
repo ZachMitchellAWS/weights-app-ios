@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct BestLiftsWidget: View {
-    let allSets: [LiftSet]
+    let allSets: [LiftSets]
 
     private var bestLifts: [TrendsCalculator.BestLift] {
         TrendsCalculator.bestLifts(from: allSets, limit: 5)

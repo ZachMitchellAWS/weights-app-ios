@@ -13,8 +13,10 @@ struct WeightAppApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var authViewModel = AuthViewModel()
     @State private var showSplash = true
+    @State private var showWelcome = true
     @State private var initialExerciseId: UUID? = nil
     @State private var showUpsell = false
+    @State private var transactionListenerTask: Task<Void, Error>?
 
     let modelContainer: ModelContainer
 
@@ -24,7 +26,7 @@ struct WeightAppApp: App {
 
         // Create the model container
         do {
-            modelContainer = try ModelContainer(for: Exercises.self, LiftSet.self, UserProperties.self, Estimated1RM.self, PremiumEntitlement.self, WorkoutSequence.self)
+            modelContainer = try ModelContainer(for: Exercises.self, LiftSets.self, UserProperties.self, Estimated1RMs.self, Entitlements.self, WorkoutSequence.self)
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
          }
@@ -36,27 +38,14 @@ struct WeightAppApp: App {
                 Group {
                     if authViewModel.isAuthenticated {
                         if authViewModel.showPostAuthFlow {
-                            // Show onboarding for new users, welcome back for returning users
                             if authViewModel.isNewUser {
-                                if showUpsell {
-                                    // Show upsell after onboarding
-                                    UpsellView { didSubscribe in
-                                        withAnimation(.easeInOut(duration: 0.4)) {
-                                            showUpsell = false
-                                            authViewModel.completePostAuthFlow()
-                                        }
+                                // Upsell for new users
+                                UpsellView { didSubscribe in
+                                    withAnimation(.easeInOut(duration: 0.4)) {
+                                        authViewModel.completePostAuthFlow()
                                     }
-                                    .transition(.opacity)
-                                } else {
-                                    // Show onboarding first
-                                    OnboardingView { selectedExerciseId in
-                                        initialExerciseId = selectedExerciseId
-                                        withAnimation(.easeInOut(duration: 0.4)) {
-                                            showUpsell = true
-                                        }
-                                    }
-                                    .transition(.opacity)
                                 }
+                                .transition(.opacity)
                             } else {
                                 WelcomeBackView {
                                     withAnimation(.easeInOut(duration: 0.4)) {
@@ -74,13 +63,23 @@ struct WeightAppApp: App {
                                 }
                         }
                     } else {
-                        AuthView(authViewModel: authViewModel)
+                        if showWelcome {
+                            WelcomeView(splashVisible: showSplash) {
+                                withAnimation(.easeInOut(duration: 0.4)) {
+                                    showWelcome = false
+                                }
+                            }
                             .transition(.opacity)
+                        } else {
+                            AuthView(authViewModel: authViewModel)
+                                .transition(.opacity)
+                        }
                     }
                 }
                 .animation(.easeInOut(duration: 0.4), value: authViewModel.isAuthenticated)
                 .animation(.easeInOut(duration: 0.4), value: authViewModel.showPostAuthFlow)
                 .animation(.easeInOut(duration: 0.4), value: showUpsell)
+                .animation(.easeInOut(duration: 0.4), value: showWelcome)
                 .preferredColorScheme(.dark)
                 .opacity(showSplash ? 0 : 1)
                 .ignoresSafeArea(.keyboard)
@@ -95,13 +94,17 @@ struct WeightAppApp: App {
                 // Initialize user samples on first launch
                 UserSamples.shared.initializeIfNeeded()
 
-                // Wire up ModelContext for SyncService and AuthViewModel
+                // Wire up ModelContext for SyncService, AuthViewModel, and EntitlementsService
                 let context = modelContainer.mainContext
                 SyncService.shared.setModelContext(context)
                 authViewModel.setModelContext(context)
+                EntitlementsService.shared.setModelContext(context)
 
                 // Migrate workout sequences from UserDefaults to SwiftData
                 WorkoutSequenceStore.migrateToSwiftData(context: context)
+
+                // Start listening for StoreKit transaction updates (renewals, etc.)
+                transactionListenerTask = PurchaseService.shared.listenForTransactions()
 
                 // Process any pending sync operations on app launch
                 if authViewModel.isAuthenticated {
@@ -111,6 +114,9 @@ struct WeightAppApp: App {
                         await SyncService.shared.processSequenceRetryQueue()
                         await SyncService.shared.processLiftSetRetryQueue()
                         await SyncService.shared.processEstimated1RMRetryQueue()
+
+                        // Sync entitlement status from backend
+                        await EntitlementsService.shared.syncEntitlementStatus()
                     }
                 }
 
@@ -126,6 +132,11 @@ struct WeightAppApp: App {
                 }
             } message: {
                 Text("Your session has expired. Please sign in again to continue.")
+            }
+            .onChange(of: authViewModel.isAuthenticated) { _, isAuthenticated in
+                if !isAuthenticated {
+                    showWelcome = true
+                }
             }
         }
         .modelContainer(modelContainer)

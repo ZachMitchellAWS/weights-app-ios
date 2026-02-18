@@ -18,7 +18,7 @@ struct LiftSetDTO: Codable {
     let createdDatetime: Date
     let lastModifiedDatetime: Date?
 
-    init(from liftSet: LiftSet) {
+    init(from liftSet: LiftSets) {
         self.liftSetId = liftSet.id
         self.exerciseId = liftSet.exercise?.id ?? UUID()
         self.reps = liftSet.reps
@@ -69,9 +69,9 @@ struct DeleteLiftSetsResponse: Codable {
     let notFoundIds: [UUID]
 }
 
-// MARK: - LiftSet Extension
+// MARK: - LiftSets Extension
 
-extension LiftSet {
+extension LiftSets {
     func toDTO() -> LiftSetDTO {
         return LiftSetDTO(from: self)
     }

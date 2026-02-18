@@ -228,7 +228,7 @@ class SyncService: ObservableObject {
     }
 
     /// Syncs a single lift set to the backend (for new creations)
-    func syncLiftSet(_ liftSet: LiftSet) async {
+    func syncLiftSet(_ liftSet: LiftSets) async {
         let dto = liftSet.toDTO()
 
         do {
@@ -241,7 +241,7 @@ class SyncService: ObservableObject {
     }
 
     /// Syncs multiple lift sets to the backend (batch create)
-    func syncLiftSets(_ liftSets: [LiftSet]) async {
+    func syncLiftSets(_ liftSets: [LiftSets]) async {
         guard !liftSets.isEmpty else { return }
 
         let dtos = liftSets.map { $0.toDTO() }
@@ -335,7 +335,7 @@ class SyncService: ObservableObject {
             } else {
                 // Create new lift set - need to find the exercise
                 if let exercise = fetchExercise(by: dto.exerciseId, context: context) {
-                    let liftSet = LiftSet(exercise: exercise, reps: dto.reps, weight: dto.weight)
+                    let liftSet = LiftSets(exercise: exercise, reps: dto.reps, weight: dto.weight)
                     // Override the auto-generated values with backend values
                     liftSet.id = dto.liftSetId
                     liftSet.createdTimezone = dto.createdTimezone
@@ -350,13 +350,13 @@ class SyncService: ObservableObject {
         try? context.save()
     }
 
-    private func fetchLiftSet(by id: UUID, context: ModelContext) -> LiftSet? {
-        let descriptor = FetchDescriptor<LiftSet>(predicate: #Predicate { $0.id == id })
+    private func fetchLiftSet(by id: UUID, context: ModelContext) -> LiftSets? {
+        let descriptor = FetchDescriptor<LiftSets>(predicate: #Predicate { $0.id == id })
         return try? context.fetch(descriptor).first
     }
 
-    private func fetchAllLiftSets(context: ModelContext) -> [LiftSet] {
-        let descriptor = FetchDescriptor<LiftSet>()
+    private func fetchAllLiftSets(context: ModelContext) -> [LiftSets] {
+        let descriptor = FetchDescriptor<LiftSets>()
         return (try? context.fetch(descriptor)) ?? []
     }
 
@@ -394,7 +394,7 @@ class SyncService: ObservableObject {
     }
 
     /// Syncs a single estimated 1RM to the backend (for new creations)
-    func syncEstimated1RM(_ estimated1RM: Estimated1RM) async {
+    func syncEstimated1RM(_ estimated1RM: Estimated1RMs) async {
         let dto = estimated1RM.toDTO()
 
         do {
@@ -407,7 +407,7 @@ class SyncService: ObservableObject {
     }
 
     /// Syncs multiple estimated 1RMs to the backend (batch create)
-    func syncEstimated1RMs(_ estimated1RMs: [Estimated1RM]) async {
+    func syncEstimated1RMs(_ estimated1RMs: [Estimated1RMs]) async {
         guard !estimated1RMs.isEmpty else { return }
 
         let dtos = estimated1RMs.map { $0.toDTO() }
@@ -497,7 +497,7 @@ class SyncService: ObservableObject {
             } else {
                 // Create new estimated 1RM - need to find the exercise
                 if let exercise = fetchExercise(by: dto.exerciseId, context: context) {
-                    let estimated1RM = Estimated1RM(exercise: exercise, value: dto.value, setId: dto.liftSetId)
+                    let estimated1RM = Estimated1RMs(exercise: exercise, value: dto.value, setId: dto.liftSetId)
                     // Override the auto-generated values with backend values
                     estimated1RM.id = dto.estimated1RMId
                     estimated1RM.createdTimezone = dto.createdTimezone
@@ -512,13 +512,13 @@ class SyncService: ObservableObject {
         try? context.save()
     }
 
-    private func fetchEstimated1RM(by id: UUID, context: ModelContext) -> Estimated1RM? {
-        let descriptor = FetchDescriptor<Estimated1RM>(predicate: #Predicate { $0.id == id })
+    private func fetchEstimated1RM(by id: UUID, context: ModelContext) -> Estimated1RMs? {
+        let descriptor = FetchDescriptor<Estimated1RMs>(predicate: #Predicate { $0.id == id })
         return try? context.fetch(descriptor).first
     }
 
-    private func fetchAllEstimated1RMs(context: ModelContext) -> [Estimated1RM] {
-        let descriptor = FetchDescriptor<Estimated1RM>()
+    private func fetchAllEstimated1RMs(context: ModelContext) -> [Estimated1RMs] {
+        let descriptor = FetchDescriptor<Estimated1RMs>()
         return (try? context.fetch(descriptor)) ?? []
     }
 

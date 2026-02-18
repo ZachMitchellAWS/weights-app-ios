@@ -26,18 +26,18 @@ enum SubscriptionConfig {
     static let privacyPolicyURL = URL(string: "https://example.com/privacy")!
 
     // MARK: - Marketing Copy
-    static let upsellTitle = "Unlock Premium"
-    static let upsellSubtitle = "Take your training to the next level"
+    static let upsellTitle = "Go Premium"
+    static let upsellSubtitle = "Unlock the full power of your training"
     static let cancelAnytimeText = "Cancel anytime"
     static let bestValueBadge = "BEST VALUE"
     static let freeTrialBadge = "7-day free trial"
 
     // MARK: - Premium Features (for carousel display)
     static let premiumFeatures: [(icon: String, title: String, description: String)] = [
-        ("chart.line.uptrend.xyaxis", "Advanced Analytics", "Track 1RM progression and volume over time"),
-        ("clock.arrow.circlepath", "Unlimited History", "Access your complete workout history"),
-        ("square.and.arrow.up", "Export Data", "Export workouts to CSV or PDF"),
-        ("bolt.fill", "Priority Sync", "Faster cloud synchronization"),
-        ("paintpalette.fill", "Custom Themes", "Personalize your app appearance")
+        ("chart.line.uptrend.xyaxis", "Advanced Analytics", "Track 1RM trends, volume, and frequency over time"),
+        ("clock.arrow.circlepath", "Unlimited History", "Access your complete workout history anytime"),
+        ("lightbulb.fill", "Smart Suggestions", "Get weight and rep targets to beat your personal records"),
+        ("icloud.fill", "Cloud Backup", "Keep your data safe and synced across devices"),
+        ("books.vertical.fill", "Exercise Library", "Full access to all exercises and custom additions")
     ]
 }

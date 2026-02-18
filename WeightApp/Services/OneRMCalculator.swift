@@ -17,7 +17,7 @@ enum OneRMCalculator {
         return weight * (1.0 + Double(reps) / 30.0)
     }
 
-    static func current1RM(from sets: [LiftSet]) -> Double {
+    static func current1RM(from sets: [LiftSets]) -> Double {
         let eligible = sets.filter { $0.reps >= 1 && $0.weight >= 0 }
         let best = eligible.map { estimate1RM(weight: $0.weight, reps: $0.reps) }.max() ?? 0
         return best

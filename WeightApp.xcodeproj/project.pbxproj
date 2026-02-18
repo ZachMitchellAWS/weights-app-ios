@@ -16,9 +16,9 @@
 		B8B658232F35727500E8A634 /* Exceptions for "WeightApp" folder in "WeightApp" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				Info.plist,
-				Config/Staging.xcconfig,
 				Config/Production.xcconfig,
+				Config/Staging.xcconfig,
+				Info.plist,
 			);
 			target = B8C20F142F17307F002DDE4D /* WeightApp */;
 		};
@@ -46,11 +46,21 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		B886F7AF2F43C3C700BDEE09 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				C0A10001300000000000AA01 /* Staging.xcconfig */,
+				C0A10002300000000000AA02 /* Production.xcconfig */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 		B8C20F0C2F17307F002DDE4D = {
 			isa = PBXGroup;
 			children = (
 				B8C20F172F17307F002DDE4D /* WeightApp */,
 				B8C20F162F17307F002DDE4D /* Products */,
+				B886F7AF2F43C3C700BDEE09 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};

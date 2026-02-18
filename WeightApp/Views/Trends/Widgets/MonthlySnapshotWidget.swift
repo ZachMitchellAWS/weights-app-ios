@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct MonthlySnapshotWidget: View {
-    let allSets: [LiftSet]
+    let allSets: [LiftSets]
 
     private var summary: TrendsCalculator.MonthlySummary {
         TrendsCalculator.monthlySummary(from: allSets)

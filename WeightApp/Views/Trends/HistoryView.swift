@@ -10,18 +10,18 @@ import SwiftData
 
 struct HistoryView: View {
     @Environment(\.modelContext) private var modelContext
-    let allSets: [LiftSet]
-    let allEstimated1RMs: [Estimated1RM]
+    let allSets: [LiftSets]
+    let allEstimated1RMs: [Estimated1RMs]
     @ObservedObject var selectedSetData: SelectedSetData
     @Binding var selectedTab: Int
     @Binding var isDeleteModeActive: Bool
-    @Binding var setToDelete: LiftSet?
+    @Binding var setToDelete: LiftSets?
     @Binding var showDeleteConfirmation: Bool
 
     struct ExerciseGroup: Identifiable {
         let id = UUID()
         let exerciseName: String
-        let sets: [LiftSet]
+        let sets: [LiftSets]
     }
 
     private var groupedSets: [(date: Date, exerciseGroups: [ExerciseGroup])] {
@@ -34,7 +34,7 @@ struct HistoryView: View {
             let sortedSets = sets.sorted { $0.createdAt < $1.createdAt }
             var exerciseGroups: [ExerciseGroup] = []
             var currentExerciseName: String? = nil
-            var currentSets: [LiftSet] = []
+            var currentSets: [LiftSets] = []
 
             for set in sortedSets {
                 let exerciseName = set.exercise?.name ?? "Unknown"
@@ -146,9 +146,9 @@ struct HistoryView: View {
 struct ExerciseGroupRow: View {
     let exerciseGroup: HistoryView.ExerciseGroup
     let isDeleteModeActive: Bool
-    let onDelete: (LiftSet) -> Void
-    let onSelect: (LiftSet) -> Void
-    let allSets: [LiftSet]
+    let onDelete: (LiftSets) -> Void
+    let onSelect: (LiftSets) -> Void
+    let allSets: [LiftSets]
 
     private func colorForPercentage(_ percentage: Double, isPR: Bool) -> Color {
         if isPR {
@@ -164,7 +164,7 @@ struct ExerciseGroupRow: View {
         }
     }
 
-    private func calculatePercentageAndPR(for set: LiftSet) -> (percentage: Double, isPR: Bool) {
+    private func calculatePercentageAndPR(for set: LiftSets) -> (percentage: Double, isPR: Bool) {
         let previousSets = allSets
             .filter { $0.exercise?.id == set.exercise?.id && $0.createdAt < set.createdAt }
             .sorted { $0.createdAt < $1.createdAt }

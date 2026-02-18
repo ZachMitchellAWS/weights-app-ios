@@ -9,9 +9,9 @@ struct CheckInView: View {
     @State private var today = Calendar.current.startOfDay(for: Date())
 
     @Query(filter: #Predicate<Exercises> { !$0.deleted }, sort: \Exercises.createdAt) private var exercises: [Exercises]
-    @Query(filter: #Predicate<LiftSet> { !$0.deleted }, sort: \LiftSet.createdAt, order: .reverse) private var allSets: [LiftSet]
+    @Query(filter: #Predicate<LiftSets> { !$0.deleted }, sort: \LiftSets.createdAt, order: .reverse) private var allSets: [LiftSets]
     @Query private var userPropertiesItems: [UserProperties]
-    @Query(filter: #Predicate<Estimated1RM> { !$0.deleted }, sort: \Estimated1RM.createdAt, order: .reverse) private var allEstimated1RMs: [Estimated1RM]
+    @Query(filter: #Predicate<Estimated1RMs> { !$0.deleted }, sort: \Estimated1RMs.createdAt, order: .reverse) private var allEstimated1RMs: [Estimated1RMs]
     @Query(filter: #Predicate<WorkoutSequence> { !$0.deleted }) private var allSequences: [WorkoutSequence]
 
     @ObservedObject var selectedSetData: SelectedSetData
@@ -97,19 +97,28 @@ struct CheckInView: View {
         return exercises.first(where: { $0.id == id })
     }
 
-    private var setsForSelected: [LiftSet] {
+    private var setsForSelected: [LiftSets] {
         guard let ex = selectedExercises else { return [] }
         return allSets.filter { $0.exercise?.id == ex.id }
     }
 
-    private var estimated1RMsForSelected: [Estimated1RM] {
+    private func todaySetCount(for exercise: Exercises) -> Int {
+        let calendar = Calendar.current
+        let today = self.today
+        return allSets.filter { set in
+            set.exercise?.id == exercise.id &&
+            calendar.isDate(set.createdAt, inSameDayAs: today)
+        }.count
+    }
+
+    private var estimated1RMsForSelected: [Estimated1RMs] {
         guard let ex = selectedExercises else { return [] }
         return allEstimated1RMs.filter { $0.exercise?.id == ex.id }
     }
 
 
     private struct SetWithPR {
-        let set: LiftSet
+        let set: LiftSets
         let estimated1RM: Double
         let wasPR: Bool
         let percentageOfCurrent: Double
@@ -152,7 +161,7 @@ struct CheckInView: View {
     }
 
     private var current1RM: Double {
-        // Use the latest Estimated1RM if available, otherwise calculate from sets
+        // Use the latest Estimated1RMs if available, otherwise calculate from sets
         if let latest = estimated1RMsForSelected.first {
             return latest.value
         }
@@ -1175,9 +1184,18 @@ struct CheckInView: View {
                                     selectedExercisesId = exercise.id
                                 } label: {
                                     ExerciseIconView(exercise: exercise, size: isSelected ? 44 : 34)
-                                        .frame(height: 44, alignment: .center)
                                         .opacity(isSelected ? 1.0 : 0.4)
                                         .foregroundStyle(isSelected ? Color.appAccent : .white)
+                                        .overlay(alignment: .bottomTrailing) {
+                                            let count = todaySetCount(for: exercise)
+                                            if count > 0 {
+                                                Image(systemName: "checkmark.circle.fill")
+                                                    .font(.system(size: isSelected ? 14 : 11))
+                                                    .foregroundStyle(.green)
+                                                    .opacity(min(Double(count) * 0.25, 1.0))
+                                            }
+                                        }
+                                        .frame(height: 44, alignment: .center)
                                         .animation(.easeInOut(duration: 0.15), value: selectedExercisesId)
                                 }
                                 .buttonStyle(.plain)
@@ -1504,7 +1522,7 @@ struct CheckInView: View {
         .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
     }
 
-    private var todaysSets: [LiftSet] {
+    private var todaysSets: [LiftSets] {
         guard let ex = selectedExercises else { return [] }
         let calendar = Calendar.current
         let today = self.today
@@ -1526,7 +1544,7 @@ struct CheckInView: View {
         return Set(previousDays).sorted(by: >).first
     }
 
-    private var lastDaySets: [LiftSet] {
+    private var lastDaySets: [LiftSets] {
         guard let ex = selectedExercises else { return [] }
         guard let lastDay = lastDayDate else { return [] }
         let calendar = Calendar.current
@@ -2355,6 +2373,8 @@ struct CheckInView: View {
                             Text("+\(delta.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
                                 .font(.title.weight(.semibold))
                                 .foregroundStyle(Color.appLogoColor)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
                         }
                     } else {
                         VStack(spacing: 2) {
@@ -2704,7 +2724,7 @@ struct CheckInView: View {
 
         let before = current1RM
 
-        let set = LiftSet(exercise: ex, reps: reps, weight: weight)
+        let set = LiftSets(exercise: ex, reps: reps, weight: weight)
         modelContext.insert(set)
 
         let simulatedSets = setsForSelected + [set]
@@ -2713,8 +2733,8 @@ struct CheckInView: View {
         let d = after - before
         let increased = d > 0.0001
 
-        // Create a new Estimated1RM record for every set, tracking which set created it
-        let estimated = Estimated1RM(exercise: ex, value: after, setId: set.id)
+        // Create a new Estimated1RMs record for every set, tracking which set created it
+        let estimated = Estimated1RMs(exercise: ex, value: after, setId: set.id)
         modelContext.insert(estimated)
 
         // Sync lift set and estimated 1RM to backend
@@ -3561,13 +3581,13 @@ struct ExercisesCardButton: View {
 
 struct SetSquareView: View {
     @Environment(\.modelContext) private var modelContext
-    let set: LiftSet
-    let allSets: [LiftSet]
+    let set: LiftSets
+    let allSets: [LiftSets]
     let currentWeight: Double
     let currentReps: Int
     let hasSetValues: Bool
     let selectedSquareId: UUID?
-    let allEstimated1RMs: [Estimated1RM]
+    let allEstimated1RMs: [Estimated1RMs]
 
     private var isMatching: Bool {
         guard hasSetValues else { return false }
@@ -3668,7 +3688,7 @@ struct SetSquareView: View {
         // Soft delete the set
         set.deleted = true
 
-        // Find and soft delete associated Estimated1RM if it exists
+        // Find and soft delete associated Estimated1RMs if it exists
         var estimated1RMId: UUID? = nil
         if let associated1RM = allEstimated1RMs.first(where: { $0.setId == setId }) {
             associated1RM.deleted = true
