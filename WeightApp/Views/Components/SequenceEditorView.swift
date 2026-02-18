@@ -15,58 +15,80 @@ struct SequenceEditorView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
+            VStack(spacing: 0) {
+                ZStack {
+                    LinearGradient(
+                        colors: [Color(white: 0.14), Color(white: 0.10)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .ignoresSafeArea()
 
-                if sequences.isEmpty {
-                    VStack(spacing: 16) {
-                        Image(systemName: "list.number")
-                            .font(.system(size: 40))
-                            .foregroundStyle(.white.opacity(0.3))
-                        Text("No sequences yet")
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.5))
-                        Button("Create Sequence") {
-                            showNewSequenceAlert = true
-                        }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.appAccent)
-                    }
-                } else {
-                    List {
-                        ForEach(sequences) { seq in
-                            NavigationLink(value: seq.id) {
-                                HStack {
-                                    Button {
-                                        activeId = seq.id
-                                        WorkoutSequenceStore.setActiveSequenceId(seq.id)
-                                    } label: {
-                                        Image(systemName: activeId == seq.id ? "checkmark.circle.fill" : "circle")
-                                            .font(.system(size: 20))
-                                            .foregroundStyle(activeId == seq.id ? Color.appAccent : .white.opacity(0.3))
-                                    }
-                                    .buttonStyle(.plain)
-
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(seq.name)
-                                            .font(.subheadline.weight(.medium))
-                                            .foregroundStyle(.white)
-                                        Text("\(seq.exerciseIds.count) exercises")
-                                            .font(.caption)
-                                            .foregroundStyle(.white.opacity(0.5))
-                                    }
-
-                                    Spacer()
-                                }
+                    if sequences.isEmpty {
+                        VStack(spacing: 16) {
+                            Image(systemName: "list.number")
+                                .font(.system(size: 40))
+                                .foregroundStyle(.white.opacity(0.3))
+                            Text("No sequences yet")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.5))
+                            Button("Create Sequence") {
+                                showNewSequenceAlert = true
                             }
-                            .listRowBackground(Color(white: 0.12))
-                            .listRowSeparatorTint(.white.opacity(0.08))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.appAccent)
                         }
-                        .onDelete(perform: deleteSequences)
+                    } else {
+                        List {
+                            ForEach(sequences) { seq in
+                                NavigationLink(value: seq.id) {
+                                    HStack {
+                                        Button {
+                                            activeId = seq.id
+                                            WorkoutSequenceStore.setActiveSequenceId(seq.id)
+                                        } label: {
+                                            Image(systemName: activeId == seq.id ? "checkmark.circle.fill" : "circle")
+                                                .font(.system(size: 20))
+                                                .foregroundStyle(activeId == seq.id ? Color.appAccent : .white.opacity(0.3))
+                                        }
+                                        .buttonStyle(.plain)
+
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(seq.name)
+                                                .font(.subheadline.weight(.medium))
+                                                .foregroundStyle(.white)
+                                            Text("\(seq.exerciseIds.count) exercises")
+                                                .font(.caption)
+                                                .foregroundStyle(.white.opacity(0.5))
+                                        }
+
+                                        Spacer()
+                                    }
+                                }
+                                .listRowBackground(Color(white: 0.12))
+                                .listRowSeparatorTint(.white.opacity(0.08))
+                            }
+                            .onDelete(perform: deleteSequences)
+                        }
+                        .listStyle(.plain)
+                        .scrollContentBackground(.hidden)
                     }
-                    .listStyle(.plain)
-                    .scrollContentBackground(.hidden)
                 }
+
+                // Bottom Done button
+                Button { dismiss() } label: {
+                    Text("Done")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.appAccent)
+                        .cornerRadius(10)
+                }
+                .padding(.horizontal, 40)
+                .padding(.top, 24)
+                .padding(.bottom, 16)
+                .background(Color(white: 0.10))
             }
             .navigationTitle("Sequences")
             .navigationBarTitleDisplayMode(.inline)
@@ -79,13 +101,6 @@ struct SequenceEditorView: View {
                 }
             }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                    .foregroundStyle(Color.appAccent)
-                }
-
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         newSequenceName = ""
@@ -161,7 +176,12 @@ struct SequenceDetailView: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            LinearGradient(
+                colors: [Color(white: 0.14), Color(white: 0.10)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
 
             if orderedExercises.isEmpty {
                 VStack(spacing: 16) {

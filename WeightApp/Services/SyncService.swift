@@ -812,7 +812,8 @@ class SyncService: ObservableObject {
             ("Overhead Press", .barbell, .push),
             ("Barbell Row", .barbell, .pull),
             ("Pull Ups", .singleLoad, .pull),
-            ("Dips", .singleLoad, .push)
+            ("Dips", .singleLoad, .push),
+            ("Barbell Curls", .barbell, .pull)
         ]
     }
 

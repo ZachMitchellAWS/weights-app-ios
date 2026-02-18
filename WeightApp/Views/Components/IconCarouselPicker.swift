@@ -163,6 +163,8 @@ struct IconCarouselPicker: View {
             return "SquatIcon"
         } else if lowered.contains("dip") {
             return "DipsIcon"
+        } else if lowered.contains("curl") {
+            return "CurlsIcon"
         }
 
         return "LiftTheBullIcon"

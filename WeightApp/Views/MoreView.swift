@@ -40,10 +40,15 @@ struct MoreView: View {
     @State private var showExerciseIcons = false
     @State private var showAlertPreviews = false
     @State private var showEntitlementDetails = false
+    @State private var showPlateCalculator = false
+    @State private var plateCalcInput: String = ""
     @State private var isReplayingTransaction = false
     @State private var replayTransactionResult: String?
     @State private var isRestoringPurchases = false
     @State private var isSyncingPurchases = false
+    @State private var showSyncResult = false
+    @State private var syncResultIsPremium = false
+    @State private var syncFailed = false
     @State private var copiedToast: String?
 
     @State private var tempBodyweight: Double = 150
@@ -133,23 +138,52 @@ struct MoreView: View {
             Form {
                 // Branding Header
                 Section {
-                    HStack(spacing: 16) {
-                        Image("LiftTheBullIcon")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 60, height: 60)
-                            .foregroundStyle(Color.appLogoColor)
+                    VStack(spacing: 0) {
+                        HStack(spacing: 16) {
+                            Image("LiftTheBullIcon")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 60, height: 60)
+                                .foregroundStyle(Color.appLogoColor)
 
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Lift the Bull")
-                                .font(.bebasNeue(size: 28))
-                                .foregroundStyle(.white)
-                            Text("Let's keep making progress")
-                                .font(.inter(size: 14))
-                                .foregroundStyle(.white.opacity(0.7))
+                            VStack(alignment: .leading, spacing: 4) {
+                                if entitlement.isActive {
+                                    Text("Premium")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .textCase(.uppercase)
+                                        .tracking(2)
+                                        .foregroundStyle(Color.appAccent)
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 4)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 6)
+                                                .strokeBorder(Color.appAccent, lineWidth: 1)
+                                        )
+                                }
+
+                                Text("Lift the Bull")
+                                    .font(.bebasNeue(size: 28))
+                                    .foregroundStyle(.white)
+
+                                if !entitlement.isActive {
+                                    Button {
+                                        showUpsellPreview = true
+                                    } label: {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: "star.fill")
+                                            Text("Upgrade to Premium")
+                                            Image(systemName: "chevron.right")
+                                                .font(.caption2)
+                                        }
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(Color.appAccent)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+
+                            Spacer()
                         }
-
-                        Spacer()
                     }
                     .padding(.vertical, 12)
                     .padding(.horizontal, 16)
@@ -159,7 +193,12 @@ struct MoreView: View {
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(Color.appLogoColor.opacity(0.5), lineWidth: 1.5)
+                            .strokeBorder(
+                                entitlement.isActive
+                                    ? Color.appLogoColor.opacity(0.5)
+                                    : Color.appAccent.opacity(0.3),
+                                lineWidth: 1.5
+                            )
                     )
                     .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                     .listRowBackground(Color.clear)
@@ -246,41 +285,6 @@ struct MoreView: View {
                         //     Spacer()
                         // }
 
-                        // Premium Status
-                        if isPremiumEnabled {
-                            HStack(spacing: 10) {
-                                Image(systemName: "crown.fill")
-                                    .foregroundStyle(Color.appAccent)
-                                    .font(.system(size: 14))
-                                    .frame(width: 20)
-                                    .padding(.leading, 24)
-                                Text("Premium")
-                                    .foregroundStyle(Color.appAccent)
-                                    .font(.subheadline.weight(.semibold))
-                                Spacer()
-                            }
-                        } else {
-                            Button {
-                                showUpsellPreview = true
-                            } label: {
-                                HStack(spacing: 10) {
-                                    Image(systemName: "crown")
-                                        .foregroundStyle(.white.opacity(0.4))
-                                        .font(.system(size: 14))
-                                        .frame(width: 20)
-                                        .padding(.leading, 24)
-                                    Text("Free Plan")
-                                        .foregroundStyle(.white.opacity(0.7))
-                                        .font(.subheadline)
-                                    Spacer()
-                                    Text("Upgrade")
-                                        .foregroundStyle(Color.appAccent)
-                                        .font(.caption.weight(.semibold))
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-
                         // Restore Purchases
                         Button {
                             Task {
@@ -318,10 +322,14 @@ struct MoreView: View {
                                         transactionId: entitlement.transactionId ?? "",
                                         context: modelContext
                                     )
+                                    syncResultIsPremium = entitlement.isActive
+                                    syncFailed = false
                                 } catch {
                                     print("Sync purchases failed: \(error)")
+                                    syncFailed = true
                                 }
                                 isSyncingPurchases = false
+                                showSyncResult = true
                             }
                         } label: {
                             HStack(spacing: 10) {
@@ -492,358 +500,364 @@ struct MoreView: View {
 
                     if showDeveloper {
                         // MARK: Test Data
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Test Data")
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.5))
-                                .padding(.leading, 32)
+                        Text("Test Data")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.5))
 
-                            Button {
-                                Task {
-                                    await populateSimulatedData()
-                                }
-                            } label: {
-                                HStack {
-                                    Text("Populate 28 Days of Data")
-                                        .foregroundStyle(.primary)
-                                        .padding(.leading, 40)
-                                    Spacer()
-                                    if isPopulating28Days {
-                                        ProgressView()
-                                    } else {
-                                        Image(systemName: "wand.and.stars")
-                                            .foregroundStyle(Color.appAccent)
-                                    }
+                        Button {
+                            Task {
+                                await populateSimulatedData()
+                            }
+                        } label: {
+                            HStack {
+                                Text("Populate 28 Days of Data")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if isPopulating28Days {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "wand.and.stars")
+                                        .foregroundStyle(Color.appAccent)
                                 }
                             }
-                            .disabled(isPopulating28Days)
-
-                            Button {
-                                Task {
-                                    await populateTodayData()
-                                }
-                            } label: {
-                                HStack {
-                                    Text("Populate Today Data")
-                                        .foregroundStyle(.primary)
-                                        .padding(.leading, 40)
-                                    Spacer()
-                                    if isPopulatingToday {
-                                        ProgressView()
-                                    } else {
-                                        Image(systemName: "calendar.badge.plus")
-                                            .foregroundStyle(Color.appAccent)
-                                    }
-                                }
-                            }
-                            .disabled(isPopulatingToday)
-
-                            Button {
-                                Task {
-                                    await updateUserProperties()
-                                }
-                            } label: {
-                                HStack {
-                                    Text("Update User Properties")
-                                        .foregroundStyle(.primary)
-                                        .padding(.leading, 40)
-                                    Spacer()
-                                    if isUpdatingProperties {
-                                        ProgressView()
-                                    } else {
-                                        Image(systemName: "person.crop.circle.badge.checkmark")
-                                            .foregroundStyle(Color.appAccent)
-                                    }
-                                }
-                            }
-                            .disabled(isUpdatingProperties)
                         }
-                        .padding(.vertical, 4)
+                        .disabled(isPopulating28Days)
+
+                        Button {
+                            Task {
+                                await populateTodayData()
+                            }
+                        } label: {
+                            HStack {
+                                Text("Populate Today Data")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if isPopulatingToday {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "calendar.badge.plus")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+                        }
+                        .disabled(isPopulatingToday)
+
+                        Button {
+                            Task {
+                                await updateUserProperties()
+                            }
+                        } label: {
+                            HStack {
+                                Text("Update User Properties")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if isUpdatingProperties {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "person.crop.circle.badge.checkmark")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+                        }
+                        .disabled(isUpdatingProperties)
 
                         // MARK: Flows & Previews
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Flows & Previews")
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.5))
-                                .padding(.leading, 32)
+                        Text("Flows & Previews")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.5))
 
-                            Button {
-                                authViewModel.isNewUser = true
-                                authViewModel.showPostAuthFlow = true
-                            } label: {
-                                HStack {
-                                    Text("Replay Onboarding")
-                                        .foregroundStyle(.primary)
-                                        .padding(.leading, 40)
-                                    Spacer()
-                                    Image(systemName: "arrow.counterclockwise")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-
-                            Button {
-                                authViewModel.isNewUser = false
-                                authViewModel.showPostAuthFlow = true
-                            } label: {
-                                HStack {
-                                    Text("Replay Welcome Back")
-                                        .foregroundStyle(.primary)
-                                        .padding(.leading, 40)
-                                    Spacer()
-                                    Image(systemName: "hand.wave")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-
-                            Button {
-                                showUpsellPreview = true
-                            } label: {
-                                HStack {
-                                    Text("Show Premium Upsell")
-                                        .foregroundStyle(.primary)
-                                        .padding(.leading, 40)
-                                    Spacer()
-                                    Image(systemName: "crown")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-
-                            Button {
-                                showAlertPreviews = true
-                            } label: {
-                                HStack {
-                                    Text("Preview Alerts")
-                                        .foregroundStyle(.primary)
-                                        .padding(.leading, 40)
-                                    Spacer()
-                                    Image(systemName: "bell.badge")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-
-                            Button {
-                                showExerciseIcons = true
-                            } label: {
-                                HStack {
-                                    Text("Show Exercise Icons")
-                                        .foregroundStyle(.primary)
-                                        .padding(.leading, 40)
-                                    Spacer()
-                                    Image(systemName: "photo.on.rectangle")
-                                        .foregroundStyle(Color.appAccent)
-                                }
+                        Button {
+                            authViewModel.isNewUser = true
+                            authViewModel.showPostAuthFlow = true
+                        } label: {
+                            HStack {
+                                Text("Replay Onboarding")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "arrow.counterclockwise")
+                                    .foregroundStyle(Color.appAccent)
                             }
                         }
-                        .padding(.vertical, 4)
+
+                        Button {
+                            authViewModel.isNewUser = false
+                            authViewModel.showPostAuthFlow = true
+                        } label: {
+                            HStack {
+                                Text("Replay Welcome Back")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "hand.wave")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        Button {
+                            showUpsellPreview = true
+                        } label: {
+                            HStack {
+                                Text("Show Premium Upsell")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "crown")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        Button {
+                            showAlertPreviews = true
+                        } label: {
+                            HStack {
+                                Text("Preview Alerts")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "bell.badge")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        Button {
+                            showExerciseIcons = true
+                        } label: {
+                            HStack {
+                                Text("Show Exercise Icons")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "photo.on.rectangle")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
 
                         // MARK: Entitlements
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Entitlements")
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.5))
-                                .padding(.leading, 32)
+                        Text("Entitlements")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.5))
 
-                            HStack {
-                                Text("Premium Status")
-                                    .foregroundStyle(.primary)
-                                    .padding(.leading, 40)
-                                Spacer()
-                                Toggle("", isOn: Binding(
-                                    get: { isPremiumEnabled },
-                                    set: { isPremiumEnabled = $0 }
-                                ))
-                                .labelsHidden()
-                                .tint(Color.appAccent)
+                        HStack {
+                            Text("Premium Status")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Toggle("", isOn: Binding(
+                                get: { isPremiumEnabled },
+                                set: { isPremiumEnabled = $0 }
+                            ))
+                            .labelsHidden()
+                            .tint(Color.appAccent)
+                        }
+
+                        Button {
+                            withAnimation {
+                                showEntitlementDetails.toggle()
                             }
+                        } label: {
+                            HStack {
+                                Text("Entitlements Details")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: showEntitlementDetails ? "eye.fill" : "eye")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
 
-                            Button {
-                                withAnimation {
-                                    showEntitlementDetails.toggle()
+                        if showEntitlementDetails {
+                            EntitlementDetailsView(entitlement: entitlement)
+                        }
+
+                        Button {
+                            Task {
+                                isReplayingTransaction = true
+                                replayTransactionResult = nil
+                                do {
+                                    let response = try await EntitlementsService.shared.processTransactions(
+                                        originalTransactionIds: ["2000001123058480"]
+                                    )
+                                    await EntitlementsService.shared.updateLocalEntitlement(
+                                        from: response,
+                                        transactionId: "2000001123058480",
+                                        context: modelContext
+                                    )
+                                    replayTransactionResult = "Success"
+                                } catch {
+                                    replayTransactionResult = "Error: \(error)"
                                 }
-                            } label: {
-                                HStack {
-                                    Text("Entitlements Details")
-                                        .foregroundStyle(.primary)
-                                        .padding(.leading, 40)
-                                    Spacer()
-                                    Image(systemName: showEntitlementDetails ? "eye.fill" : "eye")
+                                isReplayingTransaction = false
+                            }
+                        } label: {
+                            HStack {
+                                Text("Replay Transaction")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if isReplayingTransaction {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "arrow.clockwise.circle")
                                         .foregroundStyle(Color.appAccent)
                                 }
                             }
-
-                            if showEntitlementDetails {
-                                EntitlementDetailsView(entitlement: entitlement)
-                            }
-
-                            Button {
-                                Task {
-                                    isReplayingTransaction = true
-                                    replayTransactionResult = nil
-                                    do {
-                                        let response = try await EntitlementsService.shared.processTransactions(
-                                            originalTransactionIds: ["2000001123058480"]
-                                        )
-                                        await EntitlementsService.shared.updateLocalEntitlement(
-                                            from: response,
-                                            transactionId: "2000001123058480",
-                                            context: modelContext
-                                        )
-                                        replayTransactionResult = "Success"
-                                    } catch {
-                                        replayTransactionResult = "Error: \(error)"
-                                    }
-                                    isReplayingTransaction = false
-                                }
-                            } label: {
-                                HStack {
-                                    Text("Replay Transaction")
-                                        .foregroundStyle(.primary)
-                                        .padding(.leading, 40)
-                                    Spacer()
-                                    if isReplayingTransaction {
-                                        ProgressView()
-                                    } else {
-                                        Image(systemName: "arrow.clockwise.circle")
-                                            .foregroundStyle(Color.appAccent)
-                                    }
-                                }
-                            }
-                            .disabled(isReplayingTransaction)
-
-                            if let result = replayTransactionResult {
-                                Text(result)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .foregroundStyle(result.hasPrefix("Error") ? .red.opacity(0.8) : .green.opacity(0.8))
-                                    .padding(.leading, 48)
-                            }
                         }
-                        .padding(.vertical, 4)
+                        .disabled(isReplayingTransaction)
+
+                        if let result = replayTransactionResult {
+                            Text(result)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(result.hasPrefix("Error") ? .red.opacity(0.8) : .green.opacity(0.8))
+                        }
 
                         // MARK: Debug
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Debug")
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.5))
-                                .padding(.leading, 32)
+                        Text("Debug")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.5))
 
-                            Button {
-                                withAnimation {
-                                    showExerciseIds.toggle()
-                                }
-                            } label: {
+                        Button {
+                            withAnimation {
+                                showExerciseIds.toggle()
+                            }
+                        } label: {
+                            HStack {
+                                Text("Show Exercise IDs")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: showExerciseIds ? "eye.fill" : "eye")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        if showExerciseIds {
+                            ForEach(exercises.sorted { $0.name < $1.name }, id: \.id) { exercise in
                                 HStack {
-                                    Text("Show Exercise IDs")
-                                        .foregroundStyle(.primary)
-                                        .padding(.leading, 40)
+                                    Text(exercise.name)
+                                        .foregroundStyle(.white.opacity(0.7))
+                                        .lineLimit(1)
                                     Spacer()
-                                    Image(systemName: showExerciseIds ? "eye.fill" : "eye")
-                                        .foregroundStyle(Color.appAccent)
+                                    Text(exercise.id.uuidString.prefix(8) + "...")
+                                        .foregroundStyle(.white.opacity(0.5))
+                                        .font(.system(.caption, design: .monospaced))
+                                        .textSelection(.enabled)
                                 }
                             }
+                        }
 
-                            if showExerciseIds {
-                                ForEach(exercises.sorted { $0.name < $1.name }, id: \.id) { exercise in
-                                    HStack {
-                                        Text(exercise.name)
-                                            .foregroundStyle(.white.opacity(0.7))
-                                            .padding(.leading, 48)
-                                            .lineLimit(1)
-                                        Spacer()
-                                        Text(exercise.id.uuidString.prefix(8) + "...")
-                                            .foregroundStyle(.white.opacity(0.5))
-                                            .font(.system(.caption, design: .monospaced))
-                                            .textSelection(.enabled)
+                        Button {
+                            withAnimation {
+                                showMemberSince.toggle()
+                            }
+                        } label: {
+                            HStack {
+                                Text("Show Member Since")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: showMemberSince ? "calendar.circle.fill" : "calendar.circle")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        if showMemberSince {
+                            HStack {
+                                Text("Member Since")
+                                    .foregroundStyle(.white.opacity(0.7))
+                                Spacer()
+                                Text(memberSinceDate)
+                                    .foregroundStyle(.white.opacity(0.5))
+                                    .font(.system(.caption, design: .monospaced))
+                            }
+                        }
+
+                        Button {
+                            withAnimation {
+                                showTokenExpiry.toggle()
+                            }
+                        } label: {
+                            HStack {
+                                Text("Token Expiry Info")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: showTokenExpiry ? "clock.fill" : "clock")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        if showTokenExpiry {
+                            TokenExpiryView()
+                        }
+
+                        Text("User Samples")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.5))
+
+                        ForEach(UserSamples.Cohort.allCases, id: \.self) { cohort in
+                            Toggle(cohort.displayName, isOn: Binding(
+                                get: { UserSamples.shared.isInCohort(cohort) },
+                                set: { UserSamples.shared.setCohort(cohort, enabled: $0) }
+                            ))
+                            .font(.subheadline)
+                            .tint(.appAccent)
+                        }
+
+                        // MARK: Experimental
+                        Text("Experimental")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.5))
+
+                        Button {
+                            withAnimation {
+                                showPlateCalculator.toggle()
+                            }
+                        } label: {
+                            HStack {
+                                Text("Plate Calculator Preview")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: showPlateCalculator ? "eye.fill" : "eye")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        if showPlateCalculator {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Not currently used in the app")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.4))
+
+                                HStack {
+                                    TextField("Total weight (lbs)", text: $plateCalcInput)
+                                        .keyboardType(.decimalPad)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 150)
+
+                                    if let weight = Double(plateCalcInput),
+                                       let stack = PlateCalculator.calculateForSuggestion(
+                                        totalWeight: weight,
+                                        availablePlates: userProperties.availableChangePlates + [5, 10, 25, 35, 45]
+                                       ) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("Per side:")
+                                                .font(.caption2)
+                                                .foregroundStyle(.white.opacity(0.5))
+                                            Text(stack.plates.map { "\($0.formatted(.number.precision(.fractionLength(0...2))))" }.joined(separator: " + "))
+                                                .font(.system(.caption, design: .monospaced))
+                                                .foregroundStyle(.white.opacity(0.8))
+                                        }
                                     }
                                 }
                             }
-
-                            Button {
-                                withAnimation {
-                                    showMemberSince.toggle()
-                                }
-                            } label: {
-                                HStack {
-                                    Text("Show Member Since")
-                                        .foregroundStyle(.primary)
-                                        .padding(.leading, 40)
-                                    Spacer()
-                                    Image(systemName: showMemberSince ? "calendar.circle.fill" : "calendar.circle")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-
-                            if showMemberSince {
-                                HStack {
-                                    Text("Member Since")
-                                        .foregroundStyle(.white.opacity(0.7))
-                                        .padding(.leading, 48)
-                                    Spacer()
-                                    Text(memberSinceDate)
-                                        .foregroundStyle(.white.opacity(0.5))
-                                        .font(.system(.caption, design: .monospaced))
-                                }
-                            }
-
-                            Button {
-                                withAnimation {
-                                    showTokenExpiry.toggle()
-                                }
-                            } label: {
-                                HStack {
-                                    Text("Token Expiry Info")
-                                        .foregroundStyle(.primary)
-                                        .padding(.leading, 40)
-                                    Spacer()
-                                    Image(systemName: showTokenExpiry ? "clock.fill" : "clock")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-
-                            if showTokenExpiry {
-                                TokenExpiryView()
-                                    .padding(.leading, 32)
-                            }
-
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("User Samples")
-                                    .font(.caption)
-                                    .foregroundStyle(.white.opacity(0.5))
-                                    .padding(.leading, 40)
-
-                                ForEach(UserSamples.Cohort.allCases, id: \.self) { cohort in
-                                    Toggle(cohort.displayName, isOn: Binding(
-                                        get: { UserSamples.shared.isInCohort(cohort) },
-                                        set: { UserSamples.shared.setCohort(cohort, enabled: $0) }
-                                    ))
-                                    .font(.subheadline)
-                                    .tint(.appAccent)
-                                    .padding(.leading, 40)
-                                }
-                            }
                         }
-                        .padding(.vertical, 4)
 
                         // MARK: Danger Zone
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Danger Zone")
-                                .font(.subheadline)
-                                .foregroundStyle(.red.opacity(0.5))
-                                .padding(.leading, 32)
+                        Text("Danger Zone")
+                            .font(.subheadline)
+                            .foregroundStyle(.red.opacity(0.5))
 
-                            Button(role: .destructive) {
-                                showDeleteConfirmation = true
-                            } label: {
-                                HStack {
-                                    Text("Delete All Workout Data")
-                                        .foregroundStyle(.red)
-                                        .padding(.leading, 40)
-                                    Spacer()
-                                    Image(systemName: "trash")
-                                        .foregroundStyle(.red)
-                                }
+                        Button(role: .destructive) {
+                            showDeleteConfirmation = true
+                        } label: {
+                            HStack {
+                                Text("Delete All Workout Data")
+                                    .foregroundStyle(.red)
+                                Spacer()
+                                Image(systemName: "trash")
+                                    .foregroundStyle(.red)
                             }
                         }
-                        .padding(.vertical, 4)
                     }
                 } footer: {
                     if showDeveloper {
@@ -896,6 +910,17 @@ struct MoreView: View {
                 Button("OK") { }
             } message: {
                 Text("Successfully deleted all workout data.")
+            }
+            .alert(syncFailed ? "Sync Failed" : (syncResultIsPremium ? "Premium Active" : "Free Plan"), isPresented: $showSyncResult) {
+                Button("OK") { }
+            } message: {
+                if syncFailed {
+                    Text("Something went wrong syncing your purchases. Please try again later.")
+                } else if syncResultIsPremium {
+                    Text("You're all set! Your premium subscription is active.")
+                } else {
+                    Text("No active premium subscription found. You're currently on the free plan.")
+                }
             }
             .alert("Logout", isPresented: $showLogoutConfirmation) {
                 Button("Cancel", role: .cancel) { }
@@ -1772,7 +1797,7 @@ private struct SubmitOverlayPreview: View {
                     VStack(spacing: 4) {
                         Text("Increased 1RM by")
                             .font(.subheadline)
-                        Text("+\(delta.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
+                        Text("+\(delta.rounded1().formatted(.number.precision(.fractionLength(delta >= 100 ? 0 : 2)))) lbs")
                             .font(.title.weight(.semibold))
                             .foregroundStyle(Color.appLogoColor)
                             .lineLimit(1)

@@ -10,15 +10,7 @@ import SwiftData
 import Charts
 
 struct OnboardingView: View {
-    let onComplete: (UUID?) -> Void
-
-    @Query(filter: #Predicate<Exercises> { !$0.deleted }, sort: \Exercises.createdAt) private var exercises: [Exercises]
-
-    @State private var currentPage = 0
-    @State private var isExiting = false
-    @State private var selectedExerciseId: UUID? = nil
-
-    private let totalPages = 4
+    let onComplete: () -> Void
 
     var body: some View {
         ZStack {
@@ -30,87 +22,149 @@ struct OnboardingView: View {
             )
             .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                Spacer()
-                    .frame(height: 60)
-
-                // Page content with transition
-                Group {
-                    switch currentPage {
-                    case 0:
-                        OnboardingPageOne()
-                    case 1:
-                        OnboardingPageTwo()
-                    case 2:
-                        OnboardingPageThree()
-                    case 3:
-                        OnboardingExerciseSelection(
-                            exercises: exercises,
-                            selectedExerciseId: $selectedExerciseId,
-                            onSelect: { exerciseId in
-                                selectedExerciseId = exerciseId
-                                // Smooth exit transition
-                                withAnimation(.easeOut(duration: 0.3)) {
-                                    isExiting = true
-                                }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                                    onComplete(exerciseId)
-                                }
-                            }
-                        )
-                    default:
-                        EmptyView()
-                    }
-                }
-                .id(currentPage)
-                .transition(.asymmetric(
-                    insertion: .move(edge: .trailing).combined(with: .opacity),
-                    removal: .move(edge: .leading).combined(with: .opacity)
-                ))
-
-                Spacer()
-
-                // Page indicators
-                HStack(spacing: 8) {
-                    ForEach(0..<totalPages, id: \.self) { index in
-                        Circle()
-                            .fill(index == currentPage ? Color.appAccent : Color.white.opacity(0.3))
-                            .frame(width: 8, height: 8)
-                            .animation(.easeInOut(duration: 0.3), value: currentPage)
-                    }
-                }
-                .padding(.bottom, 24)
-
-                // Continue button (hidden on exercise selection page)
-                if currentPage < 3 {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.4)) {
-                            currentPage += 1
-                        }
-                    } label: {
-                        Text("Continue")
-                            .font(.interSemiBold(size: 16))
-                            .foregroundStyle(.black)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(Color.appAccent)
-                            .cornerRadius(12)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isExiting)
-                    .padding(.horizontal, 32)
-                    .padding(.bottom, 50)
-                } else {
-                    // Spacer for exercise selection page
-                    Spacer()
-                        .frame(height: 50)
-                }
-            }
-            .opacity(isExiting ? 0 : 1)
-            .scaleEffect(isExiting ? 0.95 : 1)
+            OnboardingChangePlatesStep(onComplete: onComplete)
         }
     }
 }
+
+// MARK: - Change Plates Onboarding Step
+
+private struct OnboardingChangePlatesStep: View {
+    let onComplete: () -> Void
+
+    @Environment(\.modelContext) private var modelContext
+    @Query private var userPropertiesItems: [UserProperties]
+
+    private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
+    private let allPlateOptions: [Double] = [0.25, 0.5, 0.75, 1.0, 1.25, 2.0]
+
+    private var userProperties: UserProperties {
+        if let props = userPropertiesItems.first { return props }
+        let props = UserProperties()
+        modelContext.insert(props)
+        return props
+    }
+
+    private var plateWeights: [Double] {
+        userProperties.availableChangePlates.filter { $0 < 5 }.sorted()
+    }
+
+    private var hasSelection: Bool {
+        !plateWeights.isEmpty
+    }
+
+    private func isPlateActive(_ plate: Double) -> Bool {
+        return plateWeights.contains { abs($0 - plate) < 0.01 }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer()
+                .frame(height: 60)
+
+            // Title
+            VStack(spacing: 12) {
+                Text("Available Change Plates")
+                    .font(.bebasNeue(size: 32))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+
+                Text("Select any smaller plates you have access to")
+                    .font(.inter(size: 16))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+            }
+
+            Spacer()
+                .frame(height: 24)
+
+            // Barbell plate icon
+            BarbellPlateIcon(size: 48)
+                .foregroundStyle(Color.appAccent.opacity(0.8))
+
+            Spacer()
+                .frame(height: 24)
+
+            // Content card — 2 rows of 3
+            VStack(spacing: 12) {
+                ForEach(0..<2, id: \.self) { row in
+                    HStack(spacing: 10) {
+                        ForEach(0..<3, id: \.self) { col in
+                            let index = row * 3 + col
+                            let plate = allPlateOptions[index]
+                            ChangePlateBubble(
+                                plate: plate,
+                                isActive: isPlateActive(plate),
+                                onToggle: {
+                                    hapticFeedback.impactOccurred()
+                                    togglePlate(plate)
+                                }
+                            )
+                            .fixedSize()
+                        }
+                    }
+                }
+            }
+            .padding(.vertical, 24)
+            .padding(.horizontal, 16)
+            .background(Color(white: 0.12))
+            .cornerRadius(16)
+            .padding(.horizontal, 24)
+
+            Spacer()
+
+            // Bottom button
+            Button {
+                onComplete()
+            } label: {
+                Text("Continue")
+                    .font(.interSemiBold(size: 16))
+                    .foregroundStyle(hasSelection ? .black : .white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(hasSelection ? Color.appAccent : Color(white: 0.3))
+                    .cornerRadius(12)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 32)
+            .padding(.bottom, 50)
+        }
+    }
+
+    private func togglePlate(_ plate: Double) {
+        if isPlateActive(plate) {
+            userProperties.availableChangePlates.removeAll { abs($0 - plate) < 0.01 }
+        } else {
+            userProperties.availableChangePlates.append(plate)
+        }
+        try? modelContext.save()
+
+        Task {
+            await SyncService.shared.updateChangePlates(userProperties.availableChangePlates)
+        }
+    }
+}
+
+// MARK: - Original Onboarding Pages (preserved for future use)
+
+/*
+// Old multi-page coordinator logic:
+//
+// @Query(filter: #Predicate<Exercises> { !$0.deleted }, sort: \Exercises.createdAt) private var exercises: [Exercises]
+// @State private var currentPage = 0
+// @State private var isExiting = false
+// @State private var selectedExerciseId: UUID? = nil
+// private let totalPages = 4
+//
+// Page content switch:
+//   case 0: OnboardingPageOne()
+//   case 1: OnboardingPageTwo()
+//   case 2: OnboardingPageThree()
+//   case 3: OnboardingExerciseSelection(...)
+//
+// Page indicators and continue button logic was here.
+*/
 
 // MARK: - Page One: Track Your Lifts (Set Intensity with Rounded Squares)
 

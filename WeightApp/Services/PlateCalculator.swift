@@ -4,6 +4,10 @@
 //
 //  Created by Zach Mitchell on 1/23/26.
 //
+//  NOTE: Not currently used in the app. This is a future/experimental utility
+//  for calculating optimal plate combinations on a barbell. Accessible via
+//  Developer > "Plate Calculator Preview" in MoreView for testing purposes.
+//
 
 import Foundation
 

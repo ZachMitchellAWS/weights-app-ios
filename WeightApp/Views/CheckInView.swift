@@ -67,6 +67,7 @@ struct CheckInView: View {
     @State private var sortAscending: Bool = true
     @State private var columnHighlighted = false
     @State private var weightColumnHighlighted = false
+    @State private var cachedSetsWithPRInfo: [SetWithPR] = []
 
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
     private let lastSelectedExerciseKey = "lastSelectedExerciseId"
@@ -124,12 +125,11 @@ struct CheckInView: View {
         let percentageOfCurrent: Double
     }
 
-    private var setsWithPRInfo: [SetWithPR] {
-        guard let ex = selectedExercises else { return [] }
+    private static func computeSetsWithPRInfo(for exercise: Exercises, from allSets: [LiftSets]) -> [SetWithPR] {
         // Get all sets for this exercise in chronological order (oldest first)
         // Filter for valid sets (weight >= 0, reps >= 1)
         let sets = allSets
-            .filter { $0.exercise?.id == ex.id && $0.weight >= 0 && $0.reps >= 1 }
+            .filter { $0.exercise?.id == exercise.id && $0.weight >= 0 && $0.reps >= 1 }
             .reversed()
 
         var result: [SetWithPR] = []
@@ -160,6 +160,14 @@ struct CheckInView: View {
         return result
     }
 
+    private func recomputeSetsWithPRInfo() {
+        guard let ex = selectedExercises else {
+            cachedSetsWithPRInfo = []
+            return
+        }
+        cachedSetsWithPRInfo = Self.computeSetsWithPRInfo(for: ex, from: allSets)
+    }
+
     private var current1RM: Double {
         // Use the latest Estimated1RMs if available, otherwise calculate from sets
         if let latest = estimated1RMsForSelected.first {
@@ -169,7 +177,7 @@ struct CheckInView: View {
     }
 
     private var lastPRPlusOneSuggestion: OneRMCalculator.Suggestion? {
-        guard let lastPR = setsWithPRInfo.last(where: { $0.wasPR }),
+        guard let lastPR = cachedSetsWithPRInfo.last(where: { $0.wasPR }),
               lastPR.set.weight > 0 else { return nil }
         let newReps = lastPR.set.reps + 1
         guard newReps >= userProperties.minReps,
@@ -362,6 +370,7 @@ struct CheckInView: View {
             }
             .onAppear {
                 validateWeightDelta()
+                recomputeSetsWithPRInfo()
                 if exercises.isEmpty {
                     showNoExercisesAlert = true
                 }
@@ -381,6 +390,7 @@ struct CheckInView: View {
             .onChange(of: selectedExercisesId) { oldId, newId in
                 resetToDefaults()
                 validateWeightDelta()
+                recomputeSetsWithPRInfo()
                 // Save selected exercise to UserDefaults
                 if let id = newId {
                     UserDefaults.standard.set(id.uuidString, forKey: lastSelectedExerciseKey)
@@ -401,6 +411,9 @@ struct CheckInView: View {
                         }
                     }
                 }
+            }
+            .onChange(of: allSets.count) { _, _ in
+                recomputeSetsWithPRInfo()
             }
             .onChange(of: selectedSetData.shouldPopulate) { _, shouldPopulate in
                 if shouldPopulate {
@@ -423,7 +436,7 @@ struct CheckInView: View {
             }
             .sheet(isPresented: $showWeightPicker) {
                 weightPickerSheet
-                    .presentationDetents([.height(500)])
+                    .presentationDetents([.height(480)])
                     .presentationDragIndicator(.visible)
                     .presentationBackground(
                         LinearGradient(
@@ -453,7 +466,8 @@ struct CheckInView: View {
                         showExercisesSelection = false
                     }
                 )
-                .presentationDetents([.large])
+                .presentationDetents([.height(480), .large])
+                .presentationContentInteraction(.scrolls)
                 .interactiveDismissDisabled(false)
                 .presentationDragIndicator(.visible)
             }
@@ -476,18 +490,21 @@ struct CheckInView: View {
                                 }
                             )
                         }
-                        .presentationDetents([.fraction(0.92)])
+                        .presentationDetents([.height(480), .large])
+                        .presentationContentInteraction(.scrolls)
                         .presentationDragIndicator(.visible)
                     }
                 }
                 .sheet(isPresented: $showIncrementSelection) {
                     AvailableChangePlatesView()
                         .presentationDetents([.height(480), .large])
+                        .presentationContentInteraction(.scrolls)
                         .presentationDragIndicator(.visible)
                 }
                 .sheet(isPresented: $showSequenceEditor) {
                     SequenceEditorView(exercises: exercises)
-                        .presentationDetents([.medium, .large])
+                        .presentationDetents([.height(480), .large])
+                        .presentationContentInteraction(.scrolls)
                         .presentationDragIndicator(.visible)
                 }
                 .alert("No Exercises Found", isPresented: $showNoExercisesAlert) {
@@ -1089,8 +1106,8 @@ struct CheckInView: View {
                         } else {
                             VStack(spacing: 2) {
                                 Text("Select Exercise")
-                                    .font(.system(size: 18, weight: .medium))
-                                    .foregroundStyle(.white.opacity(0.7))
+                                    .font(.bebasNeue(size: 28))
+                                    .foregroundStyle(Color.appAccent)
                                 Text("Tap here to choose")
                                     .font(.system(size: 12))
                                     .foregroundStyle(.white.opacity(0.4))
@@ -1126,54 +1143,54 @@ struct CheckInView: View {
                 .fill(.white.opacity(0.06))
                 .frame(height: 1)
 
-            // Bottom half: sequence menu + icon carousel + editor button
-            HStack(spacing: 0) {
-                // Sequence menu dropdown
-                Menu {
-                    Button {
-                        showSequenceEditor = true
-                    } label: {
-                        Label("Edit Sequences", systemImage: "slider.horizontal.3")
-                    }
-
-                    Divider()
-
-                    Button {
-                        WorkoutSequenceStore.setActiveSequenceId(nil)
-                        activeSequenceId = nil
-                    } label: {
-                        Label("All Exercises", systemImage: activeSequenceId == nil ? "checkmark" : "")
-                    }
-
-                    ForEach(allSequences) { seq in
+            // Bottom half: sequence name + icon carousel
+            VStack(spacing: 4) {
+                // Row 1: Sequence name (left-aligned, tappable menu)
+                HStack {
+                    Menu {
                         Button {
-                            WorkoutSequenceStore.setActiveSequenceId(seq.id)
-                            activeSequenceId = seq.id
+                            showSequenceEditor = true
                         } label: {
-                            Label(seq.name, systemImage: activeSequenceId == seq.id ? "checkmark" : "")
+                            Label("Edit Sequences", systemImage: "slider.horizontal.3")
                         }
-                    }
-                } label: {
-                    HStack(spacing: 3) {
-                        Text(String(activeSequenceName.prefix(10)))
-                            .font(.system(size: 11, weight: .medium))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 8, weight: .semibold))
-                    }
-                    .fixedSize()
-                    .foregroundStyle(.white.opacity(0.7))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(.white.opacity(0.08))
-                    )
-                }
-                .padding(.leading, 8)
 
-                // Icon carousel
+                        Divider()
+
+                        Button {
+                            WorkoutSequenceStore.setActiveSequenceId(nil)
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                activeSequenceId = nil
+                            }
+                        } label: {
+                            Label("All Exercises", systemImage: activeSequenceId == nil ? "checkmark" : "")
+                        }
+
+                        ForEach(allSequences) { seq in
+                            Button {
+                                WorkoutSequenceStore.setActiveSequenceId(seq.id)
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    activeSequenceId = seq.id
+                                }
+                            } label: {
+                                Label(seq.name, systemImage: activeSequenceId == seq.id ? "checkmark" : "")
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text(activeSequenceName)
+                                .font(.system(size: 11, weight: .medium))
+                                .lineLimit(1)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8, weight: .semibold))
+                        }
+                        .foregroundStyle(.white.opacity(0.5))
+                    }
+                    .padding(.leading, 12)
+                    Spacer()
+                }
+                .frame(height: 18)
+
+                // Row 2: Icon carousel (full width)
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 10) {
@@ -1203,10 +1220,11 @@ struct CheckInView: View {
                             }
                         }
                         .scrollTargetLayout()
-                        .padding(.leading, 12)
-                        .padding(.trailing, 12)
+                        .padding(.horizontal, 12)
                     }
                     .scrollTargetBehavior(.viewAligned)
+                    .clipped()
+                    .id(activeSequenceId)
                     .onChange(of: selectedExercisesId) { _, newId in
                         guard let newId else { return }
                         withAnimation {
@@ -1219,9 +1237,8 @@ struct CheckInView: View {
                         }
                     }
                 }
-
             }
-            .frame(height: 60)
+            .frame(height: 74)
         }
         .background(
             LinearGradient(
@@ -1429,14 +1446,14 @@ struct CheckInView: View {
 
     private var filteredSetsWithPRInfo: [SetWithPR] {
         if showPROnly {
-            return setsWithPRInfo.filter { $0.wasPR }
+            return cachedSetsWithPRInfo.filter { $0.wasPR }
         }
-        return setsWithPRInfo
+        return cachedSetsWithPRInfo
     }
 
     private var graphContentView: some View {
         Group {
-            if setsWithPRInfo.isEmpty {
+            if cachedSetsWithPRInfo.isEmpty {
                 EmptyGraphView()
             } else {
                 let displayData = filteredSetsWithPRInfo
@@ -1778,7 +1795,7 @@ struct CheckInView: View {
             // Always reserve the height so picker position stays consistent across tabs
             HStack(spacing: 4) {
                 Spacer()
-                if selectedGraphTab == 1 && !setsWithPRInfo.isEmpty {
+                if selectedGraphTab == 1 && !cachedSetsWithPRInfo.isEmpty {
                     Button {
                         showPROnly.toggle()
                     } label: {
@@ -1814,7 +1831,7 @@ struct CheckInView: View {
 
             // Legend (only show when there's data)
             if (selectedGraphTab == 0 && !(todaysSets.isEmpty && lastDaySets.isEmpty)) ||
-               (selectedGraphTab == 1 && !setsWithPRInfo.isEmpty) {
+               (selectedGraphTab == 1 && !cachedSetsWithPRInfo.isEmpty) {
                 HStack(spacing: 10) {
                     LegendItem(color: .setEasy, label: "Easy")
                     LegendItem(color: .setModerate, label: "Moderate")
@@ -2137,11 +2154,16 @@ struct CheckInView: View {
                 suggestions: filteredSuggestions,
                 sortColumn: $sortColumn,
                 sortAscending: $sortAscending,
+                weightDelta: $weightDelta,
+                availableWeightDeltas: availableWeightDeltas,
+                minWeightDelta: minWeightDelta,
+                maxWeightDelta: maxWeightDelta,
                 onSelect: { suggestion in
                     selectOption(suggestion)
                 }
             )
-            .presentationDetents([.large])
+            .presentationDetents([.height(480), .large])
+            .presentationContentInteraction(.scrolls)
             .presentationDragIndicator(.visible)
         }
     }
@@ -2370,7 +2392,7 @@ struct CheckInView: View {
                         VStack(spacing: 4) {
                             Text("Increased 1RM by")
                                 .font(.subheadline)
-                            Text("+\(delta.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
+                            Text("+\(delta.rounded1().formatted(.number.precision(.fractionLength(delta >= 100 ? 0 : 2)))) lbs")
                                 .font(.title.weight(.semibold))
                                 .foregroundStyle(Color.appLogoColor)
                                 .lineLimit(1)
@@ -3310,7 +3332,14 @@ struct EditExerciseFormView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black.ignoresSafeArea())
+        .background(
+            LinearGradient(
+                colors: [Color(white: 0.14), Color(white: 0.10)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+        )
         .navigationBarHidden(true)
         .alert("Delete Exercise?", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) { }
@@ -3361,7 +3390,12 @@ struct ExercisesSelectionView: View {
     var body: some View {
         NavigationStack(path: $navigationPath) {
             ZStack {
-                Color.black.ignoresSafeArea()
+                LinearGradient(
+                    colors: [Color(white: 0.14), Color(white: 0.10)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
 
                 VStack(spacing: 0) {
                     // Header with title and add button
@@ -3818,11 +3852,16 @@ struct ExpandedProgressOptionsSheet: View {
     let suggestions: [OneRMCalculator.Suggestion]
     @Binding var sortColumn: CheckInView.SortColumn
     @Binding var sortAscending: Bool
+    @Binding var weightDelta: Double
+    let availableWeightDeltas: [Double]
+    let minWeightDelta: Double
+    let maxWeightDelta: Double
     let onSelect: (OneRMCalculator.Suggestion) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var columnHighlighted = false
     @State private var selectedSuggestion: OneRMCalculator.Suggestion?
+    @State private var showChangePlates = false
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
 
     private var sortedSuggestions: [OneRMCalculator.Suggestion] {
@@ -3839,7 +3878,7 @@ struct ExpandedProgressOptionsSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             // Title header
-            VStack(spacing: 4) {
+            VStack(spacing: 8) {
                 Text("Progress Options")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.white)
@@ -3853,6 +3892,57 @@ struct ExpandedProgressOptionsSheet: View {
                     Text("Estimated 1RM")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.7))
+                }
+
+                // Δ LB increment controls
+                HStack(spacing: 10) {
+                    Button {
+                        if let currentIndex = availableWeightDeltas.firstIndex(where: { abs($0 - weightDelta) < 0.01 }),
+                           currentIndex > 0 {
+                            weightDelta = availableWeightDeltas[currentIndex - 1]
+                            hapticFeedback.impactOccurred()
+                            highlightWeightColumn()
+                        }
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(weightDelta > minWeightDelta ? Color.appAccent : .gray)
+                    }
+
+                    VStack(spacing: 0) {
+                        Text(weightDelta.formatted(.number.precision(.fractionLength(1))))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                        Text("Δ LB")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(Color.appLabel)
+                    }
+                    .frame(width: 45)
+
+                    Button {
+                        if let currentIndex = availableWeightDeltas.firstIndex(where: { abs($0 - weightDelta) < 0.01 }),
+                           currentIndex < availableWeightDeltas.count - 1 {
+                            weightDelta = availableWeightDeltas[currentIndex + 1]
+                            hapticFeedback.impactOccurred()
+                            highlightWeightColumn()
+                        }
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(weightDelta < maxWeightDelta ? Color.appAccent : .gray)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color(white: 0.12))
+                .cornerRadius(10)
+
+                Button {
+                    showChangePlates = true
+                } label: {
+                    Text("Edit Change Plates ›")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.4))
                 }
             }
             .frame(maxWidth: .infinity)
@@ -3905,17 +3995,31 @@ struct ExpandedProgressOptionsSheet: View {
                 dismiss()
             } label: {
                 Text("Done")
-                    .font(.headline)
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
+                    .padding(.vertical, 12)
                     .background(Color.appAccent)
-                    .cornerRadius(12)
+                    .cornerRadius(10)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 40)
+            .padding(.top, 24)
             .padding(.bottom, 16)
         }
-        .background(Color(white: 0.08))
+        .background(
+            LinearGradient(
+                colors: [Color(white: 0.14), Color(white: 0.10)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+        )
+        .sheet(isPresented: $showChangePlates) {
+            AvailableChangePlatesView()
+                .presentationDetents([.height(480), .large])
+                .presentationContentInteraction(.scrolls)
+                .presentationDragIndicator(.visible)
+        }
     }
 
     private func columnButton(title: String, column: CheckInView.SortColumn, width: CGFloat) -> some View {
@@ -3955,6 +4059,16 @@ struct ExpandedProgressOptionsSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    private func highlightWeightColumn() {
+        columnHighlighted = true
+        Task {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            await MainActor.run {
+                columnHighlighted = false
+            }
+        }
     }
 }
 

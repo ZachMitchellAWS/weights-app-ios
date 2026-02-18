@@ -6,14 +6,26 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct AnalyticsView: View {
     let allSets: [LiftSets]
     let allEstimated1RMs: [Estimated1RMs]
 
+    @Query private var entitlementItems: [Entitlements]
+    @Environment(\.modelContext) private var modelContext
+    @State private var showUpsell = false
+
     // Static flag to track if we've ever loaded (persists across view recreation)
     private static var hasEverLoaded = false
     @State private var isLoaded = AnalyticsView.hasEverLoaded
+
+    private var entitlement: Entitlements {
+        if let entitlement = entitlementItems.first { return entitlement }
+        let entitlement = Entitlements()
+        modelContext.insert(entitlement)
+        return entitlement
+    }
 
     var body: some View {
         Group {
@@ -24,7 +36,7 @@ struct AnalyticsView: View {
 
                         FrequencyCalendarWidget(allSets: allSets)
 
-                        TrainingRecencyWidget(allSets: allSets)
+                        TrainingRecencyWidget(allSets: allSets, isPremium: entitlement.isActive, showUpsell: $showUpsell)
 
                         OneRMProgressionWidget(allEstimated1RMs: allEstimated1RMs)
 
@@ -38,6 +50,9 @@ struct AnalyticsView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
+                }
+                .fullScreenCover(isPresented: $showUpsell) {
+                    UpsellView { _ in showUpsell = false }
                 }
             } else {
                 VStack {

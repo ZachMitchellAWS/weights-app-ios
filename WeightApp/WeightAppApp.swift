@@ -15,6 +15,7 @@ struct WeightAppApp: App {
     @State private var showSplash = true
     @State private var showWelcome = true
     @State private var initialExerciseId: UUID? = nil
+    @State private var showOnboarding = true
     @State private var showUpsell = false
     @State private var transactionListenerTask: Task<Void, Error>?
 
@@ -39,13 +40,22 @@ struct WeightAppApp: App {
                     if authViewModel.isAuthenticated {
                         if authViewModel.showPostAuthFlow {
                             if authViewModel.isNewUser {
-                                // Upsell for new users
-                                UpsellView { didSubscribe in
-                                    withAnimation(.easeInOut(duration: 0.4)) {
-                                        authViewModel.completePostAuthFlow()
+                                if showOnboarding {
+                                    OnboardingView {
+                                        withAnimation(.easeInOut(duration: 0.4)) {
+                                            showOnboarding = false
+                                        }
                                     }
+                                    .transition(.opacity)
+                                } else {
+                                    // Upsell for new users
+                                    UpsellView { didSubscribe in
+                                        withAnimation(.easeInOut(duration: 0.4)) {
+                                            authViewModel.completePostAuthFlow()
+                                        }
+                                    }
+                                    .transition(.opacity)
                                 }
-                                .transition(.opacity)
                             } else {
                                 WelcomeBackView {
                                     withAnimation(.easeInOut(duration: 0.4)) {
@@ -78,6 +88,7 @@ struct WeightAppApp: App {
                 }
                 .animation(.easeInOut(duration: 0.4), value: authViewModel.isAuthenticated)
                 .animation(.easeInOut(duration: 0.4), value: authViewModel.showPostAuthFlow)
+                .animation(.easeInOut(duration: 0.4), value: showOnboarding)
                 .animation(.easeInOut(duration: 0.4), value: showUpsell)
                 .animation(.easeInOut(duration: 0.4), value: showWelcome)
                 .preferredColorScheme(.dark)
@@ -136,6 +147,7 @@ struct WeightAppApp: App {
             .onChange(of: authViewModel.isAuthenticated) { _, isAuthenticated in
                 if !isAuthenticated {
                     showWelcome = true
+                    showOnboarding = true
                 }
             }
         }
