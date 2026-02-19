@@ -331,6 +331,8 @@ class SyncService: ObservableObject {
                     existing.weight = dto.weight
                     existing.createdTimezone = dto.createdTimezone
                     existing.createdAt = dto.createdDatetime
+                    existing.isBaselineSet = dto.isBaselineSet ?? false
+                    existing.rir = dto.rir
                 }
             } else {
                 // Create new lift set - need to find the exercise
@@ -340,6 +342,8 @@ class SyncService: ObservableObject {
                     liftSet.id = dto.liftSetId
                     liftSet.createdTimezone = dto.createdTimezone
                     liftSet.createdAt = dto.createdDatetime
+                    liftSet.isBaselineSet = dto.isBaselineSet ?? false
+                    liftSet.rir = dto.rir
                     context.insert(liftSet)
                 } else {
                     print("SyncService: Skipping lift set \(dto.liftSetId) - exercise \(dto.exerciseId) not found")
@@ -781,6 +785,9 @@ class SyncService: ObservableObject {
                     if let mt = dto.movementType {
                         existing.movementType = mt
                     }
+                    if let seq = dto.setPlan {
+                        existing.setPlan = seq
+                    }
                 }
             } else {
                 let loadType = ExerciseLoadType(rawValue: dto.loadType) ?? .barbell
@@ -797,6 +804,9 @@ class SyncService: ObservableObject {
                     deleted: dto.deleted ?? false,
                     icon: dto.icon ?? "LiftTheBullIcon"
                 )
+                if let seq = dto.setPlan {
+                    exercise.setPlan = seq
+                }
                 context.insert(exercise)
             }
         }

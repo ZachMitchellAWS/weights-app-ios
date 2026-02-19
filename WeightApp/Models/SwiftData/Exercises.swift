@@ -34,6 +34,9 @@ final class Exercises {
     var deleted: Bool
     var icon: String
     var movementType: String?
+    @Attribute(originalName: "setSequence") var setPlan: [String]
+
+    static let defaultSetPlan = ["easy", "easy", "moderate", "moderate", "hard", "hard", "pr"]
 
     init(name: String, isCustom: Bool, loadType: ExerciseLoadType = .barbell, movementType: ExerciseMovementType = .other, icon: String = "LiftTheBullIcon") {
         self.id = UUID()
@@ -46,6 +49,7 @@ final class Exercises {
         self.notes = nil
         self.deleted = false
         self.icon = icon
+        self.setPlan = Exercises.defaultSetPlan
     }
 
     init(id: UUID? = nil, name: String, isCustom: Bool, loadType: ExerciseLoadType = .barbell,
@@ -62,6 +66,7 @@ final class Exercises {
         self.notes = notes
         self.deleted = deleted
         self.icon = icon
+        self.setPlan = Exercises.defaultSetPlan
     }
 
     var exerciseLoadType: ExerciseLoadType {

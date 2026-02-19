@@ -41,7 +41,6 @@ struct CheckInView: View {
     @State private var showRepsPicker = false
     @State private var repsInput: String = ""
     @State private var showLogConfirmation = false
-    @State private var showCancelOverlay = false
     @State private var weightDelta: Double = 5.0
     @State private var showExercisesSelection = false
     @State private var selectedGraphTab: Int = 0 // 0 = Set Intensity, 1 = 1RM Graph
@@ -59,13 +58,91 @@ struct CheckInView: View {
     @State private var exerciseOverlayDismissTask: Task<Void, Never>?
     @State private var showSequenceEditor = false
     @State private var activeSequenceId: UUID? = WorkoutSequenceStore.activeSequenceId()
+    @State private var baseline1RM: Double? = nil
+
+    enum EffortMode: Int, CaseIterable {
+        case easy = 0, moderate = 1, hard = 2, progress = 3
+
+        var title: String {
+            switch self {
+            case .easy: return "Easy Options"
+            case .moderate: return "Moderate Options"
+            case .hard: return "Hard Options"
+            case .progress: return "Progress Options"
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .easy: return "< 55% of Est. 1RM"
+            case .moderate: return "55–74% of Est. 1RM"
+            case .hard: return "75–84% of Est. 1RM"
+            case .progress: return "Sets to increase Est. 1RM"
+            }
+        }
+
+        var targetPercentages: [Double]? {
+            switch self {
+            case .easy: return [40, 45, 50]
+            case .moderate: return [55, 60, 65, 70]
+            case .hard: return [75, 80, 85]
+            case .progress: return nil
+            }
+        }
+
+        var repRange: ClosedRange<Int> {
+            switch self {
+            case .easy: return 8...12
+            case .moderate: return 6...10
+            case .hard: return 3...6
+            case .progress: return 1...12
+            }
+        }
+
+        var tileColor: Color {
+            switch self {
+            case .easy: return .setEasy
+            case .moderate: return .setModerate
+            case .hard: return .setHard
+            case .progress: return .setPR
+            }
+        }
+
+        var effortKey: String {
+            switch self {
+            case .easy: return "easy"
+            case .moderate: return "moderate"
+            case .hard: return "hard"
+            case .progress: return "pr"
+            }
+        }
+
+        static func from(effort: String) -> EffortMode {
+            switch effort {
+            case "easy": return .easy
+            case "moderate": return .moderate
+            case "hard": return .hard
+            case "pr": return .progress
+            default: return .easy
+            }
+        }
+    }
 
     enum SortColumn {
         case weight, reps, est1RM, gain
     }
+    enum EffortSortColumn {
+        case weight, reps, percent1RM
+    }
+    @State private var effortMode: EffortMode? = nil
+    @State private var selectedPlanTileIndex: Int? = nil
+    @State private var showExpandedEffortOptions = false
     @State private var sortColumn: SortColumn = .gain
     @State private var sortAscending: Bool = true
     @State private var columnHighlighted = false
+    @State private var effortSortColumn: EffortSortColumn = .weight
+    @State private var effortSortAscending: Bool = true
+    @State private var effortColumnHighlighted = false
     @State private var weightColumnHighlighted = false
     @State private var cachedSetsWithPRInfo: [SetWithPR] = []
 
@@ -117,6 +194,14 @@ struct CheckInView: View {
         return allEstimated1RMs.filter { $0.exercise?.id == ex.id }
     }
 
+    private var isFirstSetForExercise: Bool {
+        setsForSelected.isEmpty
+    }
+
+    private var priorSession1RM: Double? {
+        let todayStart = Calendar.current.startOfDay(for: today)
+        return estimated1RMsForSelected.first { $0.createdAt < todayStart }?.value
+    }
 
     private struct SetWithPR {
         let set: LiftSets
@@ -125,7 +210,7 @@ struct CheckInView: View {
         let percentageOfCurrent: Double
     }
 
-    private static func computeSetsWithPRInfo(for exercise: Exercises, from allSets: [LiftSets]) -> [SetWithPR] {
+    private static func computeSetsWithPRInfo(for exercise: Exercises, from allSets: [LiftSets], estimated1RMs: [Estimated1RMs]) -> [SetWithPR] {
         // Get all sets for this exercise in chronological order (oldest first)
         // Filter for valid sets (weight >= 0, reps >= 1)
         let sets = allSets
@@ -138,6 +223,15 @@ struct CheckInView: View {
 
         for set in sets {
             let estimated = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
+
+            // Baseline sets show effort color, not PR amber
+            if set.isBaselineSet {
+                let baselineEstimate = estimated1RMs.first(where: { $0.setId == set.id })?.value ?? estimated
+                let percentage = baselineEstimate > 0 ? (estimated / baselineEstimate) * 100 : 100.0
+                result.append(SetWithPR(set: set, estimated1RM: estimated, wasPR: false, percentageOfCurrent: percentage))
+                currentMax = max(currentMax, baselineEstimate)
+                continue
+            }
 
             // For 0-weight sets, PR is based on reps; otherwise based on 1RM
             let wasPR: Bool
@@ -165,11 +259,14 @@ struct CheckInView: View {
             cachedSetsWithPRInfo = []
             return
         }
-        cachedSetsWithPRInfo = Self.computeSetsWithPRInfo(for: ex, from: allSets)
+        cachedSetsWithPRInfo = Self.computeSetsWithPRInfo(for: ex, from: allSets, estimated1RMs: estimated1RMsForSelected)
     }
 
     private var current1RM: Double {
-        // Use the latest Estimated1RMs if available, otherwise calculate from sets
+        // Frozen session reference: prior session's 1RM > baseline > 0
+        if let prior = priorSession1RM { return prior }
+        if let baseline = baseline1RM { return baseline }
+        // Fallback: use the latest Estimated1RMs if available, otherwise calculate from sets
         if let latest = estimated1RMsForSelected.first {
             return latest.value
         }
@@ -255,6 +352,24 @@ struct CheckInView: View {
         return Array(sorted.prefix(5))
     }
 
+    private var effortSuggestions: [OneRMCalculator.EffortSuggestion] {
+        guard let mode = effortMode, let targetPercents = mode.targetPercentages else { return [] }
+        let unsorted = OneRMCalculator.effortSuggestions(
+            current1RM: current1RM,
+            targetPercents: targetPercents,
+            increment: smallestPlateIncrement,
+            repRange: mode.repRange
+        )
+        switch effortSortColumn {
+        case .weight:
+            return unsorted.sorted { effortSortAscending ? $0.weight < $1.weight : $0.weight > $1.weight }
+        case .reps:
+            return unsorted.sorted { effortSortAscending ? $0.reps < $1.reps : $0.reps > $1.reps }
+        case .percent1RM:
+            return unsorted.sorted { effortSortAscending ? $0.percent1RM < $1.percent1RM : $0.percent1RM > $1.percent1RM }
+        }
+    }
+
     private var weightOptions: [Double] {
         var options: [Double] = []
         var value: Double = 0
@@ -306,13 +421,6 @@ struct CheckInView: View {
                     .allowsHitTesting(false)
                 }
 
-                if showCancelOverlay {
-                    CancelOverlayView()
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                        .zIndex(10)
-                        .allowsHitTesting(false)
-                }
-
                 if showExerciseSelectedOverlay, let ex = selectedExercises {
                     VStack(spacing: 14) {
                         ExerciseIconView(exercise: ex, size: 72)
@@ -345,6 +453,7 @@ struct CheckInView: View {
                         exercise: selectedExercises,
                         reps: reps,
                         weight: weight,
+                        isBaseline: isFirstSetForExercise,
                         onConfirm: {
                             hapticFeedback.impactOccurred()
                             showLogConfirmation = false
@@ -353,15 +462,11 @@ struct CheckInView: View {
                         onCancel: {
                             hapticFeedback.impactOccurred()
                             showLogConfirmation = false
-                            showCancelOverlay = true
-                            Task {
-                                try? await Task.sleep(nanoseconds: 1_500_000_000)
-                                await MainActor.run {
-                                    withAnimation(.easeOut(duration: 0.18)) {
-                                        showCancelOverlay = false
-                                    }
-                                }
-                            }
+                        },
+                        onBaselineConfirm: { rir in
+                            hapticFeedback.impactOccurred()
+                            showLogConfirmation = false
+                            logBaselineSet(rir: rir)
                         }
                     )
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
@@ -391,6 +496,9 @@ struct CheckInView: View {
                 resetToDefaults()
                 validateWeightDelta()
                 recomputeSetsWithPRInfo()
+                selectedPlanTileIndex = nil
+                effortMode = nil
+                baseline1RM = nil
                 // Save selected exercise to UserDefaults
                 if let id = newId {
                     UserDefaults.standard.set(id.uuidString, forKey: lastSelectedExerciseKey)
@@ -458,8 +566,8 @@ struct CheckInView: View {
                     onExerciseCreated: { name, loadType, movementType, icon in
                         createExercise(name: name, loadType: loadType, movementType: movementType, icon: icon)
                     },
-                    onExerciseSaved: { exercise, name, movementType, icon, notes in
-                        saveExercise(exercise, name: name, movementType: movementType, icon: icon, notes: notes)
+                    onExerciseSaved: { exercise, name, movementType, icon, notes, setPlan in
+                        saveExercise(exercise, name: name, movementType: movementType, icon: icon, notes: notes, setPlan: setPlan)
                     },
                     onExerciseDeleted: { exercise in
                         deleteExercise(exercise)
@@ -482,8 +590,8 @@ struct CheckInView: View {
                             EditExerciseFormView(
                                 exercise: ex,
                                 showBackChevron: false,
-                                onSave: { exercise, name, movementType, icon, notes in
-                                    saveExercise(exercise, name: name, movementType: movementType, icon: icon, notes: notes)
+                                onSave: { exercise, name, movementType, icon, notes, setPlan in
+                                    saveExercise(exercise, name: name, movementType: movementType, icon: icon, notes: notes, setPlan: setPlan)
                                 },
                                 onDelete: { exercise in
                                     deleteExercise(exercise)
@@ -1145,6 +1253,7 @@ struct CheckInView: View {
 
             // Bottom half: sequence name + icon carousel
             VStack(spacing: 4) {
+                Spacer().frame(height: 2)
                 // Row 1: Sequence name (left-aligned, tappable menu)
                 HStack {
                     Menu {
@@ -1176,19 +1285,29 @@ struct CheckInView: View {
                             }
                         }
                     } label: {
-                        HStack(spacing: 3) {
+                        HStack(spacing: 4) {
                             Text(activeSequenceName)
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.system(size: 13, weight: .medium))
                                 .lineLimit(1)
                             Image(systemName: "chevron.down")
-                                .font(.system(size: 8, weight: .semibold))
+                                .font(.system(size: 9, weight: .semibold))
                         }
                         .foregroundStyle(.white.opacity(0.5))
                     }
                     .padding(.leading, 12)
                     Spacer()
+                    Button {
+                        hapticFeedback.impactOccurred()
+                        showSequenceEditor = true
+                    } label: {
+                        Image(systemName: "list.bullet.rectangle.portrait")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 12)
                 }
-                .frame(height: 18)
+                .frame(height: 22)
 
                 // Row 2: Icon carousel (full width)
                 ScrollViewReader { proxy in
@@ -1549,29 +1668,6 @@ struct CheckInView: View {
         }.sorted { $0.createdAt < $1.createdAt }
     }
 
-    private var lastDayDate: Date? {
-        guard let ex = selectedExercises else { return nil }
-        let calendar = Calendar.current
-        let today = self.today
-
-        let previousDays = allSets
-            .filter { $0.exercise?.id == ex.id && $0.createdAt < today }
-            .map { calendar.startOfDay(for: $0.createdAt) }
-
-        return Set(previousDays).sorted(by: >).first
-    }
-
-    private var lastDaySets: [LiftSets] {
-        guard let ex = selectedExercises else { return [] }
-        guard let lastDay = lastDayDate else { return [] }
-        let calendar = Calendar.current
-
-        return allSets.filter { set in
-            set.exercise?.id == ex.id &&
-            calendar.isDate(set.createdAt, inSameDayAs: lastDay)
-        }.sorted { $0.createdAt < $1.createdAt }
-    }
-
     private var setComparisonView: some View {
         let placeholderSquares: [[Color]] = [
             [.setEasy, .setModerate, .setHard, .setPR, .setNearMax, .setHard, .setModerate],
@@ -1579,7 +1675,7 @@ struct CheckInView: View {
         ]
 
         return Group {
-            if todaysSets.isEmpty && lastDaySets.isEmpty {
+            if todaysSets.isEmpty && (selectedExercises?.setPlan.isEmpty ?? true) {
                 // Empty state with placeholder grid of colored squares
                 ZStack {
                     // Placeholder grid
@@ -1614,16 +1710,11 @@ struct CheckInView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             } else {
                 VStack(alignment: .leading, spacing: 10) {
-                    // Today's Sets
+                    // Sets Today
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 4) {
-                            Text("Today:")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.7))
-                            Text(formatShortDate(Date()))
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.7))
-                        }
+                        Text("Sets Today")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.7))
 
                         if todaysSets.isEmpty {
                             RoundedRectangle(cornerRadius: 6)
@@ -1677,57 +1768,46 @@ struct CheckInView: View {
                         }
                     }
 
-                    // Previous Day Sets
+                    // Set Plan
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 4) {
-                            Text(lastDayDate != nil ? "Previous Day:" : "Previous Day")
+                        HStack(spacing: 0) {
+                            Text("Set Plan")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.white.opacity(0.7))
-                            if let date = lastDayDate {
-                                Text(formatShortDate(date))
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.white.opacity(0.7))
+                            if !setsForSelected.isEmpty {
+                                Text(" — Tap for set options")
+                                    .font(.caption.italic())
+                                    .foregroundStyle(.white.opacity(0.35))
                             }
                         }
 
-                        if lastDaySets.isEmpty {
-                            Spacer()
-                                .frame(height: 42)
-                        } else {
+                        if let exercise = selectedExercises, !exercise.setPlan.isEmpty {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 6) {
-                                    ForEach(Array(lastDaySets.enumerated()), id: \.element.id) { index, set in
-                                        SetSquareView(
-                                            set: set,
-                                            allSets: allSets,
-                                            currentWeight: weight,
-                                            currentReps: reps,
-                                            hasSetValues: hasSetInitialValues,
-                                            selectedSquareId: selectedSquareId,
-                                            allEstimated1RMs: allEstimated1RMs
-                                        )
-                                        .onTapGesture {
-                                            weight = set.weight
-                                            reps = set.reps
-                                            hasSetInitialValues = true
-                                            hasSetWeight = true
-                                            hasSetReps = true
-                                            selectedSquareId = set.id
-                                            highlightLogSet()
-                                            hapticFeedback.impactOccurred()
-                                            Task {
-                                                try? await Task.sleep(nanoseconds: 300_000_000)
-                                                await MainActor.run {
-                                                    selectedSquareId = nil
+                                    ForEach(Array(exercise.setPlan.enumerated()), id: \.offset) { index, effort in
+                                        SequenceSquareView(effort: effort, isHighlighted: selectedPlanTileIndex == index)
+                                            .onTapGesture {
+                                                guard !setsForSelected.isEmpty else { return }
+                                                hapticFeedback.impactOccurred()
+                                                if selectedPlanTileIndex == index {
+                                                    selectedPlanTileIndex = nil
+                                                    withAnimation { effortMode = nil }
+                                                } else {
+                                                    selectedPlanTileIndex = index
+                                                    withAnimation {
+                                                        effortMode = EffortMode.from(effort: effort)
+                                                    }
                                                 }
                                             }
-                                        }
                                     }
                                 }
                                 .padding(.vertical, 2)
                                 .padding(.horizontal, 2)
                             }
                             .frame(height: 46)
+                        } else {
+                            Spacer()
+                                .frame(height: 42)
                         }
                     }
                 }
@@ -1830,7 +1910,7 @@ struct CheckInView: View {
             .padding(.bottom, 4)
 
             // Legend (only show when there's data)
-            if (selectedGraphTab == 0 && !(todaysSets.isEmpty && lastDaySets.isEmpty)) ||
+            if (selectedGraphTab == 0 && !setsForSelected.isEmpty) ||
                (selectedGraphTab == 1 && !cachedSetsWithPRInfo.isEmpty) {
                 HStack(spacing: 10) {
                     LegendItem(color: .setEasy, label: "Easy")
@@ -1861,276 +1941,121 @@ struct CheckInView: View {
 
     private var optionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Header with weight delta controls
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Progress Options")
-                        .font(.inter(size: 17))
-                        .foregroundStyle(.white)
-                    HStack(spacing: 3) {
-                        Text("Sets to")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.7))
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 8))
-                            .foregroundStyle(.white.opacity(0.7))
-                        Text("Estimated 1RM")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.7))
-                    }
-                }
-                .padding(.leading, 4)
-
-                Spacer()
-
-                if setsForSelected.isEmpty {
-                    // Empty state: show slider icon to open change plates
+            if let mode = effortMode {
+                // Header with chevrons + title + controls
+                HStack(spacing: 6) {
+                    // Left chevron
                     Button {
-                        hapticFeedback.impactOccurred()
-                        showIncrementSelection = true
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 20))
-                            .foregroundStyle(Color.appAccent)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Color(white: 0.12))
-                            .cornerRadius(10)
-                    }
-                } else {
-                    // Has data: show increment/decrement controls
-//                    Button {
-//                        hapticFeedback.impactOccurred()
-//                        showIncrementSelection = true
-//                    } label: {
-//                        WeightPlateIcon(size: 16)
-//                            .padding(7)
-//                            .background(Color(white: 0.12))
-//                            .cornerRadius(8)
-//                    }
-
-                    HStack(spacing: 6) {
-                        Button {
-                            if let currentIndex = availableWeightDeltas.firstIndex(where: { abs($0 - weightDelta) < 0.01 }),
-                               currentIndex > 0 {
-                                weightDelta = availableWeightDeltas[currentIndex - 1]
-                                hapticFeedback.impactOccurred()
-                                highlightWeightColumn()
-                            }
-                        } label: {
-                            Image(systemName: "minus.circle.fill")
-                                .font(.system(size: 18))
-                                .foregroundStyle(weightDelta > minWeightDelta ? Color.appAccent : .gray)
+                        if let prev = EffortMode(rawValue: mode.rawValue - 1) {
+                            hapticFeedback.impactOccurred()
+                            selectedPlanTileIndex = nil
+                            withAnimation { effortMode = prev }
                         }
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(mode == .easy ? Color.clear : Color.appAccent)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .disabled(mode == .easy)
 
+                    HStack(spacing: 10) {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(SequenceSquareView.color(for: mode.effortKey).opacity(0.3))
+                            .frame(width: 18, height: 18)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 3)
+                                    .stroke(SequenceSquareView.color(for: mode.effortKey), lineWidth: 1.5)
+                            )
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(mode.title)
+                                .font(.inter(size: 17))
+                                .foregroundStyle(.white)
+                            Text(mode.subtitle)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
+                    }
+
+                    Spacer()
+
+                    if setsForSelected.isEmpty {
                         Button {
                             hapticFeedback.impactOccurred()
                             showIncrementSelection = true
                         } label: {
-                            VStack(spacing: 0) {
-                                Text(weightDelta.formatted(.number.precision(.fractionLength(1))))
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.white)
-                                Text("Δ LB")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundStyle(Color.appLabel)
-                            }
-                            .frame(width: 45)
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.system(size: 20))
+                                .foregroundStyle(Color.appAccent)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color(white: 0.12))
+                                .cornerRadius(10)
                         }
-                        .buttonStyle(.plain)
-
+                    } else {
+                        // Expand button (all modes)
                         Button {
-                            if let currentIndex = availableWeightDeltas.firstIndex(where: { abs($0 - weightDelta) < 0.01 }),
-                               currentIndex < availableWeightDeltas.count - 1 {
-                                weightDelta = availableWeightDeltas[currentIndex + 1]
-                                hapticFeedback.impactOccurred()
-                                highlightWeightColumn()
+                            hapticFeedback.impactOccurred()
+                            if mode == .progress {
+                                showExpandedProgressOptions = true
+                            } else {
+                                showExpandedEffortOptions = true
                             }
                         } label: {
-                            Image(systemName: "plus.circle.fill")
-                                .font(.system(size: 18))
-                                .foregroundStyle(weightDelta < maxWeightDelta ? Color.appAccent : .gray)
+                            Image(systemName: "arrow.up.backward.and.arrow.down.forward")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.5))
+                                .padding(8)
+                                .background(Color(white: 0.12))
+                                .cornerRadius(8)
                         }
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color(white: 0.12))
-                    .cornerRadius(8)
 
+                    // Right chevron
                     Button {
-                        hapticFeedback.impactOccurred()
-                        showExpandedProgressOptions = true
+                        if let next = EffortMode(rawValue: mode.rawValue + 1) {
+                            hapticFeedback.impactOccurred()
+                            selectedPlanTileIndex = nil
+                            withAnimation { effortMode = next }
+                        }
                     } label: {
-                        Image(systemName: "arrow.up.backward.and.arrow.down.forward")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.5))
-                            .padding(8)
-                            .background(Color(white: 0.12))
-                            .cornerRadius(8)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(mode == .progress ? Color.clear : Color.appAccent)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
                     }
+                    .disabled(mode == .progress)
                 }
-            }
 
-            if setsForSelected.isEmpty {
-                // Empty state content
-                ProgressOptionsEmptyState()
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 120)
+                if setsForSelected.isEmpty {
+                    ProgressOptionsEmptyState(message: "Log your first set below")
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 120)
+                } else if mode == .progress {
+                    // Progress mode: 4-column layout (unchanged)
+                    progressOptionsContent
+                } else {
+                    // Effort mode: 3-column layout
+                    effortOptionsContent
+                }
+            } else if selectedExercises == nil {
+                // No exercise selected — entire widget is tappable
+                Button {
+                    showExercisesSelection = true
+                } label: {
+                    ProgressOptionsEmptyState(message: "Select an Exercise")
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 160)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             } else {
-                VStack(spacing: 8) {
-                    // Fixed header row with labels
-                    HStack(spacing: 12) {
-                        Button {
-                            handleColumnTap(.weight)
-                        } label: {
-                            VStack(spacing: 0) {
-                                Text("WEIGHT")
-                                    .font(.caption2.weight(.bold))
-                                    .foregroundStyle(columnHighlighted && sortColumn == .weight ? Color.appAccent : Color.appLabel)
-                                    .animation(.easeInOut(duration: 0.15), value: columnHighlighted)
-                                if sortColumn == .weight {
-                                    Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
-                                        .font(.system(size: 8))
-                                        .foregroundStyle(Color.appLabel)
-                                } else {
-                                    Image(systemName: "chevron.down")
-                                        .font(.system(size: 8))
-                                        .foregroundStyle(Color.clear)
-                                }
-                            }
-                            .frame(width: 65, height: 24)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-
-                        Spacer()
-                            .frame(width: 1)
-
-                        Button {
-                            handleColumnTap(.reps)
-                        } label: {
-                            VStack(spacing: 0) {
-                                Text("REPS")
-                                    .font(.caption2.weight(.bold))
-                                    .foregroundStyle(columnHighlighted && sortColumn == .reps ? Color.appAccent : Color.appLabel)
-                                    .animation(.easeInOut(duration: 0.15), value: columnHighlighted)
-                                if sortColumn == .reps {
-                                    Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
-                                        .font(.system(size: 8))
-                                        .foregroundStyle(Color.appLabel)
-                                } else {
-                                    Image(systemName: "chevron.down")
-                                        .font(.system(size: 8))
-                                        .foregroundStyle(Color.clear)
-                                }
-                            }
-                            .frame(width: 50, height: 24)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-
-                        Spacer()
-                            .frame(width: 1)
-
-                        Button {
-                            handleColumnTap(.est1RM)
-                        } label: {
-                            VStack(spacing: 0) {
-                                Text("EST. 1RM")
-                                    .font(.caption2.weight(.bold))
-                                    .foregroundStyle(columnHighlighted && sortColumn == .est1RM ? Color.appAccent : Color.appLabel)
-                                    .animation(.easeInOut(duration: 0.15), value: columnHighlighted)
-                                if sortColumn == .est1RM || sortColumn == .gain {
-                                    Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
-                                        .font(.system(size: 8))
-                                        .foregroundStyle(Color.appLabel)
-                                } else {
-                                    Image(systemName: "chevron.down")
-                                        .font(.system(size: 8))
-                                        .foregroundStyle(Color.clear)
-                                }
-                            }
-                            .frame(width: 60, height: 24)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-
-                        Spacer()
-                            .frame(width: 1)
-
-                        Button {
-                            handleColumnTap(.gain)
-                        } label: {
-                            VStack(spacing: 0) {
-                                Text("GAIN")
-                                    .font(.caption2.weight(.bold))
-                                    .foregroundStyle(columnHighlighted && sortColumn == .gain ? Color.appAccent : Color.appLabel)
-                                    .animation(.easeInOut(duration: 0.15), value: columnHighlighted)
-                                if sortColumn == .gain || sortColumn == .est1RM {
-                                    Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
-                                        .font(.system(size: 8))
-                                        .foregroundStyle(Color.appLabel)
-                                } else {
-                                    Image(systemName: "chevron.down")
-                                        .font(.system(size: 8))
-                                        .foregroundStyle(Color.clear)
-                                }
-                            }
-                            .frame(width: 65, height: 24)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, 12)
-
-                    ZStack(alignment: .bottom) {
-                        ScrollViewReader { proxy in
-                            ScrollView(.vertical, showsIndicators: false) {
-                                VStack(spacing: 8) {
-                                    ForEach(Array(topThreeSuggestions.enumerated()), id: \.element.id) { index, suggestion in
-                                        ProgressOptionCard(
-                                            suggestion: suggestion,
-                                            isSelected: isOptionSelected(suggestion),
-                                            sortColumn: sortColumn,
-                                            columnHighlighted: columnHighlighted,
-                                            weightColumnHighlighted: weightColumnHighlighted
-                                        )
-                                        .onTapGesture {
-                                            hapticFeedback.impactOccurred()
-                                            selectOption(suggestion)
-                                        }
-                                        .id(index == 0 ? "top" : nil)
-                                    }
-                                }
-                                .padding(.bottom, 8)
-                            }
-                            .frame(height: 88)
-                            .onChange(of: sortColumn) { _, _ in
-                                withAnimation {
-                                    proxy.scrollTo("top", anchor: .top)
-                                }
-                            }
-                            .onChange(of: sortAscending) { _, _ in
-                                withAnimation {
-                                    proxy.scrollTo("top", anchor: .top)
-                                }
-                            }
-                        }
-
-                        // Gradient fade indicator for scrollable content
-                        LinearGradient(
-                            colors: [
-                                Color(white: 0.14).opacity(0),
-                                Color(white: 0.14).opacity(0.8),
-                                Color(white: 0.14)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                        .frame(height: 8)
-                        .allowsHitTesting(false)
-                    }
-                }
+                // Exercise selected but no effort mode chosen
+                ProgressOptionsEmptyState(message: "Log your first set below")
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 160)
             }
         }
         .padding(.top, 10)
@@ -2166,11 +2091,235 @@ struct CheckInView: View {
             .presentationContentInteraction(.scrolls)
             .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showExpandedEffortOptions) {
+            ExpandedEffortOptionsSheet(
+                effortMode: effortMode ?? .easy,
+                suggestions: effortSuggestions,
+                onSelect: { suggestion in
+                    selectEffortOption(suggestion)
+                }
+            )
+            .presentationDetents([.height(400), .large])
+            .presentationContentInteraction(.scrolls)
+            .presentationDragIndicator(.visible)
+        }
+    }
+
+    private var progressOptionsContent: some View {
+        VStack(spacing: 8) {
+            // Fixed header row with labels
+            HStack(spacing: 12) {
+                Button {
+                    handleColumnTap(.weight)
+                } label: {
+                    VStack(spacing: 0) {
+                        Text("WEIGHT")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(columnHighlighted && sortColumn == .weight ? Color.appAccent : Color.appLabel)
+                            .animation(.easeInOut(duration: 0.15), value: columnHighlighted)
+                        if sortColumn == .weight {
+                            Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 8))
+                                .foregroundStyle(Color.appLabel)
+                        } else {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8))
+                                .foregroundStyle(Color.clear)
+                        }
+                    }
+                    .frame(width: 65, height: 24)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+                    .frame(width: 1)
+
+                Button {
+                    handleColumnTap(.reps)
+                } label: {
+                    VStack(spacing: 0) {
+                        Text("REPS")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(columnHighlighted && sortColumn == .reps ? Color.appAccent : Color.appLabel)
+                            .animation(.easeInOut(duration: 0.15), value: columnHighlighted)
+                        if sortColumn == .reps {
+                            Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 8))
+                                .foregroundStyle(Color.appLabel)
+                        } else {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8))
+                                .foregroundStyle(Color.clear)
+                        }
+                    }
+                    .frame(width: 50, height: 24)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+                    .frame(width: 1)
+
+                Button {
+                    handleColumnTap(.est1RM)
+                } label: {
+                    VStack(spacing: 0) {
+                        Text("EST. 1RM")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(columnHighlighted && sortColumn == .est1RM ? Color.appAccent : Color.appLabel)
+                            .animation(.easeInOut(duration: 0.15), value: columnHighlighted)
+                        if sortColumn == .est1RM || sortColumn == .gain {
+                            Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 8))
+                                .foregroundStyle(Color.appLabel)
+                        } else {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8))
+                                .foregroundStyle(Color.clear)
+                        }
+                    }
+                    .frame(width: 60, height: 24)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+                    .frame(width: 1)
+
+                Button {
+                    handleColumnTap(.gain)
+                } label: {
+                    VStack(spacing: 0) {
+                        Text("GAIN")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(columnHighlighted && sortColumn == .gain ? Color.appAccent : Color.appLabel)
+                            .animation(.easeInOut(duration: 0.15), value: columnHighlighted)
+                        if sortColumn == .gain || sortColumn == .est1RM {
+                            Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 8))
+                                .foregroundStyle(Color.appLabel)
+                        } else {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8))
+                                .foregroundStyle(Color.clear)
+                        }
+                    }
+                    .frame(width: 65, height: 24)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 12)
+
+            ZStack(alignment: .bottom) {
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 8) {
+                            ForEach(Array(topThreeSuggestions.enumerated()), id: \.element.id) { index, suggestion in
+                                ProgressOptionCard(
+                                    suggestion: suggestion,
+                                    isSelected: isOptionSelected(suggestion),
+                                    sortColumn: sortColumn,
+                                    columnHighlighted: columnHighlighted,
+                                    weightColumnHighlighted: weightColumnHighlighted
+                                )
+                                .onTapGesture {
+                                    hapticFeedback.impactOccurred()
+                                    selectOption(suggestion)
+                                }
+                                .id(index == 0 ? "top" : nil)
+                            }
+                        }
+                        .padding(.bottom, 8)
+                    }
+                    .frame(height: 88)
+                    .onChange(of: sortColumn) { _, _ in
+                        withAnimation {
+                            proxy.scrollTo("top", anchor: .top)
+                        }
+                    }
+                    .onChange(of: sortAscending) { _, _ in
+                        withAnimation {
+                            proxy.scrollTo("top", anchor: .top)
+                        }
+                    }
+                }
+
+                LinearGradient(
+                    colors: [
+                        Color(white: 0.14).opacity(0),
+                        Color(white: 0.14).opacity(0.8),
+                        Color(white: 0.14)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 8)
+                .allowsHitTesting(false)
+            }
+        }
+    }
+
+    private var effortOptionsContent: some View {
+        VStack(spacing: 8) {
+            // 3-column sortable header
+            HStack(spacing: 0) {
+                effortColumnButton(title: "WEIGHT", column: .weight)
+                effortColumnButton(title: "REPS", column: .reps)
+                effortColumnButton(title: "% 1RM", column: .percent1RM)
+            }
+            .frame(height: 24)
+            .padding(.horizontal, 12)
+
+            ZStack(alignment: .bottom) {
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 8) {
+                            ForEach(Array(effortSuggestions.enumerated()), id: \.element.id) { index, suggestion in
+                                EffortOptionCard(
+                                    suggestion: suggestion,
+                                    isSelected: isEffortOptionSelected(suggestion),
+                                    sortColumn: effortSortColumn,
+                                    columnHighlighted: effortColumnHighlighted,
+                                    accentColor: (effortMode ?? .easy).tileColor
+                                )
+                                .onTapGesture {
+                                    hapticFeedback.impactOccurred()
+                                    selectEffortOption(suggestion)
+                                }
+                                .id(index == 0 ? "effortTop" : nil)
+                            }
+                        }
+                        .padding(.bottom, 8)
+                    }
+                    .frame(height: 88)
+                    .onChange(of: effortSortColumn) { _, _ in
+                        withAnimation { proxy.scrollTo("effortTop", anchor: .top) }
+                    }
+                    .onChange(of: effortSortAscending) { _, _ in
+                        withAnimation { proxy.scrollTo("effortTop", anchor: .top) }
+                    }
+                }
+
+                LinearGradient(
+                    colors: [
+                        Color(white: 0.14).opacity(0),
+                        Color(white: 0.14).opacity(0.8),
+                        Color(white: 0.14)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 8)
+                .allowsHitTesting(false)
+            }
+        }
     }
 
     private var logSetSection: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 // Weight with increment/decrement
                 HStack(spacing: 8) {
                     Button {
@@ -2232,14 +2381,11 @@ struct CheckInView: View {
                             .foregroundStyle(Color.appAccent)
                     }
                 }
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(Color(white: 0.12))
                 .cornerRadius(10)
-                .frame(maxWidth: .infinity)
-
-                Divider()
-                    .background(.white.opacity(0.2))
 
                 // Reps
                 HStack(spacing: 8) {
@@ -2294,11 +2440,11 @@ struct CheckInView: View {
                             .foregroundStyle(Color.appAccent)
                     }
                 }
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(Color(white: 0.12))
                 .cornerRadius(10)
-                .frame(maxWidth: .infinity)
             }
 
             // Log Set button spanning full width
@@ -2319,7 +2465,7 @@ struct CheckInView: View {
                     showLogConfirmation = true
                 }
             } label: {
-                Text("Log Set")
+                Text(isFirstSetForExercise ? "Log Baseline Set" : "Log Set")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
@@ -2346,7 +2492,7 @@ struct CheckInView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.appAccent, lineWidth: logSetHighlighted ? 3 : 0)
+                .stroke((effortMode ?? .progress).tileColor, lineWidth: logSetHighlighted ? 3 : 0)
                 .animation(.easeInOut(duration: 0.5).repeatCount(1, autoreverses: true), value: logSetHighlighted)
         )
         .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
@@ -2429,48 +2575,14 @@ struct CheckInView: View {
         }
     }
 
-    private struct CancelOverlayView: View {
-        @State private var pulse = false
-
-        private let squareSize: CGFloat = 160
-
-        var body: some View {
-            ZStack {
-                Color.black.opacity(0.15)
-                    .ignoresSafeArea()
-
-                VStack(spacing: 10) {
-                    Image(systemName: "arrow.uturn.backward.circle.fill")
-                        .font(.system(size: 44, weight: .semibold))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.white.opacity(0.7))
-
-                    Text("Not Logged")
-                        .font(.headline)
-                        .foregroundStyle(.white.opacity(0.9))
-                }
-                .frame(width: squareSize, height: squareSize)
-                .background(Color(white: 0.2).opacity(0.95), in: RoundedRectangle(cornerRadius: 16))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .strokeBorder(Color.appLogoColor.opacity(0.5), lineWidth: 1.5)
-                )
-                .scaleEffect(pulse ? 1.02 : 1.0)
-                .onAppear {
-                    withAnimation(.easeInOut(duration: 0.22).repeatCount(2, autoreverses: true)) {
-                        pulse = true
-                    }
-                }
-            }
-        }
-    }
-
     private struct ConfirmationOverlayView: View {
         let exercise: Exercises?
         let reps: Int
         let weight: Double
+        let isBaseline: Bool
         let onConfirm: () -> Void
         let onCancel: () -> Void
+        let onBaselineConfirm: ((Int) -> Void)?
 
         private var weightText: String {
             return "\(weight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs"
@@ -2481,7 +2593,9 @@ struct CheckInView: View {
                 Color.black.opacity(0.5)
                     .ignoresSafeArea()
                     .onTapGesture {
-                        onCancel()
+                        if !isBaseline {
+                            onCancel()
+                        }
                     }
 
                 VStack(spacing: 20) {
@@ -2529,33 +2643,63 @@ struct CheckInView: View {
                         .frame(height: 1)
                         .padding(.horizontal, 4)
 
-                    // Buttons
-                    HStack(spacing: 10) {
-                        Button {
-                            onCancel()
-                        } label: {
-                            Text("Cancel")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.8))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color(white: 0.2))
-                                .cornerRadius(10)
-                        }
-                        .buttonStyle(.plain)
+                    if isBaseline {
+                        // Baseline mode: RIR selection
+                        Text("How many more reps could you have done?")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.7))
+                            .multilineTextAlignment(.center)
 
-                        Button {
-                            onConfirm()
-                        } label: {
-                            Text("Confirm")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.black)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color.appAccent)
-                                .cornerRadius(10)
+                        let columns = [
+                            GridItem(.flexible(), spacing: 10),
+                            GridItem(.flexible(), spacing: 10),
+                            GridItem(.flexible(), spacing: 10)
+                        ]
+                        LazyVGrid(columns: columns, spacing: 10) {
+                            ForEach(0...5, id: \.self) { rir in
+                                Button {
+                                    onBaselineConfirm?(rir)
+                                } label: {
+                                    Text(rir == 0 ? "0 (failure)" : "\(rir)")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.black)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                        .background(Color.appAccent)
+                                        .cornerRadius(10)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
-                        .buttonStyle(.plain)
+                    } else {
+                        // Normal mode: Cancel/Confirm buttons
+                        HStack(spacing: 10) {
+                            Button {
+                                onCancel()
+                            } label: {
+                                Text("Cancel")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.white.opacity(0.8))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(Color(white: 0.2))
+                                    .cornerRadius(10)
+                            }
+                            .buttonStyle(.plain)
+
+                            Button {
+                                onConfirm()
+                            } label: {
+                                Text("Confirm")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.black)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(Color.appAccent)
+                                    .cornerRadius(10)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
                 .padding(24)
@@ -2585,7 +2729,7 @@ struct CheckInView: View {
         Task { await SyncService.shared.syncExercise(ex) }
     }
 
-    private func saveExercise(_ exercise: Exercises, name: String, movementType: ExerciseMovementType, icon: String, notes: String?) {
+    private func saveExercise(_ exercise: Exercises, name: String, movementType: ExerciseMovementType, icon: String, notes: String?, setPlan: [String]) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
@@ -2593,6 +2737,7 @@ struct CheckInView: View {
         exercise.icon = icon
         exercise.exerciseMovementType = movementType
         exercise.notes = notes
+        exercise.setPlan = setPlan
         try? modelContext.save()
 
         // Sync edited exercise to backend
@@ -2708,6 +2853,51 @@ struct CheckInView: View {
         }
     }
 
+    private func handleEffortColumnTap(_ column: EffortSortColumn) {
+        hapticFeedback.impactOccurred()
+
+        if effortSortColumn == column {
+            effortSortAscending.toggle()
+        } else {
+            effortSortColumn = column
+            effortSortAscending = true
+        }
+
+        effortColumnHighlighted = true
+        Task {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            await MainActor.run {
+                effortColumnHighlighted = false
+            }
+        }
+    }
+
+    private func effortColumnButton(title: String, column: EffortSortColumn) -> some View {
+        Button {
+            handleEffortColumnTap(column)
+        } label: {
+            VStack(spacing: 0) {
+                Text(title)
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(effortColumnHighlighted && effortSortColumn == column ? Color.appAccent : Color.appLabel)
+                    .animation(.easeInOut(duration: 0.15), value: effortColumnHighlighted)
+                if effortSortColumn == column {
+                    Image(systemName: effortSortAscending ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 8))
+                        .foregroundStyle(Color.appLabel)
+                } else {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8))
+                        .foregroundStyle(Color.clear)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 24)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
     private func highlightWeightColumn() {
         weightColumnHighlighted = true
         Task {
@@ -2725,6 +2915,19 @@ struct CheckInView: View {
         hasSetWeight = true
         hasSetReps = true
         highlightLogSet()
+    }
+
+    private func selectEffortOption(_ suggestion: OneRMCalculator.EffortSuggestion) {
+        reps = suggestion.reps
+        weight = suggestion.weight
+        hasSetInitialValues = true
+        hasSetWeight = true
+        hasSetReps = true
+        highlightLogSet()
+    }
+
+    private func isEffortOptionSelected(_ suggestion: OneRMCalculator.EffortSuggestion) -> Bool {
+        return weight == suggestion.weight && reps == suggestion.reps
     }
 
     private func formatShortDate(_ date: Date) -> String {
@@ -2808,6 +3011,73 @@ struct CheckInView: View {
             showSubmitOverlay = true
         }
 
+        Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            await MainActor.run {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    showSubmitOverlay = false
+                }
+            }
+        }
+    }
+
+    private func logBaselineSet(rir: Int) {
+        guard let ex = selectedExercises else { return }
+
+        let set = LiftSets(exercise: ex, reps: reps, weight: weight)
+        set.isBaselineSet = true
+        set.rir = rir
+        modelContext.insert(set)
+
+        let rirAdjusted1RM = OneRMCalculator.estimate1RMWithRIR(
+            weight: set.weight, reps: set.reps, rir: rir
+        )
+        baseline1RM = rirAdjusted1RM
+
+        let estimated = Estimated1RMs(exercise: ex, value: rirAdjusted1RM, setId: set.id)
+        modelContext.insert(estimated)
+
+        Task {
+            await SyncService.shared.syncLiftSet(set)
+            await SyncService.shared.syncEstimated1RM(estimated)
+        }
+
+        overlayDidIncrease = false
+        overlayDelta = 0
+        overlayNew1RM = rirAdjusted1RM
+
+        // Determine effort based on percentage of the RIR-adjusted 1RM
+        if weight == 0 {
+            switch reps {
+            case 12...:
+                overlayIntensityColor = .setNearMax
+                overlayIntensityLabel = "Redline"
+            case 9..<12:
+                overlayIntensityColor = .setHard
+                overlayIntensityLabel = "Hard"
+            case 6..<9:
+                overlayIntensityColor = .setModerate
+                overlayIntensityLabel = "Moderate"
+            default:
+                overlayIntensityColor = .setEasy
+                overlayIntensityLabel = "Easy"
+            }
+        } else {
+            let setEstimate = OneRMCalculator.estimate1RM(weight: weight, reps: reps)
+            let percentage = rirAdjusted1RM > 0 ? (setEstimate / rirAdjusted1RM) * 100 : 100.0
+            let bucket = TrendsCalculator.IntensityBucket.from(percentage: percentage)
+            overlayIntensityLabel = bucket.rawValue
+            switch bucket {
+            case .redline: overlayIntensityColor = .setNearMax
+            case .hard: overlayIntensityColor = .setHard
+            case .moderate: overlayIntensityColor = .setModerate
+            default: overlayIntensityColor = .setEasy
+            }
+        }
+
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            showSubmitOverlay = true
+        }
         Task {
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             await MainActor.run {
@@ -3015,7 +3285,7 @@ struct NewExerciseFormView: View {
 
 struct EditExerciseFormView: View {
     let exercise: Exercises
-    let onSave: (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void
+    let onSave: (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?, _ setPlan: [String]) -> Void
     let onDelete: ((_ exercise: Exercises) -> Void)?
     @Environment(\.dismiss) private var dismiss
 
@@ -3023,6 +3293,7 @@ struct EditExerciseFormView: View {
     @State private var movementType: ExerciseMovementType
     @State private var icon: String
     @State private var notesInput: String
+    @State private var setPlan: [String]
     @State private var showDeleteSection = false
     @State private var showDeleteConfirmation = false
     @State private var deleteConfirmationChecked = false
@@ -3032,12 +3303,14 @@ struct EditExerciseFormView: View {
     private let maxNotesLength = 500
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
 
+    private static let effortLevels = ["easy", "moderate", "hard", "pr"]
+
     /// Whether this view is shown inside a NavigationStack (push) or standalone sheet
     let showBackChevron: Bool
 
     init(exercise: Exercises,
          showBackChevron: Bool = true,
-         onSave: @escaping (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void,
+         onSave: @escaping (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?, _ setPlan: [String]) -> Void,
          onDelete: ((_ exercise: Exercises) -> Void)? = nil) {
         self.exercise = exercise
         self.showBackChevron = showBackChevron
@@ -3047,6 +3320,7 @@ struct EditExerciseFormView: View {
         self._movementType = State(initialValue: exercise.exerciseMovementType)
         self._icon = State(initialValue: exercise.icon)
         self._notesInput = State(initialValue: exercise.notes ?? "")
+        self._setPlan = State(initialValue: exercise.setPlan)
     }
 
     private var hasUnsavedChanges: Bool {
@@ -3055,8 +3329,9 @@ struct EditExerciseFormView: View {
         let iconChanged = icon != exercise.icon
         let notesChanged = notesInput != (exercise.notes ?? "")
         let movementTypeChanged = movementType != exercise.exerciseMovementType
+        let sequenceChanged = setPlan != exercise.setPlan
         guard !trimmedName.isEmpty else { return false }
-        return nameChanged || iconChanged || notesChanged || movementTypeChanged
+        return nameChanged || iconChanged || notesChanged || movementTypeChanged || sequenceChanged
     }
 
     var body: some View {
@@ -3088,7 +3363,7 @@ struct EditExerciseFormView: View {
 
                 Button {
                     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-                    onSave(exercise, trimmed, movementType, icon, notesInput.isEmpty ? nil : notesInput)
+                    onSave(exercise, trimmed, movementType, icon, notesInput.isEmpty ? nil : notesInput, setPlan)
                     dismiss()
                 } label: {
                     Text("Save")
@@ -3254,6 +3529,76 @@ struct EditExerciseFormView: View {
                         }
                     }
 
+                    // Set Plan editor
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Set Plan")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.7))
+
+                        Text("Tap to cycle effort level. Long-press to remove.")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.4))
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(Array(setPlan.enumerated()), id: \.offset) { index, effort in
+                                    SequenceSquareView(effort: effort)
+                                        .onTapGesture {
+                                            let levels = Self.effortLevels
+                                            if let current = levels.firstIndex(of: effort) {
+                                                setPlan[index] = levels[(current + 1) % levels.count]
+                                            } else {
+                                                setPlan[index] = "easy"
+                                            }
+                                            hapticFeedback.impactOccurred()
+                                        }
+                                        .onLongPressGesture {
+                                            guard setPlan.count > 1 else { return }
+                                            setPlan.remove(at: index)
+                                            hapticFeedback.impactOccurred()
+                                        }
+                                }
+
+                                // Add button
+                                Button {
+                                    setPlan.append("easy")
+                                    hapticFeedback.impactOccurred()
+                                } label: {
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(Color(white: 0.15))
+                                        .frame(width: 42, height: 42)
+                                        .overlay(
+                                            Image(systemName: "plus")
+                                                .font(.system(size: 16, weight: .semibold))
+                                                .foregroundStyle(.white.opacity(0.5))
+                                        )
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 6)
+                                                .stroke(Color.white.opacity(0.2), lineWidth: 1.5)
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.vertical, 2)
+                            .padding(.horizontal, 2)
+                        }
+                        .frame(height: 46)
+
+                        // Legend
+                        HStack(spacing: 8) {
+                            ForEach(Self.effortLevels, id: \.self) { level in
+                                HStack(spacing: 3) {
+                                    Circle()
+                                        .fill(SequenceSquareView.color(for: level))
+                                        .frame(width: 8, height: 8)
+                                    Text(level.capitalized)
+                                        .font(.caption2)
+                                        .foregroundStyle(.white.opacity(0.5))
+                                }
+                            }
+                        }
+                    }
+
                     // Delete section (collapsed by default)
                     if onDelete != nil {
                         VStack(alignment: .leading, spacing: 12) {
@@ -3356,7 +3701,7 @@ struct ExercisesSelectionView: View {
     let exercises: [Exercises]
     @Binding var selectedExercisesId: UUID?
     let onExerciseCreated: (_ name: String, _ loadType: ExerciseLoadType, _ movementType: ExerciseMovementType, _ icon: String) -> Void
-    let onExerciseSaved: (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void
+    let onExerciseSaved: (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?, _ setPlan: [String]) -> Void
     let onExerciseDeleted: (_ exercise: Exercises) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -3556,8 +3901,8 @@ struct ExercisesSelectionView: View {
                     if let exercise = exercises.first(where: { $0.id == exerciseId }) {
                         EditExerciseFormView(
                             exercise: exercise,
-                            onSave: { exercise, name, movementType, icon, notes in
-                                onExerciseSaved(exercise, name, movementType, icon, notes)
+                            onSave: { exercise, name, movementType, icon, notes, setPlan in
+                                onExerciseSaved(exercise, name, movementType, icon, notes, setPlan)
                             },
                             onDelete: { exercise in
                                 onExerciseDeleted(exercise)
@@ -3633,6 +3978,36 @@ struct SetSquareView: View {
     }
 
     private var colorAndPR: (color: Color, isPR: Bool) {
+        // Baseline sets show effort color, not PR amber
+        if set.isBaselineSet {
+            let baselineEstimate = allEstimated1RMs.first(where: { $0.setId == set.id })?.value
+                ?? OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
+            let color: Color
+            if set.weight == 0 {
+                switch set.reps {
+                case 12...:
+                    color = .setNearMax
+                case 9..<12:
+                    color = .setHard
+                case 6..<9:
+                    color = .setModerate
+                default:
+                    color = .setEasy
+                }
+            } else {
+                let setEstimate = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
+                let percentage = baselineEstimate > 0 ? (setEstimate / baselineEstimate) * 100 : 100.0
+                let bucket = TrendsCalculator.IntensityBucket.from(percentage: percentage)
+                switch bucket {
+                case .redline: color = .setNearMax
+                case .hard: color = .setHard
+                case .moderate: color = .setModerate
+                default: color = .setEasy
+                }
+            }
+            return (color: color, isPR: false)
+        }
+
         // Calculate percentage of current 1RM at time of this set
         let previousSets = allSets
             .filter { $0.exercise?.id == set.exercise?.id && $0.createdAt < set.createdAt }
@@ -3641,7 +4016,14 @@ struct SetSquareView: View {
         var currentMax: Double = 0
         var maxReps: Int = 0
         for prevSet in previousSets {
-            let estimated = OneRMCalculator.estimate1RM(weight: prevSet.weight, reps: prevSet.reps)
+            let estimated: Double
+            if prevSet.isBaselineSet {
+                // Use RIR-adjusted estimate for baseline sets
+                estimated = allEstimated1RMs.first(where: { $0.setId == prevSet.id })?.value
+                    ?? OneRMCalculator.estimate1RM(weight: prevSet.weight, reps: prevSet.reps)
+            } else {
+                estimated = OneRMCalculator.estimate1RM(weight: prevSet.weight, reps: prevSet.reps)
+            }
             currentMax = max(currentMax, estimated)
             maxReps = max(maxReps, prevSet.reps)
         }
@@ -3770,7 +4152,38 @@ struct DemoSetSquare: View {
     }
 }
 
+struct SequenceSquareView: View {
+    let effort: String
+    var isHighlighted: Bool = false
+
+    static func color(for effort: String) -> Color {
+        switch effort {
+        case "easy": return .setEasy
+        case "moderate": return .setModerate
+        case "hard": return .setHard
+        case "redline": return .setNearMax
+        case "pr": return .setPR
+        default: return .setEasy
+        }
+    }
+
+    private var effortColor: Color { Self.color(for: effort) }
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 6)
+            .fill(effortColor.opacity(isHighlighted ? 0.5 : 0.3))
+            .frame(width: 42, height: 42)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(isHighlighted ? Color.yellow : effortColor, lineWidth: isHighlighted ? 2.5 : 1.5)
+            )
+            .animation(.easeInOut(duration: 0.15), value: isHighlighted)
+    }
+}
+
 struct ProgressOptionsEmptyState: View {
+    var message: String = "Log your first set below"
+
     var body: some View {
         ZStack {
             // Subtle radial gradient background
@@ -3794,13 +4207,12 @@ struct ProgressOptionsEmptyState: View {
                     .foregroundStyle(Color.appLogoColor)
                     .shadow(color: Color.appLogoColor.opacity(0.3), radius: 14, x: 0, y: 0)
 
-                Text("Log your first set below")
+                Text(message)
                     .font(.interSemiBold(size: 16))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
                     .padding(.top, 6)
             }
-            .offset(y: -11)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -4069,6 +4481,149 @@ struct ExpandedProgressOptionsSheet: View {
                 columnHighlighted = false
             }
         }
+    }
+}
+
+// MARK: - Expanded Effort Options Sheet
+
+struct ExpandedEffortOptionsSheet: View {
+    let effortMode: CheckInView.EffortMode
+    let suggestions: [OneRMCalculator.EffortSuggestion]
+    let onSelect: (OneRMCalculator.EffortSuggestion) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedSuggestion: OneRMCalculator.EffortSuggestion?
+    @State private var sortColumn: CheckInView.EffortSortColumn = .weight
+    @State private var sortAscending: Bool = true
+    @State private var columnHighlighted = false
+    private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
+
+    private var sortedSuggestions: [OneRMCalculator.EffortSuggestion] {
+        switch sortColumn {
+        case .weight:
+            return suggestions.sorted { sortAscending ? $0.weight < $1.weight : $0.weight > $1.weight }
+        case .reps:
+            return suggestions.sorted { sortAscending ? $0.reps < $1.reps : $0.reps > $1.reps }
+        case .percent1RM:
+            return suggestions.sorted { sortAscending ? $0.percent1RM < $1.percent1RM : $0.percent1RM > $1.percent1RM }
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Title header
+            VStack(spacing: 8) {
+                Text(effortMode.title)
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(.white)
+                Text(effortMode.subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .padding(.top, 8)
+
+            // Sortable header row
+            HStack(spacing: 0) {
+                sheetColumnButton(title: "WEIGHT", column: .weight)
+                sheetColumnButton(title: "REPS", column: .reps)
+                sheetColumnButton(title: "% 1RM", column: .percent1RM)
+            }
+            .frame(height: 24)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Color(white: 0.12))
+            .cornerRadius(10)
+            .padding(.horizontal, 8)
+
+            // Scrollable list
+            ScrollView {
+                VStack(spacing: 12) {
+                    ForEach(sortedSuggestions) { suggestion in
+                        EffortOptionCard(
+                            suggestion: suggestion,
+                            isSelected: selectedSuggestion?.id == suggestion.id,
+                            sortColumn: sortColumn,
+                            columnHighlighted: columnHighlighted,
+                            accentColor: effortMode.tileColor
+                        )
+                        .onTapGesture {
+                            hapticFeedback.impactOccurred()
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                selectedSuggestion = suggestion
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+
+            // Done button
+            Button {
+                if let selected = selectedSuggestion {
+                    onSelect(selected)
+                }
+                dismiss()
+            } label: {
+                Text("Done")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Color.appAccent)
+                    .cornerRadius(10)
+            }
+            .padding(.horizontal, 40)
+            .padding(.top, 24)
+            .padding(.bottom, 16)
+        }
+        .background(
+            LinearGradient(
+                colors: [Color(white: 0.14), Color(white: 0.10)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+        )
+    }
+
+    private func sheetColumnButton(title: String, column: CheckInView.EffortSortColumn) -> some View {
+        Button {
+            hapticFeedback.impactOccurred()
+            if sortColumn == column {
+                sortAscending.toggle()
+            } else {
+                sortColumn = column
+                sortAscending = true
+            }
+            columnHighlighted = true
+            Task {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                await MainActor.run { columnHighlighted = false }
+            }
+        } label: {
+            VStack(spacing: 0) {
+                Text(title)
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(columnHighlighted && sortColumn == column ? Color.appAccent : Color.appLabel)
+                    .animation(.easeInOut(duration: 0.15), value: columnHighlighted)
+                if sortColumn == column {
+                    Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 8))
+                        .foregroundStyle(Color.appLabel)
+                } else {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8))
+                        .foregroundStyle(Color.clear)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 24)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

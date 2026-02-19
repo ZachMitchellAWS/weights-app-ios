@@ -55,7 +55,7 @@ struct MonthlySnapshotWidget: View {
                     .frame(height: 28)
 
                     // Compact legend — only non-zero buckets
-                    HStack(spacing: 12) {
+                    HStack(spacing: 6) {
                         ForEach(buckets, id: \.bucket) { item in
                             IntensityLegendItem(
                                 color: colorFor(item.bucket),
@@ -156,9 +156,13 @@ private struct MetricPill: View {
                     .foregroundStyle(detailColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
+            } else {
+                Text(" ")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.clear)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .padding(12)
         .background(Color(white: 0.18))
         .cornerRadius(8)
@@ -171,18 +175,16 @@ private struct IntensityLegendItem: View {
     let percentage: Int
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 3) {
             Circle()
                 .fill(color)
                 .frame(width: 6, height: 6)
 
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(0.6))
-
-            Text("\(percentage)%")
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.white.opacity(0.8))
+            Text("\(label) \(percentage)%")
+                .font(.system(size: 9))
+                .foregroundStyle(.white.opacity(0.7))
+                .lineLimit(1)
+                .fixedSize()
         }
     }
 }

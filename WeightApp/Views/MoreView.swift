@@ -1095,6 +1095,9 @@ struct MoreView: View {
         // Track max 1RM per exercise for progression
         var exerciseMaxes: [String: Double] = [:]
         var createdSets: [LiftSets] = []
+        var createdEstimated1RMs: [Estimated1RMs] = []
+        // Running best estimated 1RM per exercise (mirrors real logSet behavior)
+        var runningBest1RM: [String: Double] = [:]
 
         for daysAgo in (1...28).reversed() {
             guard let workoutDate = calendar.date(byAdding: .day, value: -daysAgo, to: now) else { continue }
@@ -1160,6 +1163,18 @@ struct MoreView: View {
                     modelContext.insert(set)
                     createdSets.append(set)
 
+                    // Compute running best estimated 1RM (mirrors real logSet behavior)
+                    let setEstimated1RM = OneRMCalculator.estimate1RM(weight: calculatedWeight, reps: reps)
+                    let bestSoFar = runningBest1RM[exerciseName] ?? 0
+                    let newBest = max(bestSoFar, setEstimated1RM)
+                    runningBest1RM[exerciseName] = newBest
+
+                    let estimated = Estimated1RMs(exercise: exercise, value: newBest, setId: set.id)
+                    estimated.createdAt = currentTime
+                    estimated.createdTimezone = TimeZone.current.identifier
+                    modelContext.insert(estimated)
+                    createdEstimated1RMs.append(estimated)
+
                     // Update max if this is a PR (last set)
                     if setNum == 7 {
                         exerciseMaxes[exerciseName] = target1RM
@@ -1178,8 +1193,10 @@ struct MoreView: View {
 
         // Sync to backend
         do {
-            let dtos = createdSets.map { LiftSetDTO(from: $0) }
-            _ = try await APIService.shared.createLiftSets(dtos)
+            let setDtos = createdSets.map { LiftSetDTO(from: $0) }
+            _ = try await APIService.shared.createLiftSets(setDtos)
+            let e1rmDtos = createdEstimated1RMs.map { Estimated1RMDTO(from: $0) }
+            _ = try await APIService.shared.createEstimated1RMs(e1rmDtos)
             showDataPopulatedAlert = true
         } catch {
             userPropertiesAlertMessage = "Data created locally but failed to sync: \(error.localizedDescription)"
@@ -1223,9 +1240,14 @@ struct MoreView: View {
         // Start workout at a reasonable time today
         var currentTime = calendar.date(bySettingHour: 10, minute: 0, second: 0, of: now) ?? now
         var createdSets: [LiftSets] = []
+        var createdEstimated1RMs: [Estimated1RMs] = []
 
         for exercise in exercises {
             let currentMax = getBase1RM(for: exercise.name)
+
+            // Get the existing best 1RM for this exercise from prior data
+            let existingSets = liftSets.filter { $0.exercise?.id == exercise.id }
+            var runningBest = OneRMCalculator.current1RM(from: existingSets)
 
             // Pattern: 2 Easy, 2 Moderate, 2 Hard, 1 Redline, 1 PR
             let intensities: [Double] = [0.52, 0.58, 0.65, 0.70, 0.76, 0.82, 0.90, 1.02]
@@ -1255,6 +1277,16 @@ struct MoreView: View {
                 modelContext.insert(set)
                 createdSets.append(set)
 
+                // Compute running best estimated 1RM (mirrors real logSet behavior)
+                let setEstimated1RM = OneRMCalculator.estimate1RM(weight: calculatedWeight, reps: reps)
+                runningBest = max(runningBest, setEstimated1RM)
+
+                let estimated = Estimated1RMs(exercise: exercise, value: runningBest, setId: set.id)
+                estimated.createdAt = currentTime
+                estimated.createdTimezone = TimeZone.current.identifier
+                modelContext.insert(estimated)
+                createdEstimated1RMs.append(estimated)
+
                 // Add some time between sets (2-4 minutes)
                 currentTime = calendar.date(byAdding: .minute, value: Int.random(in: 2...4), to: currentTime) ?? currentTime
             }
@@ -1267,8 +1299,10 @@ struct MoreView: View {
 
         // Sync to backend
         do {
-            let dtos = createdSets.map { LiftSetDTO(from: $0) }
-            _ = try await APIService.shared.createLiftSets(dtos)
+            let setDtos = createdSets.map { LiftSetDTO(from: $0) }
+            _ = try await APIService.shared.createLiftSets(setDtos)
+            let e1rmDtos = createdEstimated1RMs.map { Estimated1RMDTO(from: $0) }
+            _ = try await APIService.shared.createEstimated1RMs(e1rmDtos)
             showTodayDataPopulatedAlert = true
         } catch {
             userPropertiesAlertMessage = "Data created locally but failed to sync: \(error.localizedDescription)"

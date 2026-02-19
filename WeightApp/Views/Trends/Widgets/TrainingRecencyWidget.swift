@@ -54,7 +54,6 @@ struct TrainingRecencyWidget: View {
                 exerciseRow(name: "Overhead Press", days: 14)
                 exerciseRow(name: "Barbell Row", days: 22)
                 exerciseRow(name: "Barbell Curl", days: 30)
-                legend
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
