@@ -2633,8 +2633,20 @@ struct CheckInView: View {
                 .frame(width: squareSize, height: squareSize)
                 .background(Color(white: 0.12), in: RoundedRectangle(cornerRadius: 16))
                 .overlay(
+                    VStack {
+                        LinearGradient(
+                            colors: [.clear, Color.appLogoColor.opacity(0.6), .clear],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(height: 2)
+                        Spacer()
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                )
+                .overlay(
                     RoundedRectangle(cornerRadius: 16)
-                        .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
+                        .strokeBorder(Color.appLogoColor.opacity(0.5), lineWidth: 1.5)
                 )
                 .scaleEffect(pulse ? 1.02 : 1.0)
                 .onAppear {
@@ -3116,24 +3128,26 @@ struct CheckInView: View {
             }
         }
 
-        // Clear highlights, then auto-advance after query updates
-        selectedPlanTileIndex = nil
-        highlightPlanTile(nil)
-        hasSelectedOption = false
-        withAnimation { effortMode = nil }
-
-        DispatchQueue.main.async {
-            if let next = nextPlannedEffortMode {
-                withAnimation { effortMode = next }
-            }
-        }
-
+        // Show overlay immediately, then clear/advance effort mode afterward
         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
             showSubmitOverlay = true
         }
 
+        DispatchQueue.main.async {
+            selectedPlanTileIndex = nil
+            highlightPlanTile(nil)
+            hasSelectedOption = false
+            withAnimation { effortMode = nil }
+
+            DispatchQueue.main.async {
+                if let next = nextPlannedEffortMode {
+                    withAnimation { effortMode = next }
+                }
+            }
+        }
+
         Task {
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
             await MainActor.run {
                 withAnimation(.easeOut(duration: 0.18)) {
                     showSubmitOverlay = false
@@ -3171,23 +3185,26 @@ struct CheckInView: View {
         overlayIntensityColor = .white
         overlayIntensityLabel = "Baseline"
 
-        // Clear highlights, then auto-advance after query updates
-        selectedPlanTileIndex = nil
-        highlightPlanTile(nil)
-        hasSelectedOption = false
-        withAnimation { effortMode = nil }
-
-        DispatchQueue.main.async {
-            if let next = nextPlannedEffortMode {
-                withAnimation { effortMode = next }
-            }
-        }
-
+        // Show overlay immediately, then clear/advance effort mode afterward
         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
             showSubmitOverlay = true
         }
+
+        DispatchQueue.main.async {
+            selectedPlanTileIndex = nil
+            highlightPlanTile(nil)
+            hasSelectedOption = false
+            withAnimation { effortMode = nil }
+
+            DispatchQueue.main.async {
+                if let next = nextPlannedEffortMode {
+                    withAnimation { effortMode = next }
+                }
+            }
+        }
+
         Task {
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
             await MainActor.run {
                 withAnimation(.easeOut(duration: 0.18)) {
                     showSubmitOverlay = false
