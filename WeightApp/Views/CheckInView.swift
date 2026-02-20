@@ -25,6 +25,7 @@ struct CheckInView: View {
     @State private var hasSetInitialValues = false
     @State private var hasSetWeight = false
     @State private var hasSetReps = false
+    @State private var hasSelectedOption = false
 
 
     @State private var showSubmitOverlay = false
@@ -45,7 +46,6 @@ struct CheckInView: View {
     @State private var showExercisesSelection = false
     @State private var selectedGraphTab: Int = 0 // 0 = Set Intensity, 1 = 1RM Graph
     @State private var showPROnly: Bool = false
-    @State private var logSetHighlighted = false
     @State private var selectedSquareId: UUID? = nil
     @State private var showBodyweightCapture = false
     @State private var tempBodyweight: Double = 0
@@ -74,28 +74,39 @@ struct CheckInView: View {
 
         var subtitle: String {
             switch self {
-            case .easy: return "< 55% of Est. 1RM"
-            case .moderate: return "55–74% of Est. 1RM"
-            case .hard: return "75–84% of Est. 1RM"
-            case .progress: return "Sets to increase Est. 1RM"
+            case .easy: return "< 70% e1RM"
+            case .moderate: return "70-82% e1RM"
+            case .hard: return "82-92% e1RM"
+            case .progress: return "Sets to ↑ e1RM"
             }
         }
 
-        var targetPercentages: [Double]? {
+        var targetPercent1RMs: [Double]? {
             switch self {
-            case .easy: return [40, 45, 50]
-            case .moderate: return [55, 60, 65, 70]
-            case .hard: return [75, 80, 85]
+            case .easy: return [0.55, 0.60, 0.65]
+            case .moderate: return [0.73, 0.76, 0.79]
+            case .hard: return [0.84, 0.87, 0.90]
             case .progress: return nil
             }
         }
 
-        var repRange: ClosedRange<Int> {
+        func repRange(from props: UserProperties) -> ClosedRange<Int> {
             switch self {
-            case .easy: return 8...12
-            case .moderate: return 6...10
-            case .hard: return 3...6
+            case .easy: return props.easyMinReps...props.easyMaxReps
+            case .moderate: return props.moderateMinReps...props.moderateMaxReps
+            case .hard: return props.hardMinReps...props.hardMaxReps
             case .progress: return 1...12
+            }
+        }
+
+        /// The valid %1RM range for this effort category (values are percentages, e.g. 70 = 70%).
+        /// Suggestions whose recalculated %1RM falls outside this range are filtered out.
+        var percent1RMBounds: ClosedRange<Double>? {
+            switch self {
+            case .easy: return 0...70
+            case .moderate: return 70...82
+            case .hard: return 82...92
+            case .progress: return nil
             }
         }
 
@@ -136,6 +147,8 @@ struct CheckInView: View {
     }
     @State private var effortMode: EffortMode? = nil
     @State private var selectedPlanTileIndex: Int? = nil
+    @State private var highlightedPlanTileIndex: Int? = nil
+    @State private var highlightDismissTask: Task<Void, Never>? = nil
     @State private var showExpandedEffortOptions = false
     @State private var sortColumn: SortColumn = .gain
     @State private var sortAscending: Bool = true
@@ -198,6 +211,26 @@ struct CheckInView: View {
         setsForSelected.isEmpty
     }
 
+
+    /// The set plan with the first tile overridden to "baseline" when the exercise
+    /// has no prior session 1RM (i.e. this is the first-ever session for the exercise).
+    private var displaySetPlan: [String] {
+        guard let exercise = selectedExercises, !exercise.setPlan.isEmpty else { return [] }
+        var plan = exercise.setPlan
+        if priorSession1RM == nil {
+            plan[0] = "baseline"
+        }
+        return plan
+    }
+
+    private var nextPlannedEffortMode: EffortMode? {
+        let nextIndex = todaysSets.count
+        guard nextIndex < displaySetPlan.count else { return nil }
+        let effortKey = displaySetPlan[nextIndex]
+        let mappedKey = effortKey == "baseline" ? "easy" : effortKey
+        return EffortMode.from(effort: mappedKey)
+    }
+
     private var priorSession1RM: Double? {
         let todayStart = Calendar.current.startOfDay(for: today)
         return estimated1RMsForSelected.first { $0.createdAt < todayStart }?.value
@@ -206,8 +239,9 @@ struct CheckInView: View {
     private struct SetWithPR {
         let set: LiftSets
         let estimated1RM: Double
-        let wasPR: Bool
-        let percentageOfCurrent: Double
+        let increases1RM: Bool
+        let percent1RM: Double  // estimate1RM / currentMax ratio (0-1+), 0 for baselines
+        let percentageOfCurrent: Double  // kept for chart bar heights
     }
 
     private static func computeSetsWithPRInfo(for exercise: Exercises, from allSets: [LiftSets], estimated1RMs: [Estimated1RMs]) -> [SetWithPR] {
@@ -224,31 +258,34 @@ struct CheckInView: View {
         for set in sets {
             let estimated = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
 
-            // Baseline sets show effort color, not PR amber
+            // Baseline sets: never flag as increases1RM, percent1RM = 0 (always white)
             if set.isBaselineSet {
                 let baselineEstimate = estimated1RMs.first(where: { $0.setId == set.id })?.value ?? estimated
                 let percentage = baselineEstimate > 0 ? (estimated / baselineEstimate) * 100 : 100.0
-                result.append(SetWithPR(set: set, estimated1RM: estimated, wasPR: false, percentageOfCurrent: percentage))
+                result.append(SetWithPR(set: set, estimated1RM: estimated, increases1RM: false, percent1RM: 0, percentageOfCurrent: percentage))
                 currentMax = max(currentMax, baselineEstimate)
                 continue
             }
 
             // For 0-weight sets, PR is based on reps; otherwise based on 1RM
-            let wasPR: Bool
+            let increases1RM: Bool
             if set.weight == 0 {
-                wasPR = set.reps > maxReps
+                increases1RM = set.reps > maxReps
             } else {
-                wasPR = estimated > currentMax
+                increases1RM = estimated > currentMax
             }
 
-            // Calculate percentage of current 1RM (before this set)
+            // Calculate percentage of current 1RM (before this set) — kept for chart bar heights
             let percentage = currentMax > 0 ? (estimated / currentMax) * 100 : 100.0
 
-            if wasPR {
+            // Compute percent1RM ratio for effort classification
+            let percent1RM: Double = currentMax > 0 ? estimated / currentMax : 0
+
+            if increases1RM {
                 currentMax = max(currentMax, estimated)
                 maxReps = max(maxReps, set.reps)
             }
-            result.append(SetWithPR(set: set, estimated1RM: estimated, wasPR: wasPR, percentageOfCurrent: percentage))
+            result.append(SetWithPR(set: set, estimated1RM: estimated, increases1RM: increases1RM, percent1RM: percent1RM, percentageOfCurrent: percentage))
         }
 
         return result
@@ -263,18 +300,15 @@ struct CheckInView: View {
     }
 
     private var current1RM: Double {
-        // Frozen session reference: prior session's 1RM > baseline > 0
-        if let prior = priorSession1RM { return prior }
-        if let baseline = baseline1RM { return baseline }
-        // Fallback: use the latest Estimated1RMs if available, otherwise calculate from sets
-        if let latest = estimated1RMsForSelected.first {
-            return latest.value
+        // Use the highest Estimated1RMs value — covers prior sessions, baseline, and normal sets
+        if let highest = estimated1RMsForSelected.max(by: { $0.value < $1.value }) {
+            return highest.value
         }
         return OneRMCalculator.current1RM(from: setsForSelected)
     }
 
     private var lastPRPlusOneSuggestion: OneRMCalculator.Suggestion? {
-        guard let lastPR = cachedSetsWithPRInfo.last(where: { $0.wasPR }),
+        guard let lastPR = cachedSetsWithPRInfo.last(where: { $0.increases1RM }),
               lastPR.set.weight > 0 else { return nil }
         let newReps = lastPR.set.reps + 1
         guard newReps >= userProperties.minReps,
@@ -353,20 +387,25 @@ struct CheckInView: View {
     }
 
     private var effortSuggestions: [OneRMCalculator.EffortSuggestion] {
-        guard let mode = effortMode, let targetPercents = mode.targetPercentages else { return [] }
-        let unsorted = OneRMCalculator.effortSuggestions(
+        guard let mode = effortMode,
+              let targetPercent1RMs = mode.targetPercent1RMs,
+              let loadType = selectedExercises?.exerciseLoadType else { return [] }
+        var results = OneRMCalculator.effortSuggestions(
             current1RM: current1RM,
-            targetPercents: targetPercents,
-            increment: smallestPlateIncrement,
-            repRange: mode.repRange
+            targetPercent1RMs: targetPercent1RMs,
+            loadType: loadType,
+            repRange: mode.repRange(from: userProperties)
         )
+        if let bounds = mode.percent1RMBounds {
+            results = results.filter { bounds.contains($0.percent1RM) }
+        }
         switch effortSortColumn {
         case .weight:
-            return unsorted.sorted { effortSortAscending ? $0.weight < $1.weight : $0.weight > $1.weight }
+            return results.sorted { effortSortAscending ? $0.weight < $1.weight : $0.weight > $1.weight }
         case .reps:
-            return unsorted.sorted { effortSortAscending ? $0.reps < $1.reps : $0.reps > $1.reps }
+            return results.sorted { effortSortAscending ? $0.reps < $1.reps : $0.reps > $1.reps }
         case .percent1RM:
-            return unsorted.sorted { effortSortAscending ? $0.percent1RM < $1.percent1RM : $0.percent1RM > $1.percent1RM }
+            return results.sorted { effortSortAscending ? $0.percent1RM < $1.percent1RM : $0.percent1RM > $1.percent1RM }
         }
     }
 
@@ -409,6 +448,15 @@ struct CheckInView: View {
 
                 // Overlays
                 if showSubmitOverlay {
+                    Color.black.opacity(0.01)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.easeOut(duration: 0.18)) {
+                                showSubmitOverlay = false
+                            }
+                        }
+                        .zIndex(9)
+
                     SubmitOverlayView(
                         didIncrease: overlayDidIncrease,
                         delta: overlayDelta,
@@ -418,7 +466,11 @@ struct CheckInView: View {
                     )
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     .zIndex(10)
-                    .allowsHitTesting(false)
+                    .onTapGesture {
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            showSubmitOverlay = false
+                        }
+                    }
                 }
 
                 if showExerciseSelectedOverlay, let ex = selectedExercises {
@@ -427,7 +479,7 @@ struct CheckInView: View {
                             .foregroundStyle(Color.appAccent)
 
                         Text(ex.name)
-                            .font(.subheadline.weight(.semibold))
+                            .font(.bebasNeue(size: 24))
                             .foregroundStyle(.white)
                             .multilineTextAlignment(.center)
                             .lineLimit(2)
@@ -435,12 +487,11 @@ struct CheckInView: View {
                     .frame(width: 160, height: 160)
                     .background(
                         RoundedRectangle(cornerRadius: 20)
-                            .fill(.ultraThinMaterial)
-                            .environment(\.colorScheme, .dark)
+                            .fill(Color(white: 0.12))
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 20)
-                            .stroke(Color.orange, lineWidth: 2)
+                            .stroke(Color.appLogoColor.opacity(0.5), lineWidth: 2)
                     )
                     .shadow(color: .black.opacity(0.5), radius: 20, y: 5)
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
@@ -497,9 +548,20 @@ struct CheckInView: View {
                 validateWeightDelta()
                 recomputeSetsWithPRInfo()
                 selectedPlanTileIndex = nil
+                highlightPlanTile(nil)
                 effortMode = nil
                 baseline1RM = nil
-                // Save selected exercise to UserDefaults
+                // Auto-advance to next set plan effort level
+                // (deferred to let todaysSets recompute after exercise change)
+                DispatchQueue.main.async {
+                    if !setsForSelected.isEmpty, let next = nextPlannedEffortMode {
+                        effortMode = next
+                        let nextIndex = todaysSets.count
+                        selectedPlanTileIndex = nextIndex
+                        highlightPlanTile(nextIndex)
+                    }
+                }
+// Save selected exercise to UserDefaults
                 if let id = newId {
                     UserDefaults.standard.set(id.uuidString, forKey: lastSelectedExerciseKey)
                 }
@@ -1230,7 +1292,7 @@ struct CheckInView: View {
                 // Est. 1RM (right side, balances icon width for centering)
                 if selectedExercises != nil && !setsForSelected.isEmpty {
                     VStack(spacing: 1) {
-                        Text("Est. 1RM")
+                        Text("e1RM")
                             .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(.white.opacity(0.5))
                         Text(current1RM.rounded1().formatted(.number.precision(.fractionLength(2))))
@@ -1252,8 +1314,8 @@ struct CheckInView: View {
                 .frame(height: 1)
 
             // Bottom half: sequence name + icon carousel
-            VStack(spacing: 4) {
-                Spacer().frame(height: 2)
+            VStack(spacing: 0) {
+                Spacer()
                 // Row 1: Sequence name (left-aligned, tappable menu)
                 HStack {
                     Menu {
@@ -1307,7 +1369,7 @@ struct CheckInView: View {
                     .buttonStyle(.plain)
                     .padding(.trailing, 12)
                 }
-                .frame(height: 22)
+                .frame(height: 18)
 
                 // Row 2: Icon carousel (full width)
                 ScrollViewReader { proxy in
@@ -1325,10 +1387,11 @@ struct CheckInView: View {
                                         .overlay(alignment: .bottomTrailing) {
                                             let count = todaySetCount(for: exercise)
                                             if count > 0 {
+                                                let planCount = max(exercise.setPlan.count, 1)
                                                 Image(systemName: "checkmark.circle.fill")
                                                     .font(.system(size: isSelected ? 14 : 11))
                                                     .foregroundStyle(.green)
-                                                    .opacity(min(Double(count) * 0.25, 1.0))
+                                                    .opacity(min(Double(count) / Double(planCount), 1.0))
                                             }
                                         }
                                         .frame(height: 44, alignment: .center)
@@ -1357,7 +1420,7 @@ struct CheckInView: View {
                     }
                 }
             }
-            .frame(height: 74)
+            .frame(height: 78)
         }
         .background(
             LinearGradient(
@@ -1475,15 +1538,20 @@ struct CheckInView: View {
             .frame(width: totalChartWidth, height: 100)
         }
 
-        private func colorForPercentage(_ percentage: Double, isPR: Bool, weight: Double, reps: Int) -> [Color] {
-            // If it's a PR, use special PR color
-            if isPR {
+        private func colorForSet(_ setInfo: SetWithPR) -> [Color] {
+            // Baseline sets → white
+            if setInfo.set.isBaselineSet {
+                return [.white, .white.opacity(0.8)]
+            }
+
+            // If it increases 1RM, use special PR color
+            if setInfo.increases1RM {
                 return [.setPR, .setPR.opacity(0.8)]
             }
 
             // For 0-weight sets, color by reps (more reps = harder)
-            if weight == 0 {
-                switch reps {
+            if setInfo.set.weight == 0 {
+                switch setInfo.set.reps {
                 case 12...:
                     return [.setNearMax, .setNearMax.opacity(0.8)]
                 case 9..<12:
@@ -1495,14 +1563,17 @@ struct CheckInView: View {
                 }
             }
 
-            // Otherwise, color by percentage of current 1RM (intensity)
-            let bucket = TrendsCalculator.IntensityBucket.from(percentage: percentage)
+            // Otherwise, color by percent1RM-based effort
+            let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: setInfo.percent1RM)
+            let color: Color
             switch bucket {
-            case .redline: return [.setNearMax, .setNearMax.opacity(0.8)]
-            case .hard: return [.setHard, .setHard.opacity(0.8)]
-            case .moderate: return [.setModerate, .setModerate.opacity(0.8)]
-            default: return [.setEasy, .setEasy.opacity(0.8)]
+            case .pr: color = .setPR
+            case .redline: color = .setNearMax
+            case .hard: color = .setHard
+            case .moderate: color = .setModerate
+            case .easy: color = .setEasy
             }
+            return [color, color.opacity(0.8)]
         }
 
         private func barMark(index: Int, setInfo: SetWithPR, isSelected: Bool) -> some ChartContent {
@@ -1512,7 +1583,7 @@ struct CheckInView: View {
                 // Bright white gradient for selected bar
                 colors = [.white, Color(white: 0.9)]
             } else {
-                colors = colorForPercentage(setInfo.percentageOfCurrent, isPR: setInfo.wasPR, weight: setInfo.set.weight, reps: setInfo.set.reps)
+                colors = colorForSet(setInfo)
             }
 
             return RectangleMark(
@@ -1565,7 +1636,7 @@ struct CheckInView: View {
 
     private var filteredSetsWithPRInfo: [SetWithPR] {
         if showPROnly {
-            return cachedSetsWithPRInfo.filter { $0.wasPR }
+            return cachedSetsWithPRInfo.filter { $0.increases1RM }
         }
         return cachedSetsWithPRInfo
     }
@@ -1621,7 +1692,7 @@ struct CheckInView: View {
         let isZeroWeight = setInfo.set.weight == 0
 
         return VStack(spacing: 8) {
-            if setInfo.wasPR {
+            if setInfo.increases1RM {
                 HStack(spacing: 4) {
                     Image(systemName: "star.fill")
                         .font(.caption)
@@ -1716,56 +1787,49 @@ struct CheckInView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.white.opacity(0.7))
 
-                        if todaysSets.isEmpty {
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [Color.appAccent.opacity(0.3), Color.appAccent.opacity(0.15)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(Array(todaysSets.enumerated()), id: \.element.id) { index, set in
+                                    SetSquareView(
+                                        set: set,
+                                        allSets: allSets,
+                                        currentWeight: weight,
+                                        currentReps: reps,
+                                        hasSetValues: hasSetInitialValues,
+                                        selectedSquareId: selectedSquareId,
+                                        allEstimated1RMs: allEstimated1RMs
                                     )
-                                )
-                                .frame(width: 42, height: 42)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .stroke(Color.appAccent.opacity(0.4), lineWidth: 1.5)
-                                )
-                        } else {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 6) {
-                                    ForEach(Array(todaysSets.enumerated()), id: \.element.id) { index, set in
-                                        SetSquareView(
-                                            set: set,
-                                            allSets: allSets,
-                                            currentWeight: weight,
-                                            currentReps: reps,
-                                            hasSetValues: hasSetInitialValues,
-                                            selectedSquareId: selectedSquareId,
-                                            allEstimated1RMs: allEstimated1RMs
-                                        )
-                                        .onTapGesture {
-                                            weight = set.weight
-                                            reps = set.reps
-                                            hasSetInitialValues = true
-                                            hasSetWeight = true
-                                            hasSetReps = true
-                                            selectedSquareId = set.id
-                                            highlightLogSet()
-                                            hapticFeedback.impactOccurred()
-                                            Task {
-                                                try? await Task.sleep(nanoseconds: 300_000_000)
-                                                await MainActor.run {
+                                    .onTapGesture {
+                                        weight = set.weight
+                                        reps = set.reps
+                                        hasSetInitialValues = true
+                                        hasSetWeight = true
+                                        hasSetReps = true
+                                        selectedSquareId = set.id
+
+                                        hapticFeedback.impactOccurred()
+                                        Task {
+                                            try? await Task.sleep(nanoseconds: 300_000_000)
+                                            await MainActor.run {
                                                     selectedSquareId = nil
                                                 }
                                             }
                                         }
                                     }
+
+                                    // "Next set" placeholder — outline only
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(Color.clear)
+                                        .frame(width: 42, height: 42)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 6)
+                                                .stroke(Color.white.opacity(0.2), lineWidth: 1.5)
+                                        )
                                 }
                                 .padding(.vertical, 2)
                                 .padding(.horizontal, 2)
                             }
                             .frame(height: 46)
-                        }
                     }
 
                     // Set Plan
@@ -1774,29 +1838,23 @@ struct CheckInView: View {
                             Text("Set Plan")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.white.opacity(0.7))
-                            if !setsForSelected.isEmpty {
-                                Text(" — Tap for set options")
-                                    .font(.caption.italic())
-                                    .foregroundStyle(.white.opacity(0.35))
-                            }
+                            Text(" — Recommended sequence of sets")
+                                .font(.caption.italic())
+                                .foregroundStyle(.white.opacity(0.35))
                         }
 
-                        if let exercise = selectedExercises, !exercise.setPlan.isEmpty {
+                        if !displaySetPlan.isEmpty {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 6) {
-                                    ForEach(Array(exercise.setPlan.enumerated()), id: \.offset) { index, effort in
-                                        SequenceSquareView(effort: effort, isHighlighted: selectedPlanTileIndex == index)
+                                    ForEach(Array(displaySetPlan.enumerated()), id: \.offset) { index, effort in
+                                        SequenceSquareView(effort: effort, isHighlighted: highlightedPlanTileIndex == index)
                                             .onTapGesture {
-                                                guard !setsForSelected.isEmpty else { return }
                                                 hapticFeedback.impactOccurred()
-                                                if selectedPlanTileIndex == index {
-                                                    selectedPlanTileIndex = nil
-                                                    withAnimation { effortMode = nil }
-                                                } else {
-                                                    selectedPlanTileIndex = index
-                                                    withAnimation {
-                                                        effortMode = EffortMode.from(effort: effort)
-                                                    }
+                                                let mappedEffort = effort == "baseline" ? "easy" : effort
+                                                selectedPlanTileIndex = index
+                                                highlightPlanTile(index)
+                                                withAnimation {
+                                                    effortMode = EffortMode.from(effort: mappedEffort)
                                                 }
                                             }
                                     }
@@ -1913,11 +1971,14 @@ struct CheckInView: View {
             if (selectedGraphTab == 0 && !setsForSelected.isEmpty) ||
                (selectedGraphTab == 1 && !cachedSetsWithPRInfo.isEmpty) {
                 HStack(spacing: 10) {
+                    if displaySetPlan.contains("baseline") {
+                        LegendItem(color: .white, label: "Base")
+                    }
                     LegendItem(color: .setEasy, label: "Easy")
                     LegendItem(color: .setModerate, label: "Moderate")
                     LegendItem(color: .setHard, label: "Hard")
                     LegendItem(color: .setNearMax, label: "Redline")
-                    LegendItem(color: .setPR, label: "Est. 1RM PR")
+                    LegendItem(color: .setPR, label: "e1RM ↑")
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 2)
@@ -1948,7 +2009,11 @@ struct CheckInView: View {
                     Button {
                         if let prev = EffortMode(rawValue: mode.rawValue - 1) {
                             hapticFeedback.impactOccurred()
-                            selectedPlanTileIndex = nil
+                            if let matchIndex = displaySetPlan.firstIndex(where: { $0 == prev.effortKey }) {
+                                selectedPlanTileIndex = matchIndex
+                            } else {
+                                selectedPlanTileIndex = nil
+                            }
                             withAnimation { effortMode = prev }
                         }
                     } label: {
@@ -1960,7 +2025,9 @@ struct CheckInView: View {
                     }
                     .disabled(mode == .easy)
 
-                    HStack(spacing: 10) {
+                    Spacer()
+
+                    HStack(alignment: .top, spacing: 10) {
                         RoundedRectangle(cornerRadius: 3)
                             .fill(SequenceSquareView.color(for: mode.effortKey).opacity(0.3))
                             .frame(width: 18, height: 18)
@@ -1968,14 +2035,10 @@ struct CheckInView: View {
                                 RoundedRectangle(cornerRadius: 3)
                                     .stroke(SequenceSquareView.color(for: mode.effortKey), lineWidth: 1.5)
                             )
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(mode.title)
-                                .font(.inter(size: 17))
-                                .foregroundStyle(.white)
-                            Text(mode.subtitle)
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.7))
-                        }
+                            .offset(y: 1)
+                        Text(mode.title)
+                            .font(.inter(size: 17))
+                            .foregroundStyle(.white)
                     }
 
                     Spacer()
@@ -2016,7 +2079,11 @@ struct CheckInView: View {
                     Button {
                         if let next = EffortMode(rawValue: mode.rawValue + 1) {
                             hapticFeedback.impactOccurred()
-                            selectedPlanTileIndex = nil
+                            if let matchIndex = displaySetPlan.firstIndex(where: { $0 == next.effortKey }) {
+                                selectedPlanTileIndex = matchIndex
+                            } else {
+                                selectedPlanTileIndex = nil
+                            }
                             withAnimation { effortMode = next }
                         }
                     } label: {
@@ -2051,9 +2118,14 @@ struct CheckInView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-            } else {
-                // Exercise selected but no effort mode chosen
+            } else if setsForSelected.isEmpty {
+                // Exercise selected, no effort mode, no sets yet
                 ProgressOptionsEmptyState(message: "Log your first set below")
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 160)
+            } else {
+                // Exercise selected, sets exist, no effort mode
+                ProgressOptionsEmptyState(message: "Select an Effort Level")
                     .frame(maxWidth: .infinity)
                     .frame(height: 160)
             }
@@ -2165,7 +2237,7 @@ struct CheckInView: View {
                     handleColumnTap(.est1RM)
                 } label: {
                     VStack(spacing: 0) {
-                        Text("EST. 1RM")
+                        Text("e1RM")
                             .font(.caption2.weight(.bold))
                             .foregroundStyle(columnHighlighted && sortColumn == .est1RM ? Color.appAccent : Color.appLabel)
                             .animation(.easeInOut(duration: 0.15), value: columnHighlighted)
@@ -2267,7 +2339,7 @@ struct CheckInView: View {
             HStack(spacing: 0) {
                 effortColumnButton(title: "WEIGHT", column: .weight)
                 effortColumnButton(title: "REPS", column: .reps)
-                effortColumnButton(title: "% 1RM", column: .percent1RM)
+                effortColumnButton(title: "e1RM %", column: .percent1RM)
             }
             .frame(height: 24)
             .padding(.horizontal, 12)
@@ -2465,7 +2537,7 @@ struct CheckInView: View {
                     showLogConfirmation = true
                 }
             } label: {
-                Text(isFirstSetForExercise ? "Log Baseline Set" : "Log Set")
+                Text("Log Set")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
@@ -2476,8 +2548,8 @@ struct CheckInView: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
-        .padding(.top, 4)
-        .padding(.bottom, 8)
+        .padding(.top, 16)
+        .padding(.bottom, 16)
         .background(
             LinearGradient(
                 colors: [Color(white: 0.18), Color(white: 0.14)],
@@ -2492,8 +2564,8 @@ struct CheckInView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke((effortMode ?? .progress).tileColor, lineWidth: logSetHighlighted ? 3 : 0)
-                .animation(.easeInOut(duration: 0.5).repeatCount(1, autoreverses: true), value: logSetHighlighted)
+                .stroke((effortMode ?? .progress).tileColor, lineWidth: logSetMatchesOption ? 3 : 0)
+                .animation(.easeInOut(duration: 0.3), value: logSetMatchesOption)
         )
         .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
     }
@@ -2509,7 +2581,7 @@ struct CheckInView: View {
         @State private var iconScale: CGFloat = 0.5
         @State private var iconOpacity: Double = 0
 
-        private let squareSize: CGFloat = 160
+        private let squareSize: CGFloat = 180
 
         var body: some View {
             ZStack {
@@ -2526,10 +2598,13 @@ struct CheckInView: View {
                             .scaleEffect(iconScale)
                             .opacity(iconOpacity)
                     } else {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 44, weight: .semibold))
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(.white)
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(intensityColor.opacity(0.3))
+                            .frame(width: 48, height: 48)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(intensityColor, lineWidth: 2)
+                            )
                             .scaleEffect(iconScale)
                             .opacity(iconOpacity)
                     }
@@ -2547,19 +2622,19 @@ struct CheckInView: View {
                     } else {
                         VStack(spacing: 2) {
                             Text(intensityLabel)
-                                .font(.bebasNeue(size: 28))
+                                .font(.bebasNeue(size: 32))
                                 .foregroundStyle(.white)
                             Text("Set Logged")
                                 .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.7))
+                                .foregroundStyle(.white.opacity(0.6))
                         }
                     }
                 }
                 .frame(width: squareSize, height: squareSize)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                .background(Color(white: 0.12), in: RoundedRectangle(cornerRadius: 16))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
-                        .strokeBorder(Color.appLogoColor.opacity(0.5), lineWidth: 1.5)
+                        .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
                 )
                 .scaleEffect(pulse ? 1.02 : 1.0)
                 .onAppear {
@@ -2593,9 +2668,7 @@ struct CheckInView: View {
                 Color.black.opacity(0.5)
                     .ignoresSafeArea()
                     .onTapGesture {
-                        if !isBaseline {
-                            onCancel()
-                        }
+                        onCancel()
                     }
 
                 VStack(spacing: 20) {
@@ -2615,7 +2688,7 @@ struct CheckInView: View {
                     HStack(spacing: 16) {
                         HStack(spacing: 6) {
                             Text(weightText)
-                                .font(.title2)
+                                .font(.bebasNeue(size: 22))
                                 .foregroundStyle(.white)
                         }
 
@@ -2625,7 +2698,7 @@ struct CheckInView: View {
 
                         HStack(spacing: 6) {
                             Text("\(reps)")
-                                .font(.title2)
+                                .font(.bebasNeue(size: 22))
                                 .foregroundStyle(.white)
                             Text("reps")
                                 .font(.caption)
@@ -2636,6 +2709,10 @@ struct CheckInView: View {
                     .padding(.vertical, 12)
                     .background(Color(white: 0.08))
                     .cornerRadius(12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                    )
 
                     // Divider
                     Rectangle()
@@ -2644,33 +2721,8 @@ struct CheckInView: View {
                         .padding(.horizontal, 4)
 
                     if isBaseline {
-                        // Baseline mode: RIR selection
-                        Text("How many more reps could you have done?")
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.7))
-                            .multilineTextAlignment(.center)
-
-                        let columns = [
-                            GridItem(.flexible(), spacing: 10),
-                            GridItem(.flexible(), spacing: 10),
-                            GridItem(.flexible(), spacing: 10)
-                        ]
-                        LazyVGrid(columns: columns, spacing: 10) {
-                            ForEach(0...5, id: \.self) { rir in
-                                Button {
-                                    onBaselineConfirm?(rir)
-                                } label: {
-                                    Text(rir == 0 ? "0 (failure)" : "\(rir)")
-                                        .font(.subheadline.weight(.semibold))
-                                        .foregroundStyle(.black)
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 12)
-                                        .background(Color.appAccent)
-                                        .cornerRadius(10)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
+                        // Baseline mode: RIR selection via slider
+                        BaselineRIRSlider(onBaselineConfirm: onBaselineConfirm)
                     } else {
                         // Normal mode: Cancel/Confirm buttons
                         HStack(spacing: 10) {
@@ -2697,6 +2749,7 @@ struct CheckInView: View {
                                     .padding(.vertical, 12)
                                     .background(Color.appAccent)
                                     .cornerRadius(10)
+                                    .shadow(color: Color.appAccent.opacity(0.3), radius: 8)
                             }
                             .buttonStyle(.plain)
                         }
@@ -2708,11 +2761,68 @@ struct CheckInView: View {
                 )
                 .cornerRadius(20)
                 .overlay(
+                    VStack {
+                        LinearGradient(
+                            colors: [.clear, Color.appLogoColor.opacity(0.6), .clear],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(height: 2)
+                        Spacer()
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                )
+                .overlay(
                     RoundedRectangle(cornerRadius: 20)
                         .strokeBorder(Color.appLogoColor.opacity(0.5), lineWidth: 1.5)
                 )
                 .shadow(color: .black.opacity(0.5), radius: 30, y: 10)
                 .padding(.horizontal, 32)
+            }
+        }
+    }
+
+    private struct BaselineRIRSlider: View {
+        let onBaselineConfirm: ((Int) -> Void)?
+        @State private var rir: Double = 3
+        @State private var lastHapticValue: Int = 3
+
+        var body: some View {
+            VStack(spacing: 12) {
+                (Text("How many ")
+                    + Text("more").foregroundColor(Color.appAccent).bold()
+                    + Text(" reps could you have done?"))
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+
+                Text("\(Int(rir))")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(.white)
+
+                Slider(value: $rir, in: 0...10, step: 1)
+                    .tint(Color.appAccent)
+                    .onChange(of: rir) { _, newValue in
+                        let rounded = Int(newValue)
+                        if rounded != lastHapticValue {
+                            lastHapticValue = rounded
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        }
+                    }
+                    .padding(.bottom, 12)
+
+                Button {
+                    onBaselineConfirm?(Int(rir))
+                } label: {
+                    Text("Confirm")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.appAccent)
+                        .cornerRadius(10)
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -2783,6 +2893,7 @@ struct CheckInView: View {
         hasSetInitialValues = false
         hasSetWeight = false
         hasSetReps = false
+        hasSelectedOption = false
     }
 
     private func validateWeightDelta() {
@@ -2811,7 +2922,7 @@ struct CheckInView: View {
             hasSetInitialValues = true
             hasSetWeight = true
         }
-        highlightLogSet()
+
     }
 
     private func isOptionSelected(_ suggestion: OneRMCalculator.Suggestion) -> Bool {
@@ -2819,13 +2930,12 @@ struct CheckInView: View {
         return weight == suggestion.weight && reps == suggestion.reps
     }
 
-    private func highlightLogSet() {
-        logSetHighlighted = true
-        Task {
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            await MainActor.run {
-                logSetHighlighted = false
-            }
+    private var logSetMatchesOption: Bool {
+        guard hasSelectedOption else { return false }
+        if effortMode == .progress || effortMode == nil {
+            return filteredSuggestions.contains { $0.weight == weight && $0.reps == reps }
+        } else {
+            return effortSuggestions.contains { $0.weight == weight && $0.reps == reps }
         }
     }
 
@@ -2914,7 +3024,7 @@ struct CheckInView: View {
         hasSetInitialValues = true
         hasSetWeight = true
         hasSetReps = true
-        highlightLogSet()
+        hasSelectedOption = true
     }
 
     private func selectEffortOption(_ suggestion: OneRMCalculator.EffortSuggestion) {
@@ -2923,7 +3033,7 @@ struct CheckInView: View {
         hasSetInitialValues = true
         hasSetWeight = true
         hasSetReps = true
-        highlightLogSet()
+        hasSelectedOption = true
     }
 
     private func isEffortOptionSelected(_ suggestion: OneRMCalculator.EffortSuggestion) -> Bool {
@@ -2993,17 +3103,28 @@ struct CheckInView: View {
                 overlayIntensityLabel = "Easy"
             }
         } else {
-            // Weighted exercise - color by percentage of 1RM
-            // Use THIS set's estimated 1RM, not the running max
-            let setEstimate = OneRMCalculator.estimate1RM(weight: weight, reps: reps)
-            let percentage = before > 0 ? (setEstimate / before) * 100 : 100.0
-            let bucket = TrendsCalculator.IntensityBucket.from(percentage: percentage)
+            // Weighted exercise - color by percent1RM
+            let percent1RM = before > 0 ? OneRMCalculator.estimate1RM(weight: weight, reps: reps) / before : 0
+            let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: percent1RM)
             overlayIntensityLabel = bucket.rawValue
             switch bucket {
+            case .pr: overlayIntensityColor = .setPR
             case .redline: overlayIntensityColor = .setNearMax
             case .hard: overlayIntensityColor = .setHard
             case .moderate: overlayIntensityColor = .setModerate
-            default: overlayIntensityColor = .setEasy
+            case .easy: overlayIntensityColor = .setEasy
+            }
+        }
+
+        // Clear highlights, then auto-advance after query updates
+        selectedPlanTileIndex = nil
+        highlightPlanTile(nil)
+        hasSelectedOption = false
+        withAnimation { effortMode = nil }
+
+        DispatchQueue.main.async {
+            if let next = nextPlannedEffortMode {
+                withAnimation { effortMode = next }
             }
         }
 
@@ -3046,32 +3167,19 @@ struct CheckInView: View {
         overlayDelta = 0
         overlayNew1RM = rirAdjusted1RM
 
-        // Determine effort based on percentage of the RIR-adjusted 1RM
-        if weight == 0 {
-            switch reps {
-            case 12...:
-                overlayIntensityColor = .setNearMax
-                overlayIntensityLabel = "Redline"
-            case 9..<12:
-                overlayIntensityColor = .setHard
-                overlayIntensityLabel = "Hard"
-            case 6..<9:
-                overlayIntensityColor = .setModerate
-                overlayIntensityLabel = "Moderate"
-            default:
-                overlayIntensityColor = .setEasy
-                overlayIntensityLabel = "Easy"
-            }
-        } else {
-            let setEstimate = OneRMCalculator.estimate1RM(weight: weight, reps: reps)
-            let percentage = rirAdjusted1RM > 0 ? (setEstimate / rirAdjusted1RM) * 100 : 100.0
-            let bucket = TrendsCalculator.IntensityBucket.from(percentage: percentage)
-            overlayIntensityLabel = bucket.rawValue
-            switch bucket {
-            case .redline: overlayIntensityColor = .setNearMax
-            case .hard: overlayIntensityColor = .setHard
-            case .moderate: overlayIntensityColor = .setModerate
-            default: overlayIntensityColor = .setEasy
+        // Baseline sets always show white
+        overlayIntensityColor = .white
+        overlayIntensityLabel = "Baseline"
+
+        // Clear highlights, then auto-advance after query updates
+        selectedPlanTileIndex = nil
+        highlightPlanTile(nil)
+        hasSelectedOption = false
+        withAnimation { effortMode = nil }
+
+        DispatchQueue.main.async {
+            if let next = nextPlannedEffortMode {
+                withAnimation { effortMode = next }
             }
         }
 
@@ -3088,6 +3196,23 @@ struct CheckInView: View {
         }
     }
 
+
+    private func highlightPlanTile(_ index: Int?) {
+        highlightDismissTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.15)) {
+            highlightedPlanTileIndex = index
+        }
+        guard index != nil else { return }
+        highlightDismissTask = Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation(.easeOut(duration: 0.4)) {
+                    highlightedPlanTileIndex = nil
+                }
+            }
+        }
+    }
 
     private func retryFetchExercises() {
         isRetryingSync = true
@@ -3303,7 +3428,7 @@ struct EditExerciseFormView: View {
     private let maxNotesLength = 500
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
 
-    private static let effortLevels = ["easy", "moderate", "hard", "pr"]
+    private static let effortLevels = ["easy", "moderate", "hard", "redline", "pr"]
 
     /// Whether this view is shown inside a NavigationStack (push) or standalone sheet
     let showBackChevron: Bool
@@ -3407,6 +3532,76 @@ struct EditExerciseFormView: View {
                                 .font(.caption)
                                 .foregroundStyle(.white.opacity(0.5))
                             Spacer()
+                        }
+                    }
+
+                    // Set Plan editor
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Set Plan")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.7))
+
+                        Text("Tap to cycle effort level. Long-press to remove.")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.4))
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(Array(setPlan.enumerated()), id: \.offset) { index, effort in
+                                    SequenceSquareView(effort: effort)
+                                        .onTapGesture {
+                                            let levels = Self.effortLevels
+                                            if let current = levels.firstIndex(of: effort) {
+                                                setPlan[index] = levels[(current + 1) % levels.count]
+                                            } else {
+                                                setPlan[index] = "easy"
+                                            }
+                                            hapticFeedback.impactOccurred()
+                                        }
+                                        .onLongPressGesture {
+                                            guard setPlan.count > 1 else { return }
+                                            setPlan.remove(at: index)
+                                            hapticFeedback.impactOccurred()
+                                        }
+                                }
+
+                                // Add button
+                                Button {
+                                    setPlan.append("easy")
+                                    hapticFeedback.impactOccurred()
+                                } label: {
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(Color(white: 0.15))
+                                        .frame(width: 42, height: 42)
+                                        .overlay(
+                                            Image(systemName: "plus")
+                                                .font(.system(size: 16, weight: .semibold))
+                                                .foregroundStyle(.white.opacity(0.5))
+                                        )
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 6)
+                                                .stroke(Color.white.opacity(0.2), lineWidth: 1.5)
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.vertical, 2)
+                            .padding(.horizontal, 2)
+                        }
+                        .frame(height: 46)
+
+                        // Legend
+                        HStack(spacing: 8) {
+                            ForEach(Self.effortLevels, id: \.self) { level in
+                                HStack(spacing: 3) {
+                                    Circle()
+                                        .fill(SequenceSquareView.color(for: level))
+                                        .frame(width: 8, height: 8)
+                                    Text(level == "pr" ? "e1RM ↑" : level.capitalized)
+                                        .font(.caption2)
+                                        .foregroundStyle(.white.opacity(0.5))
+                                }
+                            }
                         }
                     }
 
@@ -3526,76 +3721,6 @@ struct EditExerciseFormView: View {
                                 .font(.caption)
                                 .foregroundStyle(.white.opacity(0.5))
                             Spacer()
-                        }
-                    }
-
-                    // Set Plan editor
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Set Plan")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.7))
-
-                        Text("Tap to cycle effort level. Long-press to remove.")
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.4))
-
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                ForEach(Array(setPlan.enumerated()), id: \.offset) { index, effort in
-                                    SequenceSquareView(effort: effort)
-                                        .onTapGesture {
-                                            let levels = Self.effortLevels
-                                            if let current = levels.firstIndex(of: effort) {
-                                                setPlan[index] = levels[(current + 1) % levels.count]
-                                            } else {
-                                                setPlan[index] = "easy"
-                                            }
-                                            hapticFeedback.impactOccurred()
-                                        }
-                                        .onLongPressGesture {
-                                            guard setPlan.count > 1 else { return }
-                                            setPlan.remove(at: index)
-                                            hapticFeedback.impactOccurred()
-                                        }
-                                }
-
-                                // Add button
-                                Button {
-                                    setPlan.append("easy")
-                                    hapticFeedback.impactOccurred()
-                                } label: {
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(Color(white: 0.15))
-                                        .frame(width: 42, height: 42)
-                                        .overlay(
-                                            Image(systemName: "plus")
-                                                .font(.system(size: 16, weight: .semibold))
-                                                .foregroundStyle(.white.opacity(0.5))
-                                        )
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 6)
-                                                .stroke(Color.white.opacity(0.2), lineWidth: 1.5)
-                                        )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .padding(.vertical, 2)
-                            .padding(.horizontal, 2)
-                        }
-                        .frame(height: 46)
-
-                        // Legend
-                        HStack(spacing: 8) {
-                            ForEach(Self.effortLevels, id: \.self) { level in
-                                HStack(spacing: 3) {
-                                    Circle()
-                                        .fill(SequenceSquareView.color(for: level))
-                                        .frame(width: 8, height: 8)
-                                    Text(level.capitalized)
-                                        .font(.caption2)
-                                        .foregroundStyle(.white.opacity(0.5))
-                                }
-                            }
                         }
                     }
 
@@ -3978,37 +4103,12 @@ struct SetSquareView: View {
     }
 
     private var colorAndPR: (color: Color, isPR: Bool) {
-        // Baseline sets show effort color, not PR amber
+        // Baseline sets → white, never PR
         if set.isBaselineSet {
-            let baselineEstimate = allEstimated1RMs.first(where: { $0.setId == set.id })?.value
-                ?? OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
-            let color: Color
-            if set.weight == 0 {
-                switch set.reps {
-                case 12...:
-                    color = .setNearMax
-                case 9..<12:
-                    color = .setHard
-                case 6..<9:
-                    color = .setModerate
-                default:
-                    color = .setEasy
-                }
-            } else {
-                let setEstimate = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
-                let percentage = baselineEstimate > 0 ? (setEstimate / baselineEstimate) * 100 : 100.0
-                let bucket = TrendsCalculator.IntensityBucket.from(percentage: percentage)
-                switch bucket {
-                case .redline: color = .setNearMax
-                case .hard: color = .setHard
-                case .moderate: color = .setModerate
-                default: color = .setEasy
-                }
-            }
-            return (color: color, isPR: false)
+            return (color: .white, isPR: false)
         }
 
-        // Calculate percentage of current 1RM at time of this set
+        // Calculate current 1RM at time of this set from previous sets
         let previousSets = allSets
             .filter { $0.exercise?.id == set.exercise?.id && $0.createdAt < set.createdAt }
             .sorted { $0.createdAt < $1.createdAt }
@@ -4018,7 +4118,6 @@ struct SetSquareView: View {
         for prevSet in previousSets {
             let estimated: Double
             if prevSet.isBaselineSet {
-                // Use RIR-adjusted estimate for baseline sets
                 estimated = allEstimated1RMs.first(where: { $0.setId == prevSet.id })?.value
                     ?? OneRMCalculator.estimate1RM(weight: prevSet.weight, reps: prevSet.reps)
             } else {
@@ -4042,7 +4141,6 @@ struct SetSquareView: View {
         if isPR {
             color = .setPR
         } else if set.weight == 0 {
-            // For 0-weight sets, color based on reps (more reps = harder)
             switch set.reps {
             case 12...:
                 color = .setNearMax
@@ -4054,13 +4152,15 @@ struct SetSquareView: View {
                 color = .setEasy
             }
         } else {
-            let percentage = currentMax > 0 ? (setEstimated1RM / currentMax) * 100 : 100.0
-            let bucket = TrendsCalculator.IntensityBucket.from(percentage: percentage)
+            // percent1RM-based effort coloring
+            let percent1RM = currentMax > 0 ? setEstimated1RM / currentMax : 0
+            let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: percent1RM)
             switch bucket {
+            case .pr: color = .setPR
             case .redline: color = .setNearMax
             case .hard: color = .setHard
             case .moderate: color = .setModerate
-            default: color = .setEasy
+            case .easy: color = .setEasy
             }
         }
 
@@ -4085,8 +4185,7 @@ struct SetSquareView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.appAccent, lineWidth: isMatching || isSelected ? 3 : 0)
-                .animation(.easeInOut(duration: 0.15), value: isMatching)
+                .stroke(Color.appAccent, lineWidth: isSelected ? 3 : 0)
                 .animation(.easeInOut(duration: 0.15), value: isSelected)
         )
         .contextMenu {
@@ -4163,6 +4262,7 @@ struct SequenceSquareView: View {
         case "hard": return .setHard
         case "redline": return .setNearMax
         case "pr": return .setPR
+        case "baseline": return .white
         default: return .setEasy
         }
     }
@@ -4367,7 +4467,7 @@ struct ExpandedProgressOptionsSheet: View {
                 Spacer().frame(width: 1)
                 columnButton(title: "REPS", column: .reps, width: 50)
                 Spacer().frame(width: 1)
-                columnButton(title: "EST. 1RM", column: .est1RM, width: 60)
+                columnButton(title: "e1RM", column: .est1RM, width: 60)
                 Spacer().frame(width: 1)
                 columnButton(title: "GAIN", column: .gain, width: 65)
             }
@@ -4513,9 +4613,19 @@ struct ExpandedEffortOptionsSheet: View {
         VStack(spacing: 0) {
             // Title header
             VStack(spacing: 8) {
-                Text(effortMode.title)
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(.white)
+                HStack(alignment: .top, spacing: 10) {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(effortMode.tileColor.opacity(0.3))
+                        .frame(width: 22, height: 22)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(effortMode.tileColor, lineWidth: 1.5)
+                        )
+                        .offset(y: 3)
+                    Text(effortMode.title)
+                        .font(.title2.weight(.bold))
+                        .foregroundStyle(.white)
+                }
                 Text(effortMode.subtitle)
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.7))
@@ -4528,7 +4638,7 @@ struct ExpandedEffortOptionsSheet: View {
             HStack(spacing: 0) {
                 sheetColumnButton(title: "WEIGHT", column: .weight)
                 sheetColumnButton(title: "REPS", column: .reps)
-                sheetColumnButton(title: "% 1RM", column: .percent1RM)
+                sheetColumnButton(title: "e1RM %", column: .percent1RM)
             }
             .frame(height: 24)
             .padding(.horizontal, 16)

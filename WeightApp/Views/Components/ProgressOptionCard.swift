@@ -115,8 +115,8 @@ struct EffortOptionCard: View {
                 .background(.white.opacity(0.2))
                 .frame(height: 20)
 
-            // % 1RM
-            Text("\(suggestion.percent1RM.formatted(.number.precision(.fractionLength(1))))%")
+            // % Est. 1RM
+            Text("\(suggestion.percent1RM, specifier: "%.1f")%")
                 .font(.callout)
                 .foregroundStyle(columnHighlighted && sortColumn == .percent1RM ? Color.appAccent : .white.opacity(0.8))
                 .animation(.easeInOut(duration: 0.15), value: columnHighlighted)

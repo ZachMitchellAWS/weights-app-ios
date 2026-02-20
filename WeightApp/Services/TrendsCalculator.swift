@@ -61,18 +61,15 @@ struct TrendsCalculator {
             }
         }
 
-        /// Classify a percentage-of-max into an intensity bucket.
+        /// Classify by percent of estimated 1RM into an intensity bucket.
         /// Does not handle PR detection — caller should check for PRs first.
-        static func from(percentage: Double) -> IntensityBucket {
-            switch percentage {
-            case 85...:
-                return .redline
-            case 75..<85:
-                return .hard
-            case 55..<75:
-                return .moderate
-            default:
-                return .easy
+        static func from(percent1RM p: Double) -> IntensityBucket {
+            switch p {
+            case 1.0...:      return .pr
+            case 0.92..<1.0:  return .redline
+            case 0.82..<0.92: return .hard
+            case 0.70..<0.82: return .moderate
+            default:          return .easy
             }
         }
     }
@@ -113,22 +110,23 @@ struct TrendsCalculator {
         let byExercise = Dictionary(grouping: sets) { $0.exercise?.id }
 
         for set in recentSets {
+            // Skip baseline sets — they don't count in distribution
+            if set.isBaselineSet { continue }
+
             let exerciseSets = byExercise[set.exercise?.id] ?? []
             let previousSets = exerciseSets.filter { $0.createdAt < set.createdAt }
             let currentMax = previousSets.map { OneRMCalculator.estimate1RM(weight: $0.weight, reps: $0.reps) }.max() ?? 0
             let setEstimated1RM = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
 
-            if currentMax > 0 && setEstimated1RM > currentMax {
-                distribution.pr += 1
-            } else if currentMax > 0 {
-                let percentage = (setEstimated1RM / currentMax) * 100
-                let bucket = IntensityBucket.from(percentage: percentage)
+            if currentMax > 0 {
+                let percent1RM = setEstimated1RM / currentMax
+                let bucket = IntensityBucket.from(percent1RM: percent1RM)
                 switch bucket {
+                case .pr: distribution.pr += 1
                 case .redline: distribution.redline += 1
                 case .hard: distribution.hard += 1
                 case .moderate: distribution.moderate += 1
                 case .easy: distribution.easy += 1
-                case .pr: distribution.pr += 1
                 }
             } else {
                 // First set for this exercise, count as PR

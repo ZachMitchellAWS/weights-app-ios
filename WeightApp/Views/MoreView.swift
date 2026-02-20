@@ -53,6 +53,7 @@ struct MoreView: View {
 
     @State private var tempBodyweight: Double = 150
     @State private var repRangeDebounceTask: Task<Void, Never>?
+    @State private var effortRepRangeDebounceTask: Task<Void, Never>?
 
     private var userProperties: UserProperties {
         if let props = userPropertiesItems.first { return props }
@@ -472,6 +473,8 @@ struct MoreView: View {
                                 )
                                 .padding(.horizontal, 40)
                             }
+
+                            effortRepRangesSection
                         }
                         .padding(.vertical, 4)
                     }
@@ -964,6 +967,109 @@ struct MoreView: View {
         }
     }
 
+    private func scheduleEffortRepRangeSync() {
+        effortRepRangeDebounceTask?.cancel()
+        let easyMin = userProperties.easyMinReps
+        let easyMax = userProperties.easyMaxReps
+        let modMin = userProperties.moderateMinReps
+        let modMax = userProperties.moderateMaxReps
+        let hardMin = userProperties.hardMinReps
+        let hardMax = userProperties.hardMaxReps
+        effortRepRangeDebounceTask = Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            await SyncService.shared.updateEffortRepRange(
+                easyMinReps: easyMin, easyMaxReps: easyMax,
+                moderateMinReps: modMin, moderateMaxReps: modMax,
+                hardMinReps: hardMin, hardMaxReps: hardMax
+            )
+        }
+    }
+
+    private var effortRepRangesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Effort Rep Ranges")
+                .foregroundStyle(.white.opacity(0.7))
+                .font(.subheadline)
+                .padding(.leading, 40)
+
+            // Easy
+            HStack {
+                Text("Easy")
+                    .foregroundStyle(Color.setEasy)
+                    .font(.caption)
+                    .padding(.leading, 40)
+                Spacer()
+                Text("\(userProperties.easyMinReps)–\(userProperties.easyMaxReps) reps")
+                    .foregroundStyle(.white.opacity(0.5))
+                    .font(.caption)
+            }
+            RangeSliderView(
+                minValue: Binding(
+                    get: { Double(userProperties.easyMinReps) },
+                    set: { userProperties.easyMinReps = Int($0); try? modelContext.save(); scheduleEffortRepRangeSync() }
+                ),
+                maxValue: Binding(
+                    get: { Double(userProperties.easyMaxReps) },
+                    set: { userProperties.easyMaxReps = Int($0); try? modelContext.save(); scheduleEffortRepRangeSync() }
+                ),
+                bounds: 1...12,
+                minSpan: Double(UserProperties.minRepRangeSpan)
+            )
+            .padding(.horizontal, 40)
+
+            // Moderate
+            HStack {
+                Text("Moderate")
+                    .foregroundStyle(Color.setModerate)
+                    .font(.caption)
+                    .padding(.leading, 40)
+                Spacer()
+                Text("\(userProperties.moderateMinReps)–\(userProperties.moderateMaxReps) reps")
+                    .foregroundStyle(.white.opacity(0.5))
+                    .font(.caption)
+            }
+            RangeSliderView(
+                minValue: Binding(
+                    get: { Double(userProperties.moderateMinReps) },
+                    set: { userProperties.moderateMinReps = Int($0); try? modelContext.save(); scheduleEffortRepRangeSync() }
+                ),
+                maxValue: Binding(
+                    get: { Double(userProperties.moderateMaxReps) },
+                    set: { userProperties.moderateMaxReps = Int($0); try? modelContext.save(); scheduleEffortRepRangeSync() }
+                ),
+                bounds: 1...12,
+                minSpan: Double(UserProperties.minRepRangeSpan)
+            )
+            .padding(.horizontal, 40)
+
+            // Hard
+            HStack {
+                Text("Hard")
+                    .foregroundStyle(Color.setHard)
+                    .font(.caption)
+                    .padding(.leading, 40)
+                Spacer()
+                Text("\(userProperties.hardMinReps)–\(userProperties.hardMaxReps) reps")
+                    .foregroundStyle(.white.opacity(0.5))
+                    .font(.caption)
+            }
+            RangeSliderView(
+                minValue: Binding(
+                    get: { Double(userProperties.hardMinReps) },
+                    set: { userProperties.hardMinReps = Int($0); try? modelContext.save(); scheduleEffortRepRangeSync() }
+                ),
+                maxValue: Binding(
+                    get: { Double(userProperties.hardMaxReps) },
+                    set: { userProperties.hardMaxReps = Int($0); try? modelContext.save(); scheduleEffortRepRangeSync() }
+                ),
+                bounds: 1...12,
+                minSpan: Double(UserProperties.minRepRangeSpan)
+            )
+            .padding(.horizontal, 40)
+        }
+    }
+
     private func showCopiedToast(_ message: String) {
         copiedToast = message
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -1320,7 +1426,13 @@ struct MoreView: View {
                 bodyweight: userProperties.bodyweight,
                 availableChangePlates: userProperties.availableChangePlates,
                 minReps: userProperties.minReps,
-                maxReps: userProperties.maxReps
+                maxReps: userProperties.maxReps,
+                easyMinReps: userProperties.easyMinReps,
+                easyMaxReps: userProperties.easyMaxReps,
+                moderateMinReps: userProperties.moderateMinReps,
+                moderateMaxReps: userProperties.moderateMaxReps,
+                hardMinReps: userProperties.hardMinReps,
+                hardMaxReps: userProperties.hardMaxReps
             )
             let response = try await APIService.shared.updateUserProperties(request)
             userPropertiesAlertMessage = "Successfully updated user properties\n\nbodyweight: \(response.bodyweight?.description ?? "nil")\nminReps: \(response.minReps?.description ?? "nil")\nmaxReps: \(response.maxReps?.description ?? "nil")"

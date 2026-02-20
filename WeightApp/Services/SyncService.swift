@@ -91,6 +91,24 @@ class SyncService: ObservableObject {
             if let maxReps = response.maxReps {
                 userProperties.maxReps = maxReps
             }
+            if let easyMinReps = response.easyMinReps {
+                userProperties.easyMinReps = easyMinReps
+            }
+            if let easyMaxReps = response.easyMaxReps {
+                userProperties.easyMaxReps = easyMaxReps
+            }
+            if let moderateMinReps = response.moderateMinReps {
+                userProperties.moderateMinReps = moderateMinReps
+            }
+            if let moderateMaxReps = response.moderateMaxReps {
+                userProperties.moderateMaxReps = moderateMaxReps
+            }
+            if let hardMinReps = response.hardMinReps {
+                userProperties.hardMinReps = hardMinReps
+            }
+            if let hardMaxReps = response.hardMaxReps {
+                userProperties.hardMaxReps = hardMaxReps
+            }
 
             try? context.save()
 
@@ -140,6 +158,24 @@ class SyncService: ObservableObject {
         }
     }
 
+    func updateEffortRepRange(easyMinReps: Int, easyMaxReps: Int, moderateMinReps: Int, moderateMaxReps: Int, hardMinReps: Int, hardMaxReps: Int) async {
+        do {
+            let request = UserPropertiesRequest(
+                easyMinReps: easyMinReps,
+                easyMaxReps: easyMaxReps,
+                moderateMinReps: moderateMinReps,
+                moderateMaxReps: moderateMaxReps,
+                hardMinReps: hardMinReps,
+                hardMaxReps: hardMaxReps
+            )
+            _ = try await APIService.shared.updateUserProperties(request)
+            retryQueue.removePendingUserPropertiesSync()
+        } catch {
+            print("SyncService: Failed to update effort rep ranges: \(error.localizedDescription)")
+            retryQueue.addPendingUserPropertiesSync()
+        }
+    }
+
     func processUserPropertiesRetryQueue() async {
         guard let context = modelContext else { return }
         guard retryQueue.hasUserPropertiesPending() else { return }
@@ -151,7 +187,13 @@ class SyncService: ObservableObject {
                 bodyweight: userProperties.bodyweight,
                 availableChangePlates: userProperties.availableChangePlates,
                 minReps: userProperties.minReps,
-                maxReps: userProperties.maxReps
+                maxReps: userProperties.maxReps,
+                easyMinReps: userProperties.easyMinReps,
+                easyMaxReps: userProperties.easyMaxReps,
+                moderateMinReps: userProperties.moderateMinReps,
+                moderateMaxReps: userProperties.moderateMaxReps,
+                hardMinReps: userProperties.hardMinReps,
+                hardMaxReps: userProperties.hardMaxReps
             )
             _ = try await APIService.shared.updateUserProperties(request)
             retryQueue.removePendingUserPropertiesSync()

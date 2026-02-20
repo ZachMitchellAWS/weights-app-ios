@@ -24,6 +24,21 @@ enum OneRMCalculator {
         return weight * (1.0 + Double(effectiveReps) / 30.0)
     }
 
+    /// Inverse Epley: max reps possible at a given weight for a given estimated 1RM.
+    static func maxRepsAtWeight(weight: Double, estimated1RM: Double) -> Double {
+        guard weight > 0, estimated1RM > 0 else { return 0 }
+        let I = weight / estimated1RM
+        guard I < 1.0 else { return 1.0 }
+        return 30.0 * (1.0 / I - 1.0)
+    }
+
+    /// Estimated Reps In Reserve: how many reps the lifter had left.
+    static func estimatedRIR(weight: Double, reps: Int, estimated1RM: Double) -> Double? {
+        guard estimated1RM > 0, weight > 0 else { return nil }
+        let maxReps = maxRepsAtWeight(weight: weight, estimated1RM: estimated1RM)
+        return maxReps - Double(reps)
+    }
+
     static func current1RM(from sets: [LiftSets]) -> Double {
         let eligible = sets.filter { $0.reps >= 1 && $0.weight >= 0 }
         let best = eligible.map { estimate1RM(weight: $0.weight, reps: $0.reps) }.max() ?? 0
@@ -72,25 +87,25 @@ enum OneRMCalculator {
 
     static func effortSuggestions(
         current1RM: Double,
-        targetPercents: [Double],
-        increment: Double,
+        targetPercent1RMs: [Double],
+        loadType: ExerciseLoadType,
         repRange: ClosedRange<Int>
     ) -> [EffortSuggestion] {
-        guard current1RM > 0, increment > 0 else { return [] }
-
-        return targetPercents.flatMap { targetPercent in
-            repRange.map { reps in
-                // Epley inverse: weight = (targetPercent/100 * current1RM) / (1 + reps/30)
-                let mult: Double = (reps == 1) ? 1.0 : (1.0 + Double(reps) / 30.0)
-                let rawWeight = (targetPercent / 100.0 * current1RM) / mult
-                let roundedWeight = max(0, (rawWeight / increment).rounded() * increment)
-
-                // Back-calculate actual % 1RM after rounding to increment
-                let actual1RM = estimate1RM(weight: roundedWeight, reps: reps)
-                let actualPercent = current1RM > 0 ? (actual1RM / current1RM) * 100.0 : 0
-
-                return EffortSuggestion(reps: reps, weight: roundedWeight, percent1RM: actualPercent)
+        guard current1RM > 0 else { return [] }
+        let increment: Double = loadType == .barbell ? 5.0 : 2.5
+        var seen = Set<String>()
+        var results: [EffortSuggestion] = []
+        for pct in targetPercent1RMs {
+            let targetE1RM = pct * current1RM
+            for reps in repRange {
+                let rawWeight = targetE1RM * 30.0 / (30.0 + Double(reps))
+                let rounded = max(0, (rawWeight / increment).rounded() * increment)
+                let key = "\(rounded)-\(reps)"
+                guard seen.insert(key).inserted else { continue }
+                let actualPct = estimate1RM(weight: rounded, reps: reps) / current1RM * 100.0
+                results.append(EffortSuggestion(reps: reps, weight: rounded, percent1RM: actualPct))
             }
         }
+        return results
     }
 }

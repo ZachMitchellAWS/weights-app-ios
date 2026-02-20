@@ -96,7 +96,8 @@ struct HistoryView: View {
                                         selectedSetData.shouldPopulate = true
                                         selectedTab = 1
                                     },
-                                    allSets: allSets
+                                    allSets: allSets,
+                                    allEstimated1RMs: allEstimated1RMs
                                 )
                             }
                         } header: {
@@ -149,37 +150,66 @@ struct ExerciseGroupRow: View {
     let onDelete: (LiftSets) -> Void
     let onSelect: (LiftSets) -> Void
     let allSets: [LiftSets]
+    let allEstimated1RMs: [Estimated1RMs]
 
-    private func colorForPercentage(_ percentage: Double, isPR: Bool) -> Color {
+    private func colorForEffort(percent1RM: Double?, isPR: Bool, set: LiftSets) -> Color {
         if isPR {
             return .setPR
         }
 
-        let bucket = TrendsCalculator.IntensityBucket.from(percentage: percentage)
+        // Baseline sets → white
+        if set.isBaselineSet {
+            return .white
+        }
+
+        // For 0-weight sets, use rep-based coloring
+        if set.weight == 0 {
+            switch set.reps {
+            case 12...: return .setNearMax
+            case 9..<12: return .setHard
+            case 6..<9: return .setModerate
+            default: return .setEasy
+            }
+        }
+
+        let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: percent1RM ?? 0)
         switch bucket {
+        case .pr: return .setPR
         case .redline: return .setNearMax
         case .hard: return .setHard
         case .moderate: return .setModerate
-        default: return .setEasy
+        case .easy: return .setEasy
         }
     }
 
-    private func calculatePercentageAndPR(for set: LiftSets) -> (percentage: Double, isPR: Bool) {
+    private func calculateEffortAndPR(for set: LiftSets) -> (percent1RM: Double?, isPR: Bool) {
+        // Baseline sets are never PRs, no effort classification
+        if set.isBaselineSet {
+            return (percent1RM: nil, isPR: false)
+        }
+
         let previousSets = allSets
             .filter { $0.exercise?.id == set.exercise?.id && $0.createdAt < set.createdAt }
             .sorted { $0.createdAt < $1.createdAt }
 
         var currentMax: Double = 0
         for prevSet in previousSets {
-            let estimated = OneRMCalculator.estimate1RM(weight: prevSet.weight, reps: prevSet.reps)
-            currentMax = max(currentMax, estimated)
+            if prevSet.isBaselineSet {
+                let baselineEstimate = allEstimated1RMs.first(where: { $0.setId == prevSet.id })?.value
+                    ?? OneRMCalculator.estimate1RM(weight: prevSet.weight, reps: prevSet.reps)
+                currentMax = max(currentMax, baselineEstimate)
+            } else {
+                let estimated = OneRMCalculator.estimate1RM(weight: prevSet.weight, reps: prevSet.reps)
+                currentMax = max(currentMax, estimated)
+            }
         }
 
         let setEstimated1RM = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
         let isPR = setEstimated1RM > currentMax
-        let percentage = currentMax > 0 ? (setEstimated1RM / currentMax) * 100 : 100.0
 
-        return (percentage: percentage, isPR: isPR)
+        let percent1RM: Double? = currentMax > 0 ? setEstimated1RM / currentMax : nil
+
+        return (percent1RM: percent1RM, isPR: isPR)
     }
 
     var body: some View {
@@ -190,10 +220,10 @@ struct ExerciseGroupRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(exerciseGroup.sets) { set in
-                    let result = calculatePercentageAndPR(for: set)
+                    let result = calculateEffortAndPR(for: set)
                     HStack(spacing: 12) {
                         RoundedRectangle(cornerRadius: 4)
-                            .fill(colorForPercentage(result.percentage, isPR: result.isPR))
+                            .fill(colorForEffort(percent1RM: result.percent1RM, isPR: result.isPR, set: set))
                             .frame(width: 8, height: 24)
 
                         Text("\(set.reps) × \(set.weight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")

@@ -71,10 +71,17 @@ struct UserPropertiesRequest: Codable {
     var availableChangePlates: [Double]?
     var minReps: Int?
     var maxReps: Int?
+    var easyMinReps: Int?
+    var easyMaxReps: Int?
+    var moderateMinReps: Int?
+    var moderateMaxReps: Int?
+    var hardMinReps: Int?
+    var hardMaxReps: Int?
     var clearBodyweight: Bool = false
 
     private enum CodingKeys: String, CodingKey {
         case bodyweight, availableChangePlates, minReps, maxReps
+        case easyMinReps, easyMaxReps, moderateMinReps, moderateMaxReps, hardMinReps, hardMaxReps
     }
 
     func encode(to encoder: Encoder) throws {
@@ -93,6 +100,24 @@ struct UserPropertiesRequest: Codable {
         if let maxReps = maxReps {
             try container.encode(maxReps, forKey: .maxReps)
         }
+        if let easyMinReps = easyMinReps {
+            try container.encode(easyMinReps, forKey: .easyMinReps)
+        }
+        if let easyMaxReps = easyMaxReps {
+            try container.encode(easyMaxReps, forKey: .easyMaxReps)
+        }
+        if let moderateMinReps = moderateMinReps {
+            try container.encode(moderateMinReps, forKey: .moderateMinReps)
+        }
+        if let moderateMaxReps = moderateMaxReps {
+            try container.encode(moderateMaxReps, forKey: .moderateMaxReps)
+        }
+        if let hardMinReps = hardMinReps {
+            try container.encode(hardMinReps, forKey: .hardMinReps)
+        }
+        if let hardMaxReps = hardMaxReps {
+            try container.encode(hardMaxReps, forKey: .hardMaxReps)
+        }
     }
 }
 
@@ -102,6 +127,12 @@ struct UserPropertiesResponse: Codable {
     let availableChangePlates: [Double]?
     let minReps: Int?
     let maxReps: Int?
+    let easyMinReps: Int?
+    let easyMaxReps: Int?
+    let moderateMinReps: Int?
+    let moderateMaxReps: Int?
+    let hardMinReps: Int?
+    let hardMaxReps: Int?
     let createdDatetime: String
     let lastModifiedDatetime: String
 }
