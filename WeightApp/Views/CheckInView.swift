@@ -1280,85 +1280,26 @@ struct CheckInView: View {
 
     private var exerciseSelectorWidget: some View {
         VStack(spacing: 0) {
-            // Top half: icon + centered name + Est. 1RM
+            // Context bar
             HStack(spacing: 0) {
-                // Exercise icon with ellipsis overlay
-                if let ex = selectedExercises {
+                // Left — Sequence dropdown pill
+                Menu {
                     Button {
-                        hapticFeedback.impactOccurred()
-                        showEditExerciseName = true
+                        showSequenceEditor = true
                     } label: {
-                        ZStack(alignment: .bottomLeading) {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.appAccent.opacity(0.15))
-                                .frame(width: 48, height: 48)
-                                .overlay(
-                                    ExerciseIconView(exercise: ex, size: 34)
-                                        .foregroundStyle(Color.appAccent)
-                                )
-
-                            Image(systemName: "ellipsis.circle")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.white.opacity(0.7))
-                                .padding(2)
-                        }
+                        Label("Edit Sequences", systemImage: "pencil.line")
                     }
-                    .buttonStyle(.plain)
-                    .padding(.leading, 12)
-                }
-
-                // Centered exercise name
-                Button {
-                    hapticFeedback.impactOccurred()
-                    showExercisesSelection = true
-                } label: {
-                    HStack(spacing: 0) {
-                        Spacer()
-                        if let ex = selectedExercises {
-                            Text(ex.name)
-                                .font(.bebasNeue(size: 28))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.7)
-                        } else {
-                            VStack(spacing: 2) {
-                                Text("Select Exercise")
-                                    .font(.bebasNeue(size: 28))
-                                    .foregroundStyle(Color.appAccent)
-                                Text("Tap here to choose")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.white.opacity(0.4))
+                    Divider()
+                    Button {
+                        activeSequenceId = nil
+                    } label: {
+                        HStack {
+                            Text("All")
+                            if activeSequenceId == nil {
+                                Image(systemName: "checkmark")
                             }
                         }
-                        Spacer()
                     }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                // Est. 1RM (right side, balances icon width for centering)
-                if selectedExercises != nil && !setsForSelected.isEmpty {
-                    VStack(spacing: 1) {
-                        Text("e1RM")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.5))
-                        Text(current1RM.rounded1().formatted(.number.precision(.fractionLength(2))))
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color.appAccent)
-                    }
-                    .frame(width: 60)
-                    .padding(.trailing, 8)
-                } else if selectedExercises != nil {
-                    Color.clear.frame(width: 60)
-                        .padding(.trailing, 8)
-                }
-            }
-            .frame(height: 58)
-
-            // Bottom half: sequence menu + icon carousel
-            HStack(spacing: 0) {
-                // Sequence menu
-                Menu {
                     ForEach(allSequences) { seq in
                         Button {
                             activeSequenceId = seq.id
@@ -1372,69 +1313,144 @@ struct CheckInView: View {
                         }
                     }
                 } label: {
-                    VStack(spacing: 2) {
+                    HStack(spacing: 4) {
                         Text(activeSequenceName)
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.interSemiBold(size: 12))
                             .foregroundStyle(.white.opacity(0.7))
                             .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                        Image(systemName: "chevron.up.chevron.down")
+                        Image(systemName: "chevron.down")
                             .font(.system(size: 8))
-                            .foregroundStyle(.white.opacity(0.4))
+                            .foregroundStyle(.white.opacity(0.7))
                     }
-                    .frame(width: 52)
-                    .padding(.leading, 6)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule()
+                            .fill(Color.white.opacity(0.06))
+                    )
                 }
+                .padding(.leading, 12)
 
-                ScrollViewReader { proxy in
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(sequencedExercises) { exercise in
-                                let isSelected = selectedExercisesId == exercise.id
-                                Button {
-                                    hapticFeedback.impactOccurred()
-                                    selectedExercisesId = exercise.id
-                                } label: {
-                                    ExerciseIconView(exercise: exercise, size: isSelected ? 56 : 48)
-                                        .opacity(isSelected ? 1.0 : 0.4)
-                                        .foregroundStyle(isSelected ? Color.appAccent : .white)
-                                        .overlay(alignment: .bottomTrailing) {
-                                            let count = todaySetCount(for: exercise)
-                                            if count > 0 {
-                                                let planCount = max(exercise.setPlan.count, 1)
-                                                Image(systemName: "checkmark.circle.fill")
-                                                    .font(.system(size: isSelected ? 16 : 12))
-                                                    .foregroundStyle(.green)
-                                                    .opacity(min(Double(count) / Double(planCount), 1.0))
-                                            }
-                                        }
-                                        .frame(height: 56, alignment: .center)
-                                        .animation(.easeInOut(duration: 0.15), value: selectedExercisesId)
+                Spacer(minLength: 4)
+
+                // Center — Exercise name
+                Button {
+                    hapticFeedback.impactOccurred()
+                    showExercisesSelection = true
+                } label: {
+                    if let ex = selectedExercises {
+                        Text(ex.name)
+                            .font(.bebasNeue(size: 22))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    } else {
+                        Text("Select Exercise")
+                            .font(.bebasNeue(size: 22))
+                            .foregroundStyle(Color.appAccent)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                Spacer(minLength: 4)
+
+                // Right — e1RM
+                if selectedExercises != nil && !setsForSelected.isEmpty {
+                    HStack(spacing: 5) {
+                        Text("e1RM")
+                            .font(.inter(size: 9))
+                            .foregroundStyle(.white.opacity(0.4))
+                        Text(current1RM.rounded1().formatted(.number.precision(.fractionLength(2))))
+                            .font(.interSemiBold(size: 16))
+                            .foregroundStyle(Color.appAccent)
+                    }
+                    .padding(.trailing, 12)
+                } else {
+                    Color.clear.frame(width: 70)
+                        .padding(.trailing, 12)
+                }
+            }
+            .frame(height: 44)
+
+            // Separator
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 1)
+                .padding(.horizontal, 12)
+
+            // Chip strip
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(sequencedExercises) { exercise in
+                            let isSelected = selectedExercisesId == exercise.id
+                            Button {
+                                hapticFeedback.impactOccurred()
+                                selectedExercisesId = exercise.id
+                            } label: {
+                                HStack(spacing: 4) {
+                                    ExerciseIconView(exercise: exercise, size: 24)
+                                        .foregroundStyle(isSelected ? Color.appAccent : .white.opacity(0.4))
+                                    Text(exercise.name)
+                                        .font(.inter(size: 11))
+                                        .foregroundStyle(isSelected ? .white : .white.opacity(0.4))
+                                        .lineLimit(1)
                                 }
-                                .buttonStyle(.plain)
-                                .id(exercise.id)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .frame(height: 36)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(isSelected ? Color.appAccent.opacity(0.2) : Color(white: 0.10))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(isSelected ? Color.appAccent : Color.clear, lineWidth: 1.5)
+                                )
+                                .overlay(alignment: .bottomTrailing) {
+                                    let count = todaySetCount(for: exercise)
+                                    if count > 0 {
+                                        let planCount = max(exercise.setPlan.count, 1)
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: 12))
+                                            .foregroundStyle(.green)
+                                            .opacity(min(Double(count) / Double(planCount), 1.0))
+                                            .offset(x: 4, y: 4)
+                                    }
+                                }
+                                .animation(.easeInOut(duration: 0.15), value: selectedExercisesId)
                             }
+                            .buttonStyle(.plain)
+                            .simultaneousGesture(
+                                LongPressGesture(minimumDuration: 0.5)
+                                    .onEnded { _ in
+                                        hapticFeedback.impactOccurred()
+                                        selectedExercisesId = exercise.id
+                                        showEditExerciseName = true
+                                    }
+                            )
+                            .id(exercise.id)
                         }
-                        .scrollTargetLayout()
-                        .padding(.horizontal, 12)
                     }
-                    .scrollTargetBehavior(.viewAligned)
-                    .clipped()
-                    .id(activeSequenceId)
-                    .onChange(of: selectedExercisesId) { _, newId in
-                        guard let newId else { return }
-                        withAnimation {
-                            proxy.scrollTo(newId, anchor: .center)
-                        }
+                    .scrollTargetLayout()
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                }
+                .scrollTargetBehavior(.viewAligned)
+                .id(activeSequenceId)
+                .onChange(of: selectedExercisesId) { _, newId in
+                    guard let newId else { return }
+                    withAnimation {
+                        proxy.scrollTo(newId, anchor: .center)
                     }
-                    .onAppear {
-                        if let id = selectedExercisesId {
-                            proxy.scrollTo(id, anchor: .center)
-                        }
+                }
+                .onAppear {
+                    if let id = selectedExercisesId {
+                        proxy.scrollTo(id, anchor: .center)
                     }
                 }
             }
-            .frame(height: 78)
+            .frame(height: 52)
         }
         .background(
             LinearGradient(
@@ -1447,6 +1463,7 @@ struct CheckInView: View {
         .overlay(
             RoundedRectangle(cornerRadius: 14)
                 .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                .allowsHitTesting(false)
         )
         .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
     }
