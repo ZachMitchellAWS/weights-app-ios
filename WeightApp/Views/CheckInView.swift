@@ -1853,14 +1853,34 @@ struct CheckInView: View {
                                         }
                                     }
 
-                                    // "Next set" placeholder — outline only
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(Color.clear)
-                                        .frame(width: 42, height: 42)
-                                        .overlay(
+                                    // Plan-aware placeholder tiles
+                                    let completedCount = todaysSets.count
+                                    let planCount = displaySetPlan.count
+                                    let remaining = planCount - completedCount
+
+                                    if remaining > 0 {
+                                        ForEach(0..<remaining, id: \.self) { i in
+                                            let effortKey = displaySetPlan[completedCount + i]
+                                            let color = SequenceSquareView.color(for: effortKey)
+                                            let isNext = (i == 0)
                                             RoundedRectangle(cornerRadius: 6)
-                                                .stroke(Color.white.opacity(0.2), lineWidth: 1.5)
-                                        )
+                                                .fill(Color.clear)
+                                                .frame(width: 42, height: 42)
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 6)
+                                                        .stroke(isNext ? color.opacity(0.7) : Color.white.opacity(0.2), lineWidth: isNext ? 2 : 1.5)
+                                                )
+                                        }
+                                    } else {
+                                        // Plan exhausted — static outline for overflow sets
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(Color.clear)
+                                            .frame(width: 42, height: 42)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 6)
+                                                    .stroke(Color.white.opacity(0.2), lineWidth: 1.5)
+                                            )
+                                    }
                                 }
                                 .padding(.vertical, 2)
                                 .padding(.horizontal, 2)
