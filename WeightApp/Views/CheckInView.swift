@@ -3167,7 +3167,7 @@ struct CheckInView: View {
             // Weighted exercise - color by percent1RM
             let percent1RM = before > 0 ? OneRMCalculator.estimate1RM(weight: weight, reps: reps) / before : 0
             let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: percent1RM)
-            overlayIntensityLabel = bucket.rawValue
+            overlayIntensityLabel = (bucket == .pr) ? "Redline" : bucket.rawValue
             switch bucket {
             case .pr: overlayIntensityColor = .setNearMax // not a true PR — downgrade to redline
             case .redline: overlayIntensityColor = .setNearMax
