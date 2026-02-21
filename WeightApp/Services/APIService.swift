@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import OSLog
 
 enum APIError: Error, LocalizedError {
     case invalidURL
@@ -80,6 +81,8 @@ class APIService {
             request.httpBody = try JSONEncoder().encode(body)
         }
 
+        SyncLogger.api.debug("\(method) \(endpoint)")
+
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -88,26 +91,33 @@ class APIService {
             }
 
             if httpResponse.statusCode == 401 {
+                SyncLogger.api.error("401 Unauthorized: \(method) \(endpoint)")
                 throw APIError.unauthorized
             }
 
             if !(200...299).contains(httpResponse.statusCode) {
                 // Try to decode error message
                 if let errorResponse = try? JSONDecoder().decode(ErrorResponse.self, from: data) {
+                    SyncLogger.api.error("HTTP \(httpResponse.statusCode): \(method) \(endpoint) — \(errorResponse.message)")
                     throw APIError.httpError(httpResponse.statusCode, errorResponse.message)
                 }
+                SyncLogger.api.error("HTTP \(httpResponse.statusCode): \(method) \(endpoint)")
                 throw APIError.httpError(httpResponse.statusCode, "Unknown error")
             }
+
+            SyncLogger.api.debug("\(method) \(endpoint) → \(httpResponse.statusCode)")
 
             do {
                 let decodedData = try JSONDecoder().decode(T.self, from: data)
                 return decodedData
             } catch {
+                SyncLogger.api.error("Decode error: \(method) \(endpoint) — \(error)")
                 throw APIError.decodingError(error)
             }
         } catch let error as APIError {
             throw error
         } catch {
+            SyncLogger.api.error("Network error: \(method) \(endpoint) — \(error)")
             throw APIError.networkError(error)
         }
     }
@@ -116,14 +126,17 @@ class APIService {
 
     func refreshTokenIfNeeded() async throws {
         guard let tokenStorage = KeychainService.shared.getTokenStorage() else {
+            SyncLogger.api.error("No tokens stored, cannot refresh")
             throw APIError.noTokensStored
         }
 
         // Check if we should refresh (at 75% of lifetime)
         if tokenStorage.shouldRefresh && !tokenStorage.isExpired {
+            SyncLogger.api.debug("Token nearing expiry, refreshing proactively")
             try await refreshToken()
         } else if tokenStorage.isExpired {
             // Token is completely expired, force refresh
+            SyncLogger.api.debug("Token expired, forcing refresh")
             try await refreshToken()
         }
     }
@@ -429,6 +442,8 @@ class APIService {
             request.httpBody = try encoder.encode(body)
         }
 
+        SyncLogger.api.debug("\(method) \(endpoint)")
+
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -437,15 +452,20 @@ class APIService {
             }
 
             if httpResponse.statusCode == 401 {
+                SyncLogger.api.error("401 Unauthorized: \(method) \(endpoint)")
                 throw APIError.unauthorized
             }
 
             if !(200...299).contains(httpResponse.statusCode) {
                 if let errorResponse = try? JSONDecoder().decode(ErrorResponse.self, from: data) {
+                    SyncLogger.api.error("HTTP \(httpResponse.statusCode): \(method) \(endpoint) — \(errorResponse.message)")
                     throw APIError.httpError(httpResponse.statusCode, errorResponse.message)
                 }
+                SyncLogger.api.error("HTTP \(httpResponse.statusCode): \(method) \(endpoint)")
                 throw APIError.httpError(httpResponse.statusCode, "Unknown error")
             }
+
+            SyncLogger.api.debug("\(method) \(endpoint) → \(httpResponse.statusCode)")
 
             do {
                 let decoder = JSONDecoder()
@@ -453,11 +473,13 @@ class APIService {
                 let decodedData = try decoder.decode(T.self, from: data)
                 return decodedData
             } catch {
+                SyncLogger.api.error("Decode error: \(method) \(endpoint) — \(error)")
                 throw APIError.decodingError(error)
             }
         } catch let error as APIError {
             throw error
         } catch {
+            SyncLogger.api.error("Network error: \(method) \(endpoint) — \(error)")
             throw APIError.networkError(error)
         }
     }

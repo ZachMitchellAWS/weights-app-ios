@@ -13,18 +13,23 @@ struct OnboardingView: View {
     let onComplete: () -> Void
 
     var body: some View {
-        ZStack {
-            // Background matching widget style
-            LinearGradient(
-                colors: [Color(white: 0.18), Color(white: 0.14)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-
-            OnboardingChangePlatesStep(onComplete: onComplete)
-        }
+        Color.clear
+            .onAppear { onComplete() }
     }
+
+    // Change plates step commented out — re-enable when ready
+    // var changePlatesBody: some View {
+    //     ZStack {
+    //         LinearGradient(
+    //             colors: [Color(white: 0.18), Color(white: 0.14)],
+    //             startPoint: .top,
+    //             endPoint: .bottom
+    //         )
+    //         .ignoresSafeArea()
+    //
+    //         OnboardingChangePlatesStep(onComplete: onComplete)
+    //     }
+    // }
 }
 
 // MARK: - Change Plates Onboarding Step

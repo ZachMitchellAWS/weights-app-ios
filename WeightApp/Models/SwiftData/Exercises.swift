@@ -24,6 +24,8 @@ enum ExerciseMovementType: String, Codable, CaseIterable {
 
 @Model
 final class Exercises {
+    #Index<Exercises>([\.deleted])
+
     @Attribute(.unique) var id: UUID
     var createdAt: Date
     var createdTimezone: String

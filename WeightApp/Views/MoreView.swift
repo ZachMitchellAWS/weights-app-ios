@@ -14,8 +14,6 @@ struct MoreView: View {
     @Query private var userPropertiesItems: [UserProperties]
     @Query private var entitlementItems: [Entitlements]
     @Query(filter: #Predicate<Exercises> { !$0.deleted }) private var exercises: [Exercises]
-    @Query private var liftSets: [LiftSets]
-    @Query private var estimated1RMs: [Estimated1RMs]
 
     @State private var showAccount = false
     @State private var showSettings = false
@@ -40,6 +38,14 @@ struct MoreView: View {
     @State private var showExerciseIcons = false
     @State private var showAlertPreviews = false
     @State private var showEntitlementDetails = false
+    @State private var showLogExportSheet = false
+    @State private var exportedLogText = ""
+    @State private var showSyncState = false
+    @ObservedObject private var syncService = SyncService.shared
+    @State private var isExportingLogs = false
+    @State private var devTapCount = 0
+    @State private var devTapTimer: Timer? = nil
+    @State private var showForceResyncAlert = false
     @State private var showPlateCalculator = false
     @State private var plateCalcInput: String = ""
     @State private var isReplayingTransaction = false
@@ -50,6 +56,7 @@ struct MoreView: View {
     @State private var syncResultIsPremium = false
     @State private var syncFailed = false
     @State private var copiedToast: String?
+    @State private var showAPIValidation = false
 
     @State private var tempBodyweight: Double = 150
     @State private var repRangeDebounceTask: Task<Void, Never>?
@@ -165,6 +172,19 @@ struct MoreView: View {
                                 Text("Lift the Bull")
                                     .font(.bebasNeue(size: 28))
                                     .foregroundStyle(.white)
+                                    .onTapGesture {
+                                        devTapCount += 1
+                                        devTapTimer?.invalidate()
+                                        devTapTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { _ in
+                                            Task { @MainActor in
+                                                devTapCount = 0
+                                            }
+                                        }
+                                        if devTapCount >= 10 {
+                                            devTapCount = 0
+                                            showForceResyncAlert = true
+                                        }
+                                    }
 
                                 if !entitlement.isActive {
                                     Button {
@@ -480,6 +500,7 @@ struct MoreView: View {
                     }
                 }
 
+                #if DEBUG
                 // Developer Section (Bottom, Expandable)
                 Section {
                     Button {
@@ -563,6 +584,18 @@ struct MoreView: View {
                             }
                         }
                         .disabled(isUpdatingProperties)
+
+                        Button {
+                            showAPIValidation = true
+                        } label: {
+                            HStack {
+                                Text("API Validation")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "checkmark.shield")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
 
                         // MARK: Flows & Previews
                         Text("Flows & Previews")
@@ -845,6 +878,113 @@ struct MoreView: View {
                             }
                         }
 
+                        // MARK: Sync Logs
+                        Text("Sync Logs")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.5))
+
+                        Button {
+                            isExportingLogs = true
+                            do {
+                                exportedLogText = try LogExporter.exportRecentLogs()
+                                showLogExportSheet = true
+                            } catch {
+                                exportedLogText = "Failed to export logs: \(error.localizedDescription)"
+                                showLogExportSheet = true
+                            }
+                            isExportingLogs = false
+                        } label: {
+                            HStack {
+                                Text("Export Sync Logs")
+                                Spacer()
+                                if isExportingLogs {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                        }
+
+                        // MARK: Sync State
+                        Text("Sync State")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.5))
+
+                        Button {
+                            withAnimation {
+                                showSyncState.toggle()
+                            }
+                        } label: {
+                            HStack {
+                                Text("Show Sync State")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: showSyncState ? "eye.fill" : "eye")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        if showSyncState {
+                            let state = syncService.currentSyncState
+                            VStack(alignment: .leading, spacing: 6) {
+                                Label("Sync Complete", systemImage: state.syncComplete ? "checkmark.circle.fill" : "xmark.circle")
+                                    .foregroundStyle(state.syncComplete ? .green : .red.opacity(0.7))
+                                Label("User Properties", systemImage: state.userPropertiesComplete ? "checkmark.circle.fill" : "xmark.circle")
+                                    .foregroundStyle(state.userPropertiesComplete ? .green : .red.opacity(0.7))
+                                Label("Exercises", systemImage: state.exercisesComplete ? "checkmark.circle.fill" : "xmark.circle")
+                                    .foregroundStyle(state.exercisesComplete ? .green : .red.opacity(0.7))
+                                Label("Sequences", systemImage: state.sequencesComplete ? "checkmark.circle.fill" : "xmark.circle")
+                                    .foregroundStyle(state.sequencesComplete ? .green : .red.opacity(0.7))
+                                Label("Lift Sets", systemImage: state.liftSetsComplete ? "checkmark.circle.fill" : "xmark.circle")
+                                    .foregroundStyle(state.liftSetsComplete ? .green : .red.opacity(0.7))
+                                Label("Estimated 1RMs", systemImage: state.estimated1RMsComplete ? "checkmark.circle.fill" : "xmark.circle")
+                                    .foregroundStyle(state.estimated1RMsComplete ? .green : .red.opacity(0.7))
+
+                                Divider()
+
+                                HStack {
+                                    Text("Lift Set Page Token")
+                                        .foregroundStyle(.white.opacity(0.7))
+                                    Spacer()
+                                    Text(state.liftSetPageToken ?? "nil")
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundStyle(.white.opacity(0.5))
+                                        .lineLimit(1)
+                                }
+                                HStack {
+                                    Text("E1RM Page Token")
+                                        .foregroundStyle(.white.opacity(0.7))
+                                    Spacer()
+                                    Text(state.estimated1RMPageToken ?? "nil")
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundStyle(.white.opacity(0.5))
+                                        .lineLimit(1)
+                                }
+
+                                Divider()
+
+                                HStack {
+                                    Text("Lift Sets Fetched")
+                                        .foregroundStyle(.white.opacity(0.7))
+                                    Spacer()
+                                    Text("\(state.liftSetsFetched)")
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundStyle(.white.opacity(0.5))
+                                }
+                                HStack {
+                                    Text("E1RMs Fetched")
+                                        .foregroundStyle(.white.opacity(0.7))
+                                    Spacer()
+                                    Text("\(state.estimated1RMsFetched)")
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundStyle(.white.opacity(0.5))
+                                }
+                            }
+                            .font(.caption)
+                            .padding(.vertical, 4)
+                        }
+
                         // MARK: Danger Zone
                         Text("Danger Zone")
                             .font(.subheadline)
@@ -867,6 +1007,7 @@ struct MoreView: View {
                         Text("Generates realistic training data for the past 28 days. Update user properties sends a test API call. Replay onboarding/welcome back shows the post-auth flows. Premium Status toggles premium features on/off for testing. Show Exercise IDs displays UUIDs for debugging. Delete all workout data removes all LiftSets and Estimated1RMs entries.")
                     }
                 }
+                #endif
             }
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showWeightInput) {
@@ -885,6 +1026,12 @@ struct MoreView: View {
             }
             .sheet(isPresented: $showAlertPreviews) {
                 AlertPreviewsSheet()
+            }
+            .sheet(isPresented: $showAPIValidation) {
+                APIValidationView()
+            }
+            .sheet(isPresented: $showLogExportSheet) {
+                ShareSheet(activityItems: [exportedLogText])
             }
             .alert("Data Populated", isPresented: $showDataPopulatedAlert) {
                 Button("OK") { }
@@ -936,6 +1083,16 @@ struct MoreView: View {
                 }
             } message: {
                 Text("Are you sure you want to logout? All local data will be deleted.")
+            }
+            .alert("Force Re-Sync", isPresented: $showForceResyncAlert) {
+                Button("Re-Sync", role: .destructive) {
+                    Task {
+                        await SyncService.shared.forceResync()
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will clear sync state and re-download all data from the server. Existing local data will be deduplicated.")
             }
             .overlay(alignment: .bottom) {
                 if let toast = copiedToast {
@@ -1170,10 +1327,12 @@ struct MoreView: View {
         isPopulating28Days = true
 
         // Clear all existing LiftSets and Estimated1RMs data first
-        for liftSet in liftSets {
+        let allLiftSets = (try? modelContext.fetch(FetchDescriptor<LiftSets>())) ?? []
+        for liftSet in allLiftSets {
             modelContext.delete(liftSet)
         }
-        for estimated1RM in estimated1RMs {
+        let allEstimated1RMs = (try? modelContext.fetch(FetchDescriptor<Estimated1RMs>())) ?? []
+        for estimated1RM in allEstimated1RMs {
             modelContext.delete(estimated1RM)
         }
 
@@ -1352,7 +1511,8 @@ struct MoreView: View {
             let currentMax = getBase1RM(for: exercise.name)
 
             // Get the existing best 1RM for this exercise from prior data
-            let existingSets = liftSets.filter { $0.exercise?.id == exercise.id }
+            let allLiftSets = (try? modelContext.fetch(FetchDescriptor<LiftSets>())) ?? []
+            let existingSets = allLiftSets.filter { $0.exercise?.id == exercise.id }
             var runningBest = OneRMCalculator.current1RM(from: existingSets)
 
             // Pattern: 2 Easy, 2 Moderate, 2 Hard, 1 Redline, 1 PR
@@ -1447,12 +1607,14 @@ struct MoreView: View {
 
     private func deleteAllWorkoutData() {
         // Delete all LiftSets items
-        for liftSet in liftSets {
+        let allLiftSets = (try? modelContext.fetch(FetchDescriptor<LiftSets>())) ?? []
+        for liftSet in allLiftSets {
             modelContext.delete(liftSet)
         }
 
         // Delete all Estimated1RMs items
-        for estimated1RM in estimated1RMs {
+        let allEstimated1RMs = (try? modelContext.fetch(FetchDescriptor<Estimated1RMs>())) ?? []
+        for estimated1RM in allEstimated1RMs {
             modelContext.delete(estimated1RM)
         }
 
@@ -1464,12 +1626,14 @@ struct MoreView: View {
 
     private func hardDeleteAllData() {
         // Hard delete all LiftSets
-        for liftSet in liftSets {
+        let allLiftSets = (try? modelContext.fetch(FetchDescriptor<LiftSets>())) ?? []
+        for liftSet in allLiftSets {
             modelContext.delete(liftSet)
         }
 
         // Hard delete all Estimated1RMs
-        for estimated1RM in estimated1RMs {
+        let allEstimated1RMs = (try? modelContext.fetch(FetchDescriptor<Estimated1RMs>())) ?? []
+        for estimated1RM in allEstimated1RMs {
             modelContext.delete(estimated1RM)
         }
 
@@ -1482,6 +1646,21 @@ struct MoreView: View {
         for properties in userPropertiesItems {
             modelContext.delete(properties)
         }
+
+        // Hard delete all WorkoutSequences
+        let allSequences = (try? modelContext.fetch(FetchDescriptor<WorkoutSequence>())) ?? []
+        for sequence in allSequences {
+            modelContext.delete(sequence)
+        }
+
+        // Hard delete Entitlements
+        let allEntitlements = (try? modelContext.fetch(FetchDescriptor<Entitlements>())) ?? []
+        for entitlement in allEntitlements {
+            modelContext.delete(entitlement)
+        }
+
+        // Clear active sequence preference
+        WorkoutSequenceStore.setActiveSequenceId(nil)
 
         try? modelContext.save()
     }

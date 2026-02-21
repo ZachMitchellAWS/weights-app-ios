@@ -66,7 +66,7 @@ struct CreateEstimated1RMsResponse: Codable {
 struct DeleteEstimated1RMsResponse: Codable {
     let message: String
     let deletedEstimated1RMs: [Estimated1RMDTO]
-    let notFoundIds: [UUID]
+    let notFoundIds: [UUID]?
 }
 
 // MARK: - Estimated1RMs Extension

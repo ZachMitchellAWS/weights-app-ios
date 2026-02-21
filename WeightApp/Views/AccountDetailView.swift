@@ -14,11 +14,6 @@ struct AccountDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var showLogoutConfirmation = false
 
-    @Query private var allExercises: [Exercises]
-    @Query private var allLiftSets: [LiftSets]
-    @Query private var allEstimated1RMs: [Estimated1RMs]
-    @Query private var allUserProperties: [UserProperties]
-
     private var email: String {
         KeychainService.shared.getEmail() ?? "Not available"
     }
@@ -137,24 +132,43 @@ struct AccountDetailView: View {
 
     private func hardDeleteAllData() {
         // Hard delete all LiftSets
+        let allLiftSets = (try? modelContext.fetch(FetchDescriptor<LiftSets>())) ?? []
         for liftSet in allLiftSets {
             modelContext.delete(liftSet)
         }
 
         // Hard delete all Estimated1RMs
+        let allEstimated1RMs = (try? modelContext.fetch(FetchDescriptor<Estimated1RMs>())) ?? []
         for estimated in allEstimated1RMs {
             modelContext.delete(estimated)
         }
 
-        // Hard delete all custom Exercises (keep built-in ones)
-        for exercise in allExercises where exercise.isCustom {
+        // Hard delete all Exercises (both custom and built-in since they're synced)
+        let allExercises = (try? modelContext.fetch(FetchDescriptor<Exercises>())) ?? []
+        for exercise in allExercises {
             modelContext.delete(exercise)
         }
 
         // Hard delete UserProperties
+        let allUserProperties = (try? modelContext.fetch(FetchDescriptor<UserProperties>())) ?? []
         for properties in allUserProperties {
             modelContext.delete(properties)
         }
+
+        // Hard delete all WorkoutSequences
+        let allSequences = (try? modelContext.fetch(FetchDescriptor<WorkoutSequence>())) ?? []
+        for sequence in allSequences {
+            modelContext.delete(sequence)
+        }
+
+        // Hard delete Entitlements
+        let allEntitlements = (try? modelContext.fetch(FetchDescriptor<Entitlements>())) ?? []
+        for entitlement in allEntitlements {
+            modelContext.delete(entitlement)
+        }
+
+        // Clear active sequence preference
+        WorkoutSequenceStore.setActiveSequenceId(nil)
 
         try? modelContext.save()
     }

@@ -10,13 +10,19 @@ import SwiftData
 
 struct HistoryView: View {
     @Environment(\.modelContext) private var modelContext
-    let allSets: [LiftSets]
-    let allEstimated1RMs: [Estimated1RMs]
     @ObservedObject var selectedSetData: SelectedSetData
     @Binding var selectedTab: Int
-    @Binding var isDeleteModeActive: Bool
-    @Binding var setToDelete: LiftSets?
-    @Binding var showDeleteConfirmation: Bool
+    var isVisible: Bool = true
+    @State private var isDeleteModeActive = false
+    @State private var setToDelete: LiftSets? = nil
+    @State private var showDeleteConfirmation = false
+
+    @State private var displayMonths: Int = 2
+    @State private var sets: [LiftSets] = []
+    @State private var estimated1RMs: [Estimated1RMs] = []
+    @State private var hasMoreHistory = true
+    @State private var groupedSets: [(date: Date, exerciseGroups: [ExerciseGroup])] = []
+    @State private var effortCache: [UUID: EffortResult] = [:]
 
     struct ExerciseGroup: Identifiable {
         let id = UUID()
@@ -24,42 +30,14 @@ struct HistoryView: View {
         let sets: [LiftSets]
     }
 
-    private var groupedSets: [(date: Date, exerciseGroups: [ExerciseGroup])] {
-        let calendar = Calendar.current
-        let grouped = Dictionary(grouping: allSets) { set in
-            calendar.startOfDay(for: set.createdAt)
-        }
-
-        return grouped.sorted { $0.key > $1.key }.map { dateKey, sets in
-            let sortedSets = sets.sorted { $0.createdAt < $1.createdAt }
-            var exerciseGroups: [ExerciseGroup] = []
-            var currentExerciseName: String? = nil
-            var currentSets: [LiftSets] = []
-
-            for set in sortedSets {
-                let exerciseName = set.exercise?.name ?? "Unknown"
-                if exerciseName == currentExerciseName {
-                    currentSets.append(set)
-                } else {
-                    if !currentSets.isEmpty {
-                        exerciseGroups.append(ExerciseGroup(exerciseName: currentExerciseName!, sets: currentSets))
-                    }
-                    currentExerciseName = exerciseName
-                    currentSets = [set]
-                }
-            }
-
-            if !currentSets.isEmpty {
-                exerciseGroups.append(ExerciseGroup(exerciseName: currentExerciseName!, sets: currentSets))
-            }
-
-            return (date: dateKey, exerciseGroups: exerciseGroups)
-        }
+    struct EffortResult {
+        let percent1RM: Double?
+        let isPR: Bool
     }
 
     var body: some View {
         Group {
-            if allSets.isEmpty {
+            if sets.isEmpty {
                 VStack(spacing: 20) {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 60))
@@ -96,8 +74,7 @@ struct HistoryView: View {
                                         selectedSetData.shouldPopulate = true
                                         selectedTab = 1
                                     },
-                                    allSets: allSets,
-                                    allEstimated1RMs: allEstimated1RMs
+                                    effortCache: effortCache
                                 )
                             }
                         } header: {
@@ -106,11 +83,186 @@ struct HistoryView: View {
                                 .foregroundStyle(.white)
                         }
                     }
+
+                    if hasMoreHistory {
+                        Button {
+                            displayMonths += 2
+                            loadData()
+                        } label: {
+                            HStack {
+                                Spacer()
+                                Text("Load Earlier History")
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(Color.appAccent)
+                                Spacer()
+                            }
+                            .padding(.vertical, 8)
+                        }
+                        .listRowBackground(Color(white: 0.12))
+                    }
                 }
                 .listStyle(.insetGrouped)
                 .scrollContentBackground(.hidden)
                 .background(Color.black)
             }
+        }
+        .toolbar {
+            if isVisible && !sets.isEmpty {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        isDeleteModeActive.toggle()
+                    } label: {
+                        Image(systemName: isDeleteModeActive ? "minus.circle.fill" : "minus.circle")
+                            .foregroundStyle(isDeleteModeActive ? .red : Color.appAccent)
+                    }
+                }
+            }
+        }
+        .alert("Delete Set", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                if let set = setToDelete {
+                    let setId = set.id
+                    set.deleted = true
+
+                    // Also mark the associated Estimated1RMs as deleted
+                    var estimated1RMId: UUID? = nil
+                    if let associated1RM = estimated1RMs.first(where: { $0.setId == setId }) {
+                        associated1RM.deleted = true
+                        estimated1RMId = associated1RM.id
+                    }
+
+                    try? modelContext.save()
+
+                    // Remove from local arrays and rebuild derived data
+                    sets.removeAll { $0.id == setId }
+                    estimated1RMs.removeAll { $0.setId == setId }
+                    effortCache = Self.buildEffortCache(sets: sets, estimated1RMs: estimated1RMs)
+                    groupedSets = Self.buildGroupedSets(from: sets)
+
+                    Task {
+                        await SyncService.shared.deleteLiftSet(setId)
+                        if let e1rmId = estimated1RMId {
+                            await SyncService.shared.deleteEstimated1RM(estimated1RMId: e1rmId, liftSetId: setId)
+                        }
+                    }
+                }
+            }
+        } message: {
+            if let set = setToDelete {
+                Text("Delete \(set.reps) × \(set.weight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs?")
+            }
+        }
+        .onAppear {
+            if sets.isEmpty {
+                loadData()
+            }
+        }
+        .onChange(of: isVisible) { _, visible in
+            if visible {
+                // Defer data reload so the subtab switch animation isn't blocked
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+                    loadData()
+                }
+            }
+        }
+    }
+
+    private func loadData() {
+        let cutoff = Calendar.current.date(byAdding: .month, value: -displayMonths, to: Date())!
+
+        var setsDescriptor = FetchDescriptor<LiftSets>(
+            predicate: #Predicate { !$0.deleted && $0.createdAt >= cutoff },
+            sortBy: [SortDescriptor(\.createdAt)]
+        )
+        setsDescriptor.fetchLimit = nil
+
+        var e1rmDescriptor = FetchDescriptor<Estimated1RMs>(
+            predicate: #Predicate { !$0.deleted && $0.createdAt >= cutoff }
+        )
+        e1rmDescriptor.fetchLimit = nil
+
+        let fetchedSets = (try? modelContext.fetch(setsDescriptor)) ?? []
+        let fetchedE1RMs = (try? modelContext.fetch(e1rmDescriptor)) ?? []
+
+        sets = fetchedSets
+        estimated1RMs = fetchedE1RMs
+
+        // Precompute derived data so body evaluations are cheap
+        effortCache = Self.buildEffortCache(sets: fetchedSets, estimated1RMs: fetchedE1RMs)
+        groupedSets = Self.buildGroupedSets(from: fetchedSets)
+
+        // Check if there's older data beyond the current window
+        let olderCutoff = Calendar.current.date(byAdding: .month, value: -(displayMonths + 1), to: Date())!
+        var olderDescriptor = FetchDescriptor<LiftSets>(
+            predicate: #Predicate { !$0.deleted && $0.createdAt >= olderCutoff && $0.createdAt < cutoff }
+        )
+        olderDescriptor.fetchLimit = 1
+        hasMoreHistory = ((try? modelContext.fetch(olderDescriptor)) ?? []).count > 0
+    }
+
+    private static func buildEffortCache(sets: [LiftSets], estimated1RMs: [Estimated1RMs]) -> [UUID: EffortResult] {
+        let e1rmBySetId = Dictionary(uniqueKeysWithValues: estimated1RMs.compactMap { e1rm -> (UUID, Double)? in
+            return (e1rm.setId, e1rm.value)
+        })
+
+        let byExercise = Dictionary(grouping: sets) { $0.exercise?.id }
+        var cache: [UUID: EffortResult] = [:]
+
+        for (_, exerciseSets) in byExercise {
+            let sorted = exerciseSets.sorted { $0.createdAt < $1.createdAt }
+            var runningMax: Double = 0
+
+            for set in sorted {
+                if set.isBaselineSet {
+                    cache[set.id] = EffortResult(percent1RM: nil, isPR: false)
+                    let baselineEstimate = e1rmBySetId[set.id]
+                        ?? OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
+                    runningMax = max(runningMax, baselineEstimate)
+                } else {
+                    let estimated = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
+                    let isPR = estimated > runningMax
+                    let percent1RM: Double? = runningMax > 0 ? estimated / runningMax : nil
+                    cache[set.id] = EffortResult(percent1RM: percent1RM, isPR: isPR)
+                    runningMax = max(runningMax, estimated)
+                }
+            }
+        }
+
+        return cache
+    }
+
+    private static func buildGroupedSets(from sets: [LiftSets]) -> [(date: Date, exerciseGroups: [ExerciseGroup])] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: sets) { set in
+            calendar.startOfDay(for: set.createdAt)
+        }
+
+        return grouped.sorted { $0.key > $1.key }.map { dateKey, sets in
+            let sortedSets = sets.sorted { $0.createdAt < $1.createdAt }
+            var exerciseGroups: [ExerciseGroup] = []
+            var currentExerciseName: String? = nil
+            var currentSets: [LiftSets] = []
+
+            for set in sortedSets {
+                let exerciseName = set.exercise?.name ?? "Unknown"
+                if exerciseName == currentExerciseName {
+                    currentSets.append(set)
+                } else {
+                    if !currentSets.isEmpty {
+                        exerciseGroups.append(ExerciseGroup(exerciseName: currentExerciseName!, sets: currentSets))
+                    }
+                    currentExerciseName = exerciseName
+                    currentSets = [set]
+                }
+            }
+
+            if !currentSets.isEmpty {
+                exerciseGroups.append(ExerciseGroup(exerciseName: currentExerciseName!, sets: currentSets))
+            }
+
+            return (date: dateKey, exerciseGroups: exerciseGroups)
         }
     }
 
@@ -149,8 +301,7 @@ struct ExerciseGroupRow: View {
     let isDeleteModeActive: Bool
     let onDelete: (LiftSets) -> Void
     let onSelect: (LiftSets) -> Void
-    let allSets: [LiftSets]
-    let allEstimated1RMs: [Estimated1RMs]
+    let effortCache: [UUID: HistoryView.EffortResult]
 
     private func colorForEffort(percent1RM: Double?, isPR: Bool, set: LiftSets) -> Color {
         if isPR {
@@ -182,36 +333,6 @@ struct ExerciseGroupRow: View {
         }
     }
 
-    private func calculateEffortAndPR(for set: LiftSets) -> (percent1RM: Double?, isPR: Bool) {
-        // Baseline sets are never PRs, no effort classification
-        if set.isBaselineSet {
-            return (percent1RM: nil, isPR: false)
-        }
-
-        let previousSets = allSets
-            .filter { $0.exercise?.id == set.exercise?.id && $0.createdAt < set.createdAt }
-            .sorted { $0.createdAt < $1.createdAt }
-
-        var currentMax: Double = 0
-        for prevSet in previousSets {
-            if prevSet.isBaselineSet {
-                let baselineEstimate = allEstimated1RMs.first(where: { $0.setId == prevSet.id })?.value
-                    ?? OneRMCalculator.estimate1RM(weight: prevSet.weight, reps: prevSet.reps)
-                currentMax = max(currentMax, baselineEstimate)
-            } else {
-                let estimated = OneRMCalculator.estimate1RM(weight: prevSet.weight, reps: prevSet.reps)
-                currentMax = max(currentMax, estimated)
-            }
-        }
-
-        let setEstimated1RM = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
-        let isPR = setEstimated1RM > currentMax
-
-        let percent1RM: Double? = currentMax > 0 ? setEstimated1RM / currentMax : nil
-
-        return (percent1RM: percent1RM, isPR: isPR)
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(exerciseGroup.exerciseName)
@@ -220,7 +341,7 @@ struct ExerciseGroupRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(exerciseGroup.sets) { set in
-                    let result = calculateEffortAndPR(for: set)
+                    let result = effortCache[set.id] ?? HistoryView.EffortResult(percent1RM: nil, isPR: false)
                     HStack(spacing: 12) {
                         RoundedRectangle(cornerRadius: 4)
                             .fill(colorForEffort(percent1RM: result.percent1RM, isPR: result.isPR, set: set))

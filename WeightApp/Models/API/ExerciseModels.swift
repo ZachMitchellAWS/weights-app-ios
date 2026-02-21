@@ -68,13 +68,15 @@ struct GetExercisesResponse: Codable {
 }
 
 struct UpsertExercisesResponse: Codable {
-    let message: String
-    let upsertedCount: Int
+    let exercises: [ExerciseDTO]
+    let created: Int
+    let updated: Int
 }
 
 struct DeleteExercisesResponse: Codable {
     let message: String
-    let deletedCount: Int
+    let deletedExercises: [ExerciseDTO]
+    let notFoundIds: [UUID]?
 }
 
 // MARK: - Exercises Extension

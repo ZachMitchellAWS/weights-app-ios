@@ -105,9 +105,9 @@ struct WeightAppApp: App {
                 // Initialize user samples on first launch
                 UserSamples.shared.initializeIfNeeded()
 
-                // Wire up ModelContext for SyncService, AuthViewModel, and EntitlementsService
+                // Wire up ModelContainer/Context for SyncService, AuthViewModel, and EntitlementsService
+                SyncService.shared.setModelContainer(modelContainer)
                 let context = modelContainer.mainContext
-                SyncService.shared.setModelContext(context)
                 authViewModel.setModelContext(context)
                 EntitlementsService.shared.setModelContext(context)
 
@@ -128,6 +128,9 @@ struct WeightAppApp: App {
 
                         // Sync entitlement status from backend
                         await EntitlementsService.shared.syncEntitlementStatus()
+
+                        // Resume incomplete sync if needed (e.g. app was killed mid-sync)
+                        await SyncService.shared.resumeSyncIfNeeded()
                     }
                 }
 

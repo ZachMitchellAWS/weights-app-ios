@@ -10,6 +10,8 @@ import SwiftData
 
 @Model
 final class Estimated1RMs {
+    #Index<Estimated1RMs>([\.createdAt], [\.deleted])
+
     @Attribute(.unique) var id: UUID
     var createdAt: Date
     var createdTimezone: String

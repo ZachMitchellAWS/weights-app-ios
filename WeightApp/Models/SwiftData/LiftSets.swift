@@ -10,6 +10,8 @@ import SwiftData
 
 @Model
 final class LiftSets {
+    #Index<LiftSets>([\.createdAt], [\.deleted])
+
     @Attribute(.unique) var id: UUID
     var createdAt: Date
     var createdTimezone: String

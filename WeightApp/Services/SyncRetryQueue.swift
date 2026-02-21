@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import OSLog
 
 enum PendingOperationType: String, Codable {
     case upsert
@@ -95,14 +96,17 @@ class SyncRetryQueue {
     // MARK: - Public Methods
 
     func addPendingUpsert(exerciseId: UUID) {
+        SyncLogger.retry.debug("Queuing exercise upsert: \(exerciseId)")
         addOperation(PendingOperation(exerciseId: exerciseId, operationType: .upsert))
     }
 
     func addPendingDelete(exerciseId: UUID) {
+        SyncLogger.retry.debug("Queuing exercise delete: \(exerciseId)")
         addOperation(PendingOperation(exerciseId: exerciseId, operationType: .delete))
     }
 
     func removePendingOperation(exerciseId: UUID) {
+        SyncLogger.retry.debug("Removing exercise operation: \(exerciseId)")
         var operations = loadOperations()
         operations.removeAll { $0.exerciseId == exerciseId }
         saveOperations(operations)
@@ -117,6 +121,7 @@ class SyncRetryQueue {
         if let index = operations.firstIndex(where: { $0.exerciseId == exerciseId }) {
             operations[index].retryCount += 1
             if operations[index].retryCount >= maxRetries {
+                SyncLogger.retry.info("Exercise \(exerciseId) dropped after \(self.maxRetries) retries")
                 operations.remove(at: index)
             }
         }
@@ -154,7 +159,7 @@ class SyncRetryQueue {
         do {
             return try JSONDecoder().decode(PendingUserPropertiesSync.self, from: data)
         } catch {
-            print("SyncRetryQueue: Failed to decode pending user properties sync: \(error)")
+            SyncLogger.retry.error("Failed to decode pending user properties sync: \(error)")
             return nil
         }
     }
@@ -164,6 +169,7 @@ class SyncRetryQueue {
 
         pending.retryCount += 1
         if pending.retryCount >= maxRetries {
+            SyncLogger.retry.info("User properties sync dropped after \(self.maxRetries) retries")
             removePendingUserPropertiesSync()
         } else {
             saveUserPropertiesSync(pending)
@@ -179,7 +185,7 @@ class SyncRetryQueue {
             let data = try JSONEncoder().encode(pending)
             UserDefaults.standard.set(data, forKey: userPropertiesKey)
         } catch {
-            print("SyncRetryQueue: Failed to encode pending user properties sync: \(error)")
+            SyncLogger.retry.error("Failed to encode pending user properties sync: \(error)")
         }
     }
 
@@ -205,7 +211,7 @@ class SyncRetryQueue {
         do {
             return try JSONDecoder().decode([PendingOperation].self, from: data)
         } catch {
-            print("SyncRetryQueue: Failed to decode pending operations: \(error)")
+            SyncLogger.retry.error("Failed to decode pending operations: \(error)")
             return []
         }
     }
@@ -215,21 +221,24 @@ class SyncRetryQueue {
             let data = try JSONEncoder().encode(operations)
             UserDefaults.standard.set(data, forKey: userDefaultsKey)
         } catch {
-            print("SyncRetryQueue: Failed to encode pending operations: \(error)")
+            SyncLogger.retry.error("Failed to encode pending operations: \(error)")
         }
     }
 
     // MARK: - Lift Set Operations
 
     func addPendingLiftSetCreate(liftSetId: UUID) {
+        SyncLogger.retry.debug("Queuing lift set create: \(liftSetId)")
         addLiftSetOperation(PendingLiftSetOperation(liftSetId: liftSetId, operationType: .upsert))
     }
 
     func addPendingLiftSetDelete(liftSetId: UUID) {
+        SyncLogger.retry.debug("Queuing lift set delete: \(liftSetId)")
         addLiftSetOperation(PendingLiftSetOperation(liftSetId: liftSetId, operationType: .delete))
     }
 
     func removePendingLiftSetOperation(liftSetId: UUID) {
+        SyncLogger.retry.debug("Removing lift set operation: \(liftSetId)")
         var operations = loadLiftSetOperations()
         operations.removeAll { $0.liftSetId == liftSetId }
         saveLiftSetOperations(operations)
@@ -244,6 +253,7 @@ class SyncRetryQueue {
         if let index = operations.firstIndex(where: { $0.liftSetId == liftSetId }) {
             operations[index].retryCount += 1
             if operations[index].retryCount >= maxRetries {
+                SyncLogger.retry.info("Lift set \(liftSetId) dropped after \(self.maxRetries) retries")
                 operations.remove(at: index)
             }
         }
@@ -274,7 +284,7 @@ class SyncRetryQueue {
         do {
             return try JSONDecoder().decode([PendingLiftSetOperation].self, from: data)
         } catch {
-            print("SyncRetryQueue: Failed to decode pending lift set operations: \(error)")
+            SyncLogger.retry.error("Failed to decode pending lift set operations: \(error)")
             return []
         }
     }
@@ -284,21 +294,24 @@ class SyncRetryQueue {
             let data = try JSONEncoder().encode(operations)
             UserDefaults.standard.set(data, forKey: liftSetOperationsKey)
         } catch {
-            print("SyncRetryQueue: Failed to encode pending lift set operations: \(error)")
+            SyncLogger.retry.error("Failed to encode pending lift set operations: \(error)")
         }
     }
 
     // MARK: - Estimated 1RM Operations
 
     func addPendingEstimated1RMCreate(estimated1RMId: UUID, liftSetId: UUID) {
+        SyncLogger.retry.debug("Queuing estimated 1RM create: \(estimated1RMId)")
         addEstimated1RMOperation(PendingEstimated1RMOperation(estimated1RMId: estimated1RMId, liftSetId: liftSetId, operationType: .upsert))
     }
 
     func addPendingEstimated1RMDelete(estimated1RMId: UUID, liftSetId: UUID) {
+        SyncLogger.retry.debug("Queuing estimated 1RM delete: \(estimated1RMId)")
         addEstimated1RMOperation(PendingEstimated1RMOperation(estimated1RMId: estimated1RMId, liftSetId: liftSetId, operationType: .delete))
     }
 
     func removePendingEstimated1RMOperation(estimated1RMId: UUID) {
+        SyncLogger.retry.debug("Removing estimated 1RM operation: \(estimated1RMId)")
         var operations = loadEstimated1RMOperations()
         operations.removeAll { $0.estimated1RMId == estimated1RMId }
         saveEstimated1RMOperations(operations)
@@ -313,6 +326,7 @@ class SyncRetryQueue {
         if let index = operations.firstIndex(where: { $0.estimated1RMId == estimated1RMId }) {
             operations[index].retryCount += 1
             if operations[index].retryCount >= maxRetries {
+                SyncLogger.retry.info("Estimated 1RM \(estimated1RMId) dropped after \(self.maxRetries) retries")
                 operations.remove(at: index)
             }
         }
@@ -343,7 +357,7 @@ class SyncRetryQueue {
         do {
             return try JSONDecoder().decode([PendingEstimated1RMOperation].self, from: data)
         } catch {
-            print("SyncRetryQueue: Failed to decode pending estimated 1RM operations: \(error)")
+            SyncLogger.retry.error("Failed to decode pending estimated 1RM operations: \(error)")
             return []
         }
     }
@@ -353,21 +367,24 @@ class SyncRetryQueue {
             let data = try JSONEncoder().encode(operations)
             UserDefaults.standard.set(data, forKey: estimated1RMOperationsKey)
         } catch {
-            print("SyncRetryQueue: Failed to encode pending estimated 1RM operations: \(error)")
+            SyncLogger.retry.error("Failed to encode pending estimated 1RM operations: \(error)")
         }
     }
 
     // MARK: - Sequence Operations
 
     func addPendingSequenceUpsert(sequenceId: UUID) {
+        SyncLogger.retry.debug("Queuing sequence upsert: \(sequenceId)")
         addSequenceOperation(PendingSequenceOperation(sequenceId: sequenceId, operationType: .upsert))
     }
 
     func addPendingSequenceDelete(sequenceId: UUID) {
+        SyncLogger.retry.debug("Queuing sequence delete: \(sequenceId)")
         addSequenceOperation(PendingSequenceOperation(sequenceId: sequenceId, operationType: .delete))
     }
 
     func removePendingSequenceOperation(sequenceId: UUID) {
+        SyncLogger.retry.debug("Removing sequence operation: \(sequenceId)")
         var operations = loadSequenceOperations()
         operations.removeAll { $0.sequenceId == sequenceId }
         saveSequenceOperations(operations)
@@ -382,6 +399,7 @@ class SyncRetryQueue {
         if let index = operations.firstIndex(where: { $0.sequenceId == sequenceId }) {
             operations[index].retryCount += 1
             if operations[index].retryCount >= maxRetries {
+                SyncLogger.retry.info("Sequence \(sequenceId) dropped after \(self.maxRetries) retries")
                 operations.remove(at: index)
             }
         }
@@ -412,7 +430,7 @@ class SyncRetryQueue {
         do {
             return try JSONDecoder().decode([PendingSequenceOperation].self, from: data)
         } catch {
-            print("SyncRetryQueue: Failed to decode pending sequence operations: \(error)")
+            SyncLogger.retry.error("Failed to decode pending sequence operations: \(error)")
             return []
         }
     }
@@ -422,7 +440,7 @@ class SyncRetryQueue {
             let data = try JSONEncoder().encode(operations)
             UserDefaults.standard.set(data, forKey: sequenceOperationsKey)
         } catch {
-            print("SyncRetryQueue: Failed to encode pending sequence operations: \(error)")
+            SyncLogger.retry.error("Failed to encode pending sequence operations: \(error)")
         }
     }
 }

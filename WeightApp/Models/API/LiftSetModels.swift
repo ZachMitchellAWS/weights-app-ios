@@ -72,7 +72,7 @@ struct CreateLiftSetsResponse: Codable {
 struct DeleteLiftSetsResponse: Codable {
     let message: String
     let deletedLiftSets: [LiftSetDTO]
-    let notFoundIds: [UUID]
+    let notFoundIds: [UUID]?
 }
 
 // MARK: - LiftSets Extension

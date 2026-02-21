@@ -16,6 +16,12 @@ class SelectedSetData: ObservableObject {
     @Published var shouldPopulate: Bool = false
 }
 
+struct LazyView<Content: View>: View {
+    let build: () -> Content
+    init(_ build: @autoclosure @escaping () -> Content) { self.build = build }
+    var body: some View { build() }
+}
+
 struct ContentView: View {
     @ObservedObject var authViewModel: AuthViewModel
     var initialExerciseId: UUID? = nil
@@ -26,7 +32,7 @@ struct ContentView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            TrendsView(selectedSetData: selectedSetData, selectedTab: $selectedTab)
+            LazyView(TrendsView(selectedSetData: selectedSetData, selectedTab: $selectedTab))
                 .tabItem { Label("Trends", systemImage: "chart.line.uptrend.xyaxis") }
                 .tag(0)
 
