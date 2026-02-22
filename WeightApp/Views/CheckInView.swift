@@ -48,8 +48,6 @@ struct CheckInView: View {
     @State private var showLogConfirmation = false
     @State private var weightDelta: Double = 5.0
     @State private var showExercisesSelection = false
-    @State private var selectedGraphTab: Int = 0 // 0 = Set Intensity, 1 = 1RM Graph
-    @State private var showPROnly: Bool = false
     @State private var selectedSquareId: UUID? = nil
     @State private var showBodyweightCapture = false
     @State private var tempBodyweight: Double = 0
@@ -246,7 +244,7 @@ struct CheckInView: View {
         return estimated1RMsForSelected.first { $0.createdAt < todayStart }?.value
     }
 
-    private struct SetWithPR {
+    struct SetWithPR {
         let set: LiftSets
         let estimated1RM: Double
         let increases1RM: Bool
@@ -254,7 +252,7 @@ struct CheckInView: View {
         let percentageOfCurrent: Double  // kept for chart bar heights
     }
 
-    private static func computeSetsWithPRInfo(for exercise: Exercises, from allSets: [LiftSets], estimated1RMs: [Estimated1RMs]) -> [SetWithPR] {
+    static func computeSetsWithPRInfo(for exercise: Exercises, from allSets: [LiftSets], estimated1RMs: [Estimated1RMs]) -> [SetWithPR] {
         // Get all sets for this exercise in chronological order (oldest first)
         // Filter for valid sets (weight >= 0, reps >= 1)
         let sets = allSets
@@ -471,15 +469,10 @@ struct CheckInView: View {
             ZStack {
                 // Main content
                 VStack(spacing: 12) {
-                    // Fused Days + Exercise Selector widget
-                    exerciseSelectorWidget
+                    programWidget
                         .padding(.top, 12)
 
-                    // Effort Options
-                    optionsSection
-
-                    // Estimated 1RM Graph
-                    estimated1RMGraphWidget
+                    mainExerciseWidget
 
                     Divider()
                         .background(.white.opacity(0.35))
@@ -1308,7 +1301,7 @@ struct CheckInView: View {
 
 
 
-    private var exerciseSelectorWidget: some View {
+    private var programWidget: some View {
         VStack(spacing: 0) {
             // Section 1 — Day pills (compact)
             HStack(spacing: 6) {
@@ -1473,82 +1466,6 @@ struct CheckInView: View {
             }
             }
             .frame(height: 40)
-
-            // Separator
-            Rectangle()
-                .fill(Color.white.opacity(0.06))
-                .frame(height: 1)
-                .padding(.horizontal, 12)
-
-            // Section 3 — Selected exercise detail row
-            HStack(spacing: 0) {
-                // Left — Detail button
-                if selectedExercises != nil {
-                    Button {
-                        hapticFeedback.impactOccurred()
-                        showEditExerciseName = true
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Color.appAccent)
-                            .frame(width: 26, height: 26)
-                            .background(
-                                RoundedRectangle(cornerRadius: 7)
-                                    .fill(Color.appAccent.opacity(0.15))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 7)
-                                    .stroke(Color.appAccent.opacity(0.3), lineWidth: 1)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.leading, 12)
-                }
-
-                Spacer(minLength: 4)
-
-                // Center — Exercise name (tap for details)
-                Button {
-                    hapticFeedback.impactOccurred()
-                    if selectedExercises != nil {
-                        showEditExerciseName = true
-                    } else {
-                        showExercisesSelection = true
-                    }
-                } label: {
-                    if let ex = selectedExercises {
-                        Text(ex.name)
-                            .font(.bebasNeue(size: 22))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                    } else {
-                        Text("Select Exercise")
-                            .font(.bebasNeue(size: 22))
-                            .foregroundStyle(Color.appAccent)
-                    }
-                }
-                .buttonStyle(.plain)
-
-                Spacer(minLength: 4)
-
-                // Right — e1RM
-                if selectedExercises != nil && !setsForSelected.isEmpty {
-                    HStack(spacing: 5) {
-                        Text("e1RM")
-                            .font(.inter(size: 9))
-                            .foregroundStyle(.white.opacity(0.4))
-                        Text(current1RM.rounded1().formatted(.number.precision(.fractionLength(2))))
-                            .font(.interSemiBold(size: 16))
-                            .foregroundStyle(Color.appAccent)
-                    }
-                    .padding(.trailing, 12)
-                } else {
-                    Color.clear.frame(width: 70)
-                        .padding(.trailing, 12)
-                }
-            }
-            .frame(height: 52)
         }
         .background(
             LinearGradient(
@@ -1576,20 +1493,163 @@ struct CheckInView: View {
         }
     }
 
+    private var selectedExerciseRow: some View {
+        HStack(spacing: 0) {
+            // Left — Detail button
+            if selectedExercises != nil {
+                Button {
+                    hapticFeedback.impactOccurred()
+                    showEditExerciseName = true
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.appAccent)
+                        .frame(width: 26, height: 26)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7)
+                                .fill(Color.appAccent.opacity(0.15))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 7)
+                                .stroke(Color.appAccent.opacity(0.3), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 12)
+            }
 
-    private var graphHeaderView: some View {
-        HStack {
-            Text("Current Estimated 1RM")
-                .font(.headline)
-                .foregroundStyle(.white)
-            Spacer()
-            Text(!setsForSelected.isEmpty ? current1RM.rounded1().formatted(.number.precision(.fractionLength(2))) : "--")
-                .font(.title.weight(.semibold))
-                .foregroundStyle(.white)
+            Spacer(minLength: 4)
+
+            // Center — Exercise name (tap for details)
+            Button {
+                hapticFeedback.impactOccurred()
+                if selectedExercises != nil {
+                    showEditExerciseName = true
+                } else {
+                    showExercisesSelection = true
+                }
+            } label: {
+                if let ex = selectedExercises {
+                    Text(ex.name)
+                        .font(.bebasNeue(size: 22))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                } else {
+                    Text("Select Exercise")
+                        .font(.bebasNeue(size: 22))
+                        .foregroundStyle(Color.appAccent)
+                }
+            }
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 4)
+
+            // Right — e1RM
+            if selectedExercises != nil && !setsForSelected.isEmpty {
+                HStack(spacing: 5) {
+                    Text("e1RM")
+                        .font(.inter(size: 9))
+                        .foregroundStyle(.white.opacity(0.4))
+                    Text(current1RM.rounded1().formatted(.number.precision(.fractionLength(2))))
+                        .font(.interSemiBold(size: 16))
+                        .foregroundStyle(Color.appAccent)
+                }
+                .padding(.trailing, 12)
+            } else {
+                Color.clear.frame(width: 70)
+                    .padding(.trailing, 12)
+            }
+        }
+        .frame(height: 52)
+    }
+
+    private var mainExerciseWidget: some View {
+        VStack(spacing: 0) {
+            selectedExerciseRow
+
+            // Separator
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 1)
+                .padding(.horizontal, 12)
+
+            // Sets comparison (set squares + plan tiles)
+            setComparisonView
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
+            // Legend
+            if !setsForSelected.isEmpty {
+                HStack(spacing: 10) {
+                    if displaySetPlan.contains("baseline") {
+                        LegendItem(color: .white, label: "Base")
+                    }
+                    LegendItem(color: .setEasy, label: "Easy")
+                    LegendItem(color: .setModerate, label: "Moderate")
+                    LegendItem(color: .setHard, label: "Hard")
+                    LegendItem(color: .setNearMax, label: "Redline")
+                    LegendItem(color: .setPR, label: "e1RM ↑")
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 6)
+                .padding(.bottom, 2)
+            }
+
+            // Separator
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 1)
+                .padding(.horizontal, 12)
+
+            // Options section (no card wrapper)
+            optionsSection
+        }
+        .background(
+            LinearGradient(
+                colors: [Color(white: 0.18), Color(white: 0.14)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+        .cornerRadius(14)
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
+        .sheet(isPresented: $showExpandedProgressOptions) {
+            ExpandedProgressOptionsSheet(
+                suggestions: filteredSuggestions,
+                sortColumn: $sortColumn,
+                sortAscending: $sortAscending,
+                weightDelta: $weightDelta,
+                availableWeightDeltas: availableWeightDeltas,
+                minWeightDelta: minWeightDelta,
+                maxWeightDelta: maxWeightDelta,
+                onSelect: { suggestion in
+                    selectOption(suggestion)
+                }
+            )
+            .presentationDetents([.height(480), .large])
+            .presentationContentInteraction(.scrolls)
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showExpandedEffortOptions) {
+            ExpandedEffortOptionsSheet(
+                effortMode: effortMode ?? .easy,
+                suggestions: effortSuggestions,
+                onSelect: { suggestion in
+                    selectEffortOption(suggestion)
+                }
+            )
+            .presentationDetents([.height(400), .large])
+            .presentationContentInteraction(.scrolls)
+            .presentationDragIndicator(.visible)
         }
     }
 
-    private struct EmptyGraphView: View {
+    struct EmptyGraphView: View {
         var body: some View {
             ZStack {
                 // Sample chart with colorful bars
@@ -1642,7 +1702,7 @@ struct CheckInView: View {
         }
     }
 
-    private struct SetHistoryChart: View {
+    struct SetHistoryChart: View {
         let setsWithPRInfo: [SetWithPR]
         let showYAxis: Bool
         @Binding var selectedBarIndex: Int?
@@ -1730,7 +1790,7 @@ struct CheckInView: View {
         }
     }
 
-    private struct SetHistoryChartYAxis: View {
+    struct SetHistoryChartYAxis: View {
         let setsWithPRInfo: [SetWithPR]
 
         var body: some View {
@@ -1764,101 +1824,6 @@ struct CheckInView: View {
             }
             .frame(width: 50, height: 95)
         }
-    }
-
-    private var filteredSetsWithPRInfo: [SetWithPR] {
-        if showPROnly {
-            return cachedSetsWithPRInfo.filter { $0.increases1RM }
-        }
-        return cachedSetsWithPRInfo
-    }
-
-    private var graphContentView: some View {
-        Group {
-            if cachedSetsWithPRInfo.isEmpty {
-                EmptyGraphView()
-            } else {
-                let displayData = filteredSetsWithPRInfo
-                ZStack {
-                    HStack(spacing: 0) {
-                        ScrollViewReader { proxy in
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 0) {
-                                    SetHistoryChart(setsWithPRInfo: displayData, showYAxis: false, selectedBarIndex: $selectedChartBarIndex)
-                                        .id("chart-end")
-                                }
-                            }
-                            .onAppear {
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                    proxy.scrollTo("chart-end", anchor: .trailing)
-                                }
-                            }
-                            .onChange(of: displayData.count) { _, _ in
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                    withAnimation {
-                                        proxy.scrollTo("chart-end", anchor: .trailing)
-                                    }
-                                }
-                            }
-                        }
-
-                        // Fixed Y-axis on the right
-                        SetHistoryChartYAxis(setsWithPRInfo: displayData)
-                    }
-
-                    if let index = selectedChartBarIndex, index < displayData.count {
-                        Color.black.opacity(0.4)
-                            .ignoresSafeArea()
-
-                        setDetailOverlay(for: displayData[index])
-                            .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                    }
-                }
-            }
-        }
-    }
-
-    @State private var selectedChartBarIndex: Int? = nil
-
-    private func setDetailOverlay(for setInfo: SetWithPR) -> some View {
-        let isZeroWeight = setInfo.set.weight == 0
-
-        return VStack(spacing: 8) {
-            if setInfo.increases1RM {
-                HStack(spacing: 4) {
-                    Image(systemName: "star.fill")
-                        .font(.caption)
-                        .foregroundStyle(.yellow)
-                    Text("PR Set")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.yellow)
-                }
-            }
-
-            VStack(spacing: 4) {
-                Text("Weight: \(setInfo.set.weight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
-                    .font(.subheadline)
-                    .foregroundStyle(.white)
-                Text("Reps: \(setInfo.set.reps)")
-                    .font(.subheadline)
-                    .foregroundStyle(.white)
-                if !isZeroWeight {
-                    Text("Intensity: \(Int(setInfo.percentageOfCurrent))% of current")
-                        .font(.subheadline)
-                        .foregroundStyle(.white)
-                    Text("Est. 1RM: \(setInfo.estimated1RM.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
-                        .font(.title3)
-                        .foregroundStyle(Color.appAccent)
-                }
-            }
-        }
-        .padding(12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
     }
 
     private var todaysSets: [LiftSets] {
@@ -2036,130 +2001,6 @@ struct CheckInView: View {
         }
     }
 
-    private var estimated1RMGraphWidget: some View {
-        VStack(spacing: 0) {
-            // Tab Selector - Segmented Picker Style
-            ZStack(alignment: .center) {
-                // Background
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(white: 0.1))
-                    .frame(height: 32)
-
-                // Sliding indicator
-                GeometryReader { geometry in
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.appAccent)
-                        .frame(width: geometry.size.width / 2 - 4, height: 28)
-                        .offset(x: selectedGraphTab == 0 ? 2 : geometry.size.width / 2 + 2, y: 2)
-                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selectedGraphTab)
-                }
-                .frame(height: 32)
-
-                // Tab buttons
-                HStack(spacing: 0) {
-                    Button {
-                        selectedGraphTab = 0
-                        hapticFeedback.impactOccurred()
-                    } label: {
-                        Text("Sets")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(selectedGraphTab == 0 ? .black : .white.opacity(0.5))
-                            .frame(maxWidth: .infinity)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .frame(height: 32)
-
-                    Button {
-                        selectedGraphTab = 1
-                        hapticFeedback.impactOccurred()
-                    } label: {
-                        Text("Set Intensity")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(selectedGraphTab == 1 ? .black : .white.opacity(0.5))
-                            .frame(maxWidth: .infinity)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .frame(height: 32)
-                }
-            }
-            .frame(height: 32)
-            .padding(.horizontal, 16)
-            .padding(.top, 6)
-            .padding(.bottom, 4)
-
-            // Show PR Only toggle (only visible on Estimated 1RM tab with data)
-            // Always reserve the height so picker position stays consistent across tabs
-            HStack(spacing: 4) {
-                Spacer()
-                if selectedGraphTab == 1 && !cachedSetsWithPRInfo.isEmpty {
-                    Button {
-                        showPROnly.toggle()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: showPROnly ? "checkmark.square.fill" : "square")
-                                .font(.caption2)
-                                .foregroundStyle(Color.appAccent)
-                            Text("Show PRs Only")
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(0.6))
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 24)
-            .frame(height: 14)
-
-            // Content
-            VStack {
-                if selectedGraphTab == 0 {
-                    setComparisonView
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    graphContentView
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-            .frame(height: 156)
-            .padding(.horizontal, 16)
-            .padding(.top, 6)
-            .padding(.bottom, 4)
-
-            // Legend (only show when there's data)
-            if (selectedGraphTab == 0 && !setsForSelected.isEmpty) ||
-               (selectedGraphTab == 1 && !cachedSetsWithPRInfo.isEmpty) {
-                HStack(spacing: 10) {
-                    if displaySetPlan.contains("baseline") {
-                        LegendItem(color: .white, label: "Base")
-                    }
-                    LegendItem(color: .setEasy, label: "Easy")
-                    LegendItem(color: .setModerate, label: "Moderate")
-                    LegendItem(color: .setHard, label: "Hard")
-                    LegendItem(color: .setNearMax, label: "Redline")
-                    LegendItem(color: .setPR, label: "e1RM ↑")
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 2)
-            }
-        }
-        .frame(height: 240)
-        .background(
-            LinearGradient(
-                colors: [Color(white: 0.18), Color(white: 0.14)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
-        .cornerRadius(14)
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(Color.white.opacity(0.1), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
-    }
-
     private var optionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let mode = effortMode, !setsForSelected.isEmpty {
@@ -2293,48 +2134,6 @@ struct CheckInView: View {
         .padding(.top, 10)
         .padding(.horizontal, 10)
         .padding(.bottom, 0)
-        .background(
-            LinearGradient(
-                colors: [Color(white: 0.18), Color(white: 0.14)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
-        .cornerRadius(14)
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(Color.white.opacity(0.1), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
-        .sheet(isPresented: $showExpandedProgressOptions) {
-            ExpandedProgressOptionsSheet(
-                suggestions: filteredSuggestions,
-                sortColumn: $sortColumn,
-                sortAscending: $sortAscending,
-                weightDelta: $weightDelta,
-                availableWeightDeltas: availableWeightDeltas,
-                minWeightDelta: minWeightDelta,
-                maxWeightDelta: maxWeightDelta,
-                onSelect: { suggestion in
-                    selectOption(suggestion)
-                }
-            )
-            .presentationDetents([.height(480), .large])
-            .presentationContentInteraction(.scrolls)
-            .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $showExpandedEffortOptions) {
-            ExpandedEffortOptionsSheet(
-                effortMode: effortMode ?? .easy,
-                suggestions: effortSuggestions,
-                onSelect: { suggestion in
-                    selectEffortOption(suggestion)
-                }
-            )
-            .presentationDetents([.height(400), .large])
-            .presentationContentInteraction(.scrolls)
-            .presentationDragIndicator(.visible)
-        }
     }
 
     private var progressOptionsContent: some View {

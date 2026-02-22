@@ -58,6 +58,8 @@ struct AnalyticsView: View {
 
                         WeeklyVolumeWidget(allSets: allSets)
 
+                        SetIntensityWidget(allSets: allSets, allEstimated1RMs: allEstimated1RMs)
+
                         PRTimelineWidget(allSets: allSets)
 
                         BestLiftsWidget(allSets: allSets)
