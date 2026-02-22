@@ -30,6 +30,7 @@ struct CheckInView: View {
     @State private var hasSelectedOption = false
 
 
+    @State private var weightModifierIsPlus: Bool = true  // +/- toggle for BW exercises
     @State private var showSubmitOverlay = false
     @State private var overlayDidIncrease = false
     @State private var overlayDelta: Double = 0
@@ -549,7 +550,9 @@ struct CheckInView: View {
                             hapticFeedback.impactOccurred()
                             showLogConfirmation = false
                             logBaselineSet(rir: rir)
-                        }
+                        },
+                        bodyweight: selectedExercises?.exerciseLoadType == .bodySingleLoad ? userProperties.bodyweight : nil,
+                        weightModifierIsPlus: weightModifierIsPlus
                     )
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     .zIndex(11)
@@ -588,6 +591,7 @@ struct CheckInView: View {
                 highlightPlanTile(nil)
                 effortMode = nil
                 baseline1RM = nil
+                weightModifierIsPlus = true
                 // Auto-advance to next set plan effort level
                 // (deferred to let todaysSets recompute after exercise change)
                 DispatchQueue.main.async {
@@ -601,6 +605,10 @@ struct CheckInView: View {
 // Save selected exercise to UserDefaults
                 if let id = newId {
                     UserDefaults.standard.set(id.uuidString, forKey: lastSelectedExerciseKey)
+                }
+                // Prompt for bodyweight if selecting a BW+SL exercise without bodyweight set
+                if let ex = selectedExercises, ex.exerciseLoadType == .bodySingleLoad, userProperties.bodyweight == nil {
+                    showBodyweightCapture = true
                 }
                 // Show exercise selected overlay when selection changes (skip initial load)
                 if oldId != nil, oldId != newId, newId != nil, selectedExercises != nil {
@@ -1388,17 +1396,32 @@ struct CheckInView: View {
                                 hapticFeedback.impactOccurred()
                                 selectedExercisesId = exercise.id
                             } label: {
-                                HStack(spacing: 4) {
-                                    ExerciseIconView(exercise: exercise, size: 24)
-                                        .foregroundStyle(isSelected ? Color.appAccent : .white.opacity(0.4))
-                                    Text(exercise.name)
-                                        .font(.inter(size: 11))
-                                        .foregroundStyle(isSelected ? .white : .white.opacity(0.4))
-                                        .lineLimit(1)
+                                VStack(spacing: 4) {
+                                    HStack(spacing: 4) {
+                                        ExerciseIconView(exercise: exercise, size: 24)
+                                            .foregroundStyle(isSelected ? Color.appAccent : .white.opacity(0.4))
+                                        Text(exercise.name)
+                                            .font(.inter(size: 11))
+                                            .foregroundStyle(isSelected ? .white : .white.opacity(0.4))
+                                            .lineLimit(1)
+                                    }
+
+                                    if !exercise.setPlan.isEmpty {
+                                        let completed = todaySetCount(for: exercise)
+                                        HStack(spacing: 2) {
+                                            ForEach(0..<exercise.setPlan.count, id: \.self) { i in
+                                                Capsule()
+                                                    .fill(i < completed
+                                                        ? Color.green
+                                                        : Color.white.opacity(0.1))
+                                                    .frame(height: 4)
+                                            }
+                                        }
+                                    }
                                 }
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
-                                .frame(height: 36)
+                                .frame(height: 48)
                                 .background(
                                     RoundedRectangle(cornerRadius: 10)
                                         .fill(isSelected ? Color.appAccent.opacity(0.2) : Color(white: 0.10))
@@ -1407,17 +1430,6 @@ struct CheckInView: View {
                                     RoundedRectangle(cornerRadius: 10)
                                         .stroke(isSelected ? Color.appAccent : Color.clear, lineWidth: 1.5)
                                 )
-                                .overlay(alignment: .bottomTrailing) {
-                                    let count = todaySetCount(for: exercise)
-                                    if count > 0 {
-                                        let planCount = max(exercise.setPlan.count, 1)
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .font(.system(size: 12))
-                                            .foregroundStyle(.green)
-                                            .opacity(min(Double(count) / Double(planCount), 1.0))
-                                            .offset(x: 4, y: 4)
-                                    }
-                                }
                                 .animation(.easeInOut(duration: 0.15), value: selectedExercisesId)
                             }
                             .buttonStyle(.plain)
@@ -1450,7 +1462,7 @@ struct CheckInView: View {
                     }
                 }
             }
-            .frame(height: 52)
+            .frame(height: 64)
         }
         .background(
             LinearGradient(
@@ -2021,7 +2033,7 @@ struct CheckInView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .frame(height: 136)
+            .frame(height: 156)
             .padding(.horizontal, 16)
             .padding(.top, 6)
             .padding(.bottom, 4)
@@ -2043,7 +2055,7 @@ struct CheckInView: View {
                 .padding(.bottom, 2)
             }
         }
-        .frame(height: 220)
+        .frame(height: 240)
         .background(
             LinearGradient(
                 colors: [Color(white: 0.18), Color(white: 0.14)],
@@ -2450,6 +2462,49 @@ struct CheckInView: View {
 
     private var logSetSection: some View {
         VStack(spacing: 8) {
+            // Bodyweight row for Bodyweight + Single Load exercises
+            if selectedExercises?.exerciseLoadType == .bodySingleLoad {
+                HStack {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Bodyweight")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.6))
+                        if let bw = userProperties.bodyweight {
+                            Text("\(bw.rounded1().formatted(.number.precision(.fractionLength(1)))) lbs")
+                                .font(.subheadline)
+                                .foregroundStyle(.white)
+                        } else {
+                            Button {
+                                showBodyweightCapture = true
+                            } label: {
+                                Text("Set bodyweight")
+                                    .font(.subheadline)
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+                    }
+
+                    Spacer()
+
+                    Button {
+                        weightModifierIsPlus.toggle()
+                        hapticFeedback.impactOccurred()
+                    } label: {
+                        Text(weightModifierIsPlus ? "+" : "−")
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(.black)
+                            .frame(width: 36, height: 28)
+                            .background(Color.appAccent)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color(white: 0.12))
+                .cornerRadius(10)
+            }
+
             HStack(spacing: 8) {
                 // Weight with increment/decrement
                 HStack(spacing: 8) {
@@ -2729,8 +2784,21 @@ struct CheckInView: View {
         let onConfirm: () -> Void
         let onCancel: () -> Void
         let onBaselineConfirm: ((Int) -> Void)?
+        var bodyweight: Double? = nil
+        var weightModifierIsPlus: Bool = true
+
+        private var totalWeight: Double {
+            if let bw = bodyweight, exercise?.exerciseLoadType == .bodySingleLoad {
+                return weightModifierIsPlus ? (bw + weight) : (bw - weight)
+            }
+            return weight
+        }
 
         private var weightText: String {
+            if let bw = bodyweight, exercise?.exerciseLoadType == .bodySingleLoad {
+                let op = weightModifierIsPlus ? "+" : "−"
+                return "\(bw.rounded1().formatted(.number.precision(.fractionLength(1)))) \(op) \(weight.rounded1().formatted(.number.precision(.fractionLength(2)))) = \(totalWeight.rounded1().formatted(.number.precision(.fractionLength(1)))) lbs"
+            }
             return "\(weight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs"
         }
 
@@ -3136,7 +3204,18 @@ struct CheckInView: View {
 
         let before = current1RM
 
-        let set = LiftSets(exercise: ex, reps: reps, weight: weight)
+        // For Bodyweight + Single Load: store total weight (bodyweight ± additional)
+        let storedWeight: Double
+        if ex.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
+            storedWeight = weightModifierIsPlus ? (bw + weight) : (bw - weight)
+        } else {
+            storedWeight = weight
+        }
+
+        let set = LiftSets(exercise: ex, reps: reps, weight: storedWeight)
+        if ex.exerciseLoadType == .bodySingleLoad {
+            set.bodyweightUsed = userProperties.bodyweight
+        }
         modelContext.insert(set)
 
         let newEstimate = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
@@ -3167,8 +3246,8 @@ struct CheckInView: View {
         if increased {
             overlayIntensityColor = .setPR
             overlayIntensityLabel = "PR"
-        } else if weight == 0 {
-            // Bodyweight exercise - color by reps
+        } else if storedWeight == 0 {
+            // Bodyweight exercise with no weight - color by reps
             switch reps {
             case 12...:
                 overlayIntensityColor = .setNearMax
@@ -3185,7 +3264,7 @@ struct CheckInView: View {
             }
         } else {
             // Weighted exercise - color by percent1RM
-            let percent1RM = before > 0 ? OneRMCalculator.estimate1RM(weight: weight, reps: reps) / before : 0
+            let percent1RM = before > 0 ? OneRMCalculator.estimate1RM(weight: storedWeight, reps: reps) / before : 0
             let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: percent1RM)
             overlayIntensityLabel = (bucket == .pr) ? "Redline" : bucket.rawValue
             switch bucket {
@@ -3228,7 +3307,18 @@ struct CheckInView: View {
     private func logBaselineSet(rir: Int) {
         guard let ex = selectedExercises else { return }
 
-        let set = LiftSets(exercise: ex, reps: reps, weight: weight)
+        // For Bodyweight + Single Load: store total weight (bodyweight ± additional)
+        let storedWeight: Double
+        if ex.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
+            storedWeight = weightModifierIsPlus ? (bw + weight) : (bw - weight)
+        } else {
+            storedWeight = weight
+        }
+
+        let set = LiftSets(exercise: ex, reps: reps, weight: storedWeight)
+        if ex.exerciseLoadType == .bodySingleLoad {
+            set.bodyweightUsed = userProperties.bodyweight
+        }
         set.isBaselineSet = true
         set.rir = rir
         modelContext.insert(set)
@@ -3608,7 +3698,7 @@ struct EditExerciseFormView: View {
                             .textInputAutocapitalization(.words)
                             .font(.body)
                             .padding(14)
-                            .background(Color(white: 0.12))
+                            .background(Color(white: 0.08))
                             .cornerRadius(10)
                             .foregroundStyle(.white)
                             .onChange(of: name) { _, newValue in
@@ -3739,7 +3829,7 @@ struct EditExerciseFormView: View {
                                     .foregroundStyle(.white.opacity(0.5))
                             }
                             .padding(14)
-                            .background(Color(white: 0.12))
+                            .background(Color(white: 0.08))
                             .cornerRadius(10)
                         }
                     }
@@ -3796,7 +3886,7 @@ struct EditExerciseFormView: View {
                         TextEditor(text: $notesInput)
                             .padding(8)
                             .frame(minHeight: 100)
-                            .background(Color(white: 0.12))
+                            .background(Color(white: 0.08))
                             .cornerRadius(10)
                             .foregroundStyle(.white)
                             .scrollContentBackground(.hidden)

@@ -11,6 +11,7 @@ import SwiftData
 enum ExerciseLoadType: String, Codable, CaseIterable {
     case barbell = "Barbell"
     case singleLoad = "Single Load"
+    case bodySingleLoad = "Bodyweight + Single Load"
 }
 
 enum ExerciseMovementType: String, Codable, CaseIterable {
@@ -73,10 +74,6 @@ final class Exercises {
 
     var exerciseLoadType: ExerciseLoadType {
         get {
-            // Handle backward compatibility for old "Bodyweight + Single Load" values
-            if loadType == "Bodyweight + Single Load" {
-                return .singleLoad
-            }
             return ExerciseLoadType(rawValue: loadType) ?? .barbell
         }
         set { loadType = newValue.rawValue }

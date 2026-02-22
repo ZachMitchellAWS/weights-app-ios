@@ -1380,6 +1380,8 @@ struct MoreView: View {
                 guard let exercise = exercises.first(where: { $0.name == exerciseName }) else { continue }
 
                 // Starting 1RM for this exercise (if not already tracked)
+                // For BW+SL exercises, 1RM is total weight (bodyweight + additional)
+                let bw = userProperties.bodyweight ?? 185.0
                 if exerciseMaxes[exerciseName] == nil {
                     exerciseMaxes[exerciseName] = {
                         switch exerciseName {
@@ -1388,8 +1390,8 @@ struct MoreView: View {
                         case "Bench Press": return 165.0
                         case "Barbell Row": return 145.0
                         case "Overhead Press": return 100.0
-                        case "Pull Ups": return 50.0
-                        case "Dips": return 70.0
+                        case "Pull Ups": return bw + 50.0
+                        case "Dips": return bw + 70.0
                         default: return 100.0
                         }
                     }()
@@ -1423,6 +1425,9 @@ struct MoreView: View {
                     let calculatedWeight = roundToAttainable(target1RM * (37.0 - Double(reps)) / 36.0)
 
                     let set = LiftSets(exercise: exercise, reps: reps, weight: calculatedWeight)
+                    if exercise.exerciseLoadType == .bodySingleLoad {
+                        set.bodyweightUsed = bw
+                    }
                     set.createdAt = currentTime
                     set.createdTimezone = TimeZone.current.identifier
                     modelContext.insert(set)
@@ -1489,6 +1494,8 @@ struct MoreView: View {
         }
 
         // Starting 1RM estimates for each exercise
+        // For BW+SL exercises, 1RM is total weight (bodyweight + additional)
+        let bw = userProperties.bodyweight ?? 185.0
         func getBase1RM(for exerciseName: String) -> Double {
             switch exerciseName {
             case "Deadlift": return 275.0
@@ -1496,8 +1503,8 @@ struct MoreView: View {
             case "Bench Press": return 195.0
             case "Barbell Row": return 175.0
             case "Overhead Press": return 125.0
-            case "Pull Ups": return 65.0
-            case "Dips": return 90.0
+            case "Pull Ups": return bw + 65.0
+            case "Dips": return bw + 90.0
             default: return 135.0
             }
         }
@@ -1538,6 +1545,9 @@ struct MoreView: View {
                 let calculatedWeight = roundToAttainable(target1RM * (37.0 - Double(reps)) / 36.0)
 
                 let set = LiftSets(exercise: exercise, reps: reps, weight: calculatedWeight)
+                if exercise.exerciseLoadType == .bodySingleLoad {
+                    set.bodyweightUsed = bw
+                }
                 set.createdAt = currentTime
                 set.createdTimezone = TimeZone.current.identifier
                 modelContext.insert(set)

@@ -412,6 +412,7 @@ class SyncService: ObservableObject {
                                 existing.createdAt = dto.createdDatetime
                                 existing.isBaselineSet = dto.isBaselineSet ?? false
                                 existing.rir = dto.rir
+                                existing.bodyweightUsed = dto.bodyweightUsed
                             } else if let exercise = exerciseById[dto.exerciseId] {
                                 let liftSet = LiftSets(exercise: exercise, reps: dto.reps, weight: dto.weight)
                                 liftSet.id = dto.liftSetId
@@ -419,6 +420,7 @@ class SyncService: ObservableObject {
                                 liftSet.createdAt = dto.createdDatetime
                                 liftSet.isBaselineSet = dto.isBaselineSet ?? false
                                 liftSet.rir = dto.rir
+                                liftSet.bodyweightUsed = dto.bodyweightUsed
                                 context.insert(liftSet)
                                 liftSetById[dto.liftSetId] = liftSet
                             }
@@ -653,6 +655,7 @@ class SyncService: ObservableObject {
                     existing.createdAt = dto.createdDatetime
                     existing.isBaselineSet = dto.isBaselineSet ?? false
                     existing.rir = dto.rir
+                    existing.bodyweightUsed = dto.bodyweightUsed
                 } else {
                     let descriptor = FetchDescriptor<Exercises>(predicate: #Predicate { $0.id == dto.exerciseId })
                     if let exercise = try? context.fetch(descriptor).first {
@@ -662,6 +665,7 @@ class SyncService: ObservableObject {
                         liftSet.createdAt = dto.createdDatetime
                         liftSet.isBaselineSet = dto.isBaselineSet ?? false
                         liftSet.rir = dto.rir
+                        liftSet.bodyweightUsed = dto.bodyweightUsed
                         context.insert(liftSet)
                     } else {
                         SyncLogger.sync.debug("Skipping lift set \(dto.liftSetId) — exercise \(dto.exerciseId) not found")
@@ -1141,8 +1145,8 @@ class SyncService: ObservableObject {
             ("Bench Press", .barbell, .push),
             ("Overhead Press", .barbell, .push),
             ("Barbell Row", .barbell, .pull),
-            ("Pull Ups", .singleLoad, .pull),
-            ("Dips", .singleLoad, .push),
+            ("Pull Ups", .bodySingleLoad, .pull),
+            ("Dips", .bodySingleLoad, .push),
             ("Barbell Curls", .barbell, .pull)
         ]
     }
