@@ -1388,6 +1388,29 @@ struct CheckInView: View {
                 .padding(.horizontal, 12)
 
             // Section 2 — Exercise chips
+            HStack(spacing: 0) {
+                // Exercise selection button (stationary)
+                Button {
+                    hapticFeedback.impactOccurred()
+                    showExercisesSelection = true
+                } label: {
+                    Image(systemName: "square.grid.2x2.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.appAccent)
+                        .frame(width: 26, height: 26)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7)
+                                .fill(Color.appAccent.opacity(0.15))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 7)
+                                .stroke(Color.appAccent.opacity(0.3), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 12)
+                .padding(.trailing, 4)
+
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -1448,6 +1471,7 @@ struct CheckInView: View {
                     }
                 }
             }
+            }
             .frame(height: 40)
 
             // Separator
@@ -1458,28 +1482,27 @@ struct CheckInView: View {
 
             // Section 3 — Selected exercise detail row
             HStack(spacing: 0) {
-                // Left — Exercise selection + Detail buttons
+                // Left — Detail button
                 if selectedExercises != nil {
                     Button {
                         hapticFeedback.impactOccurred()
-                        showExercisesSelection = true
+                        showEditExerciseName = true
                     } label: {
-                        Image(systemName: "rectangle.grid.2x2")
-                            .font(.system(size: 14, weight: .semibold))
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(Color.appAccent)
-                            .frame(width: 36, height: 36)
+                            .frame(width: 26, height: 26)
                             .background(
-                                RoundedRectangle(cornerRadius: 10)
+                                RoundedRectangle(cornerRadius: 7)
                                     .fill(Color.appAccent.opacity(0.15))
                             )
                             .overlay(
-                                RoundedRectangle(cornerRadius: 10)
+                                RoundedRectangle(cornerRadius: 7)
                                     .stroke(Color.appAccent.opacity(0.3), lineWidth: 1)
                             )
                     }
                     .buttonStyle(.plain)
                     .padding(.leading, 12)
-
                 }
 
                 Spacer(minLength: 4)
@@ -1494,16 +1517,11 @@ struct CheckInView: View {
                     }
                 } label: {
                     if let ex = selectedExercises {
-                        HStack(spacing: 4) {
-                            Text(ex.name)
-                                .font(.bebasNeue(size: 22))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.7)
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.3))
-                        }
+                        Text(ex.name)
+                            .font(.bebasNeue(size: 22))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
                     } else {
                         Text("Select Exercise")
                             .font(.bebasNeue(size: 22))
