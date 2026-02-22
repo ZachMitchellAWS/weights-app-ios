@@ -161,14 +161,23 @@ struct AccountDetailView: View {
             modelContext.delete(sequence)
         }
 
+        // Hard delete all WorkoutSplits
+        let allSplits = (try? modelContext.fetch(FetchDescriptor<WorkoutSplit>())) ?? []
+        for split in allSplits {
+            modelContext.delete(split)
+        }
+
         // Hard delete Entitlements
         let allEntitlements = (try? modelContext.fetch(FetchDescriptor<Entitlements>())) ?? []
         for entitlement in allEntitlements {
             modelContext.delete(entitlement)
         }
 
-        // Clear active sequence preference
+        // Clear active sequence/split preferences and migration flags
         WorkoutSequenceStore.setActiveSequenceId(nil)
+        WorkoutSequenceStore.setActiveSplitId(nil)
+        UserDefaults.standard.removeObject(forKey: "workoutSequencesMigratedToSplits")
+        UserDefaults.standard.removeObject(forKey: "workoutSequencesMigratedToSwiftData")
 
         try? modelContext.save()
     }

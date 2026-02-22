@@ -33,6 +33,7 @@ class SyncService: ObservableObject {
         var userPropertiesComplete: Bool = false
         var exercisesComplete: Bool = false
         var sequencesComplete: Bool = false
+        var splitsComplete: Bool = false
         var liftSetsComplete: Bool = false
         var estimated1RMsComplete: Bool = false
 
@@ -128,6 +129,11 @@ class SyncService: ObservableObject {
             SyncLogger.sync.debug("Step 2: Exercises already synced, skipping")
         }
 
+        // Assign default exercises to days now that exercises exist
+        if let ctx = modelContext {
+            WorkoutSequenceStore.assignDefaultExercisesToDays(context: ctx)
+        }
+
         // Step 2.5: Sync sequences (references exerciseIds, so must run after exercises)
         if !state.sequencesComplete {
             SyncLogger.sync.info("Step 2.5: Syncing sequences")
@@ -137,6 +143,17 @@ class SyncService: ObservableObject {
             syncState = state
         } else {
             SyncLogger.sync.debug("Step 2.5: Sequences already synced, skipping")
+        }
+
+        // Step 2.6: Sync splits (references dayIds which are sequence IDs, so must run after sequences)
+        if !state.splitsComplete {
+            SyncLogger.sync.info("Step 2.6: Syncing splits")
+            await syncSplitsFromBackend()
+            await processSplitRetryQueue()
+            state.splitsComplete = true
+            syncState = state
+        } else {
+            SyncLogger.sync.debug("Step 2.6: Splits already synced, skipping")
         }
 
         // Step 3: Sync lift sets and estimated 1RMs (interleaved, resumable)
@@ -978,6 +995,141 @@ class SyncService: ObservableObject {
 
     private func fetchAllSequences(context: ModelContext) -> [WorkoutSequence] {
         let descriptor = FetchDescriptor<WorkoutSequence>()
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    // MARK: - Split Sync
+
+    func syncSplitsFromBackend() async {
+        guard let context = modelContext else { return }
+
+        do {
+            let response = try await APIService.shared.getSplits()
+            await importSplitsFromBackend(response.splits)
+
+            // Push any local-only splits
+            let allLocal = fetchAllSplits(context: context)
+            let backendIds = Set(response.splits.map { $0.splitId })
+            let localOnly = allLocal.filter { !$0.deleted && !backendIds.contains($0.id) }
+
+            if !localOnly.isEmpty {
+                let dtos = localOnly.map { $0.toDTO() }
+                do {
+                    _ = try await APIService.shared.upsertSplits(dtos)
+                } catch {
+                    SyncLogger.sync.error("Failed to push local splits: \(error.localizedDescription)")
+                    for split in localOnly {
+                        retryQueue.addPendingSplitUpsert(splitId: split.id)
+                    }
+                }
+            }
+
+            SyncLogger.sync.info("Completed split sync, fetched \(response.splits.count) from backend")
+        } catch {
+            SyncLogger.sync.error("Failed to sync splits: \(error.localizedDescription)")
+        }
+    }
+
+    func syncSplit(_ split: WorkoutSplit) async {
+        let dto = split.toDTO()
+
+        do {
+            _ = try await APIService.shared.upsertSplits([dto])
+            retryQueue.removePendingSplitOperation(splitId: split.id)
+            SyncLogger.sync.debug("Synced split \(split.id)")
+        } catch {
+            SyncLogger.sync.error("Failed to sync split \(split.id): \(error.localizedDescription)")
+            retryQueue.addPendingSplitUpsert(splitId: split.id)
+        }
+    }
+
+    func deleteSplit(_ splitId: UUID) async {
+        do {
+            _ = try await APIService.shared.deleteSplits([splitId])
+            retryQueue.removePendingSplitOperation(splitId: splitId)
+            SyncLogger.sync.debug("Deleted split \(splitId)")
+        } catch {
+            SyncLogger.sync.error("Failed to delete split \(splitId): \(error.localizedDescription)")
+            retryQueue.addPendingSplitDelete(splitId: splitId)
+        }
+    }
+
+    func processSplitRetryQueue() async {
+        guard let context = modelContext else { return }
+
+        let pendingOperations = retryQueue.getPendingSplitOperations()
+
+        for operation in pendingOperations {
+            switch operation.operationType {
+            case .upsert:
+                if let split = fetchSplit(by: operation.splitId, context: context) {
+                    do {
+                        _ = try await APIService.shared.upsertSplits([split.toDTO()])
+                        retryQueue.removePendingSplitOperation(splitId: operation.splitId)
+                    } catch {
+                        retryQueue.incrementSplitRetryCount(for: operation.splitId)
+                    }
+                } else {
+                    retryQueue.removePendingSplitOperation(splitId: operation.splitId)
+                }
+
+            case .delete:
+                do {
+                    _ = try await APIService.shared.deleteSplits([operation.splitId])
+                    retryQueue.removePendingSplitOperation(splitId: operation.splitId)
+                } catch {
+                    retryQueue.incrementSplitRetryCount(for: operation.splitId)
+                }
+            }
+        }
+    }
+
+    private func importSplitsFromBackend(_ dtos: [SplitDTO]) async {
+        guard let container = modelContainer else { return }
+        let sendableDtos = dtos
+        await Task.detached {
+            let context = ModelContext(container)
+            context.autosaveEnabled = false
+
+            let existingSplits = (try? context.fetch(FetchDescriptor<WorkoutSplit>())) ?? []
+            let existingById = Dictionary(uniqueKeysWithValues: existingSplits.map { ($0.id, $0) })
+
+            for dto in sendableDtos {
+                if dto.deleted == true {
+                    if let existing = existingById[dto.splitId] {
+                        existing.deleted = true
+                    }
+                    continue
+                }
+
+                if let existing = existingById[dto.splitId] {
+                    existing.name = dto.name
+                    existing.dayIds = dto.dayIds
+                    existing.deleted = dto.deleted ?? false
+                } else {
+                    let split = WorkoutSplit(
+                        id: dto.splitId,
+                        name: dto.name,
+                        dayIds: dto.dayIds,
+                        createdAt: dto.createdDatetime ?? Date(),
+                        createdTimezone: dto.createdTimezone,
+                        deleted: dto.deleted ?? false
+                    )
+                    context.insert(split)
+                }
+            }
+
+            try? context.save()
+        }.value
+    }
+
+    private func fetchSplit(by id: UUID, context: ModelContext) -> WorkoutSplit? {
+        let descriptor = FetchDescriptor<WorkoutSplit>(predicate: #Predicate { $0.id == id })
+        return try? context.fetch(descriptor).first
+    }
+
+    private func fetchAllSplits(context: ModelContext) -> [WorkoutSplit] {
+        let descriptor = FetchDescriptor<WorkoutSplit>()
         return (try? context.fetch(descriptor)) ?? []
     }
 

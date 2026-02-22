@@ -11,6 +11,7 @@ struct CheckInView: View {
     @Query(filter: #Predicate<Exercises> { !$0.deleted }, sort: \Exercises.createdAt) private var exercises: [Exercises]
     @Query private var userPropertiesItems: [UserProperties]
     @Query(filter: #Predicate<WorkoutSequence> { !$0.deleted }) private var allSequences: [WorkoutSequence]
+    @Query(filter: #Predicate<WorkoutSplit> { !$0.deleted }) private var allSplits: [WorkoutSplit]
 
     @State private var setsForExercise: [LiftSets] = []
     @State private var estimated1RMsForExercise: [Estimated1RMs] = []
@@ -59,7 +60,8 @@ struct CheckInView: View {
     @State private var showExpandedProgressOptions = false
     @State private var showExerciseSelectedOverlay = false
     @State private var exerciseOverlayDismissTask: Task<Void, Never>?
-    @State private var showSequenceEditor = false
+    @State private var showSplitEditor = false
+    @State private var activeSplitId: UUID? = WorkoutSequenceStore.activeSplitId()
     @State private var activeSequenceId: UUID? = WorkoutSequenceStore.activeSequenceId()
     @State private var baseline1RM: Double? = nil
 
@@ -173,6 +175,18 @@ struct CheckInView: View {
         let exerciseMap = Dictionary(uniqueKeysWithValues: exercises.map { ($0.id, $0) })
         let resolved = seq.exerciseIds.compactMap { exerciseMap[$0] }
         return resolved.isEmpty ? exercises : resolved
+    }
+
+    private var activeSplit: WorkoutSplit? {
+        guard let id = activeSplitId else { return allSplits.first }
+        return allSplits.first(where: { $0.id == id }) ?? allSplits.first
+    }
+
+    private var daysForActiveSplit: [WorkoutSequence] {
+        guard let split = activeSplit else { return allSequences }
+        let seqMap = Dictionary(uniqueKeysWithValues: allSequences.map { ($0.id, $0) })
+        let resolved = split.dayIds.compactMap { seqMap[$0] }
+        return resolved.isEmpty ? allSequences : resolved
     }
 
     private var userProperties: UserProperties {
@@ -457,15 +471,15 @@ struct CheckInView: View {
             ZStack {
                 // Main content
                 VStack(spacing: 12) {
-                    // Exercise Selector (icons + name bar)
+                    // Fused Days + Exercise Selector widget
                     exerciseSelectorWidget
                         .padding(.top, 12)
 
+                    // Effort Options
+                    optionsSection
+
                     // Estimated 1RM Graph
                     estimated1RMGraphWidget
-
-                    // Progress Options
-                    optionsSection
 
                     Divider()
                         .background(.white.opacity(0.35))
@@ -583,6 +597,12 @@ struct CheckInView: View {
             .onChange(of: selectedExercisesId) { oldId, newId in
                 if let newId {
                     fetchDataForExercise(newId)
+                    // Deselect day if exercise isn't in the current day's list
+                    if let seqId = activeSequenceId,
+                       let seq = allSequences.first(where: { $0.id == seqId }),
+                       !seq.exerciseIds.contains(newId) {
+                        activeSequenceId = nil
+                    }
                 }
                 resetToDefaults()
                 validateWeightDelta()
@@ -726,8 +746,10 @@ struct CheckInView: View {
                         .presentationContentInteraction(.scrolls)
                         .presentationDragIndicator(.visible)
                 }
-                .sheet(isPresented: $showSequenceEditor) {
-                    SequenceEditorView(exercises: exercises)
+                .sheet(isPresented: $showSplitEditor, onDismiss: {
+                    activeSplitId = WorkoutSequenceStore.activeSplitId()
+                }) {
+                    SplitEditorView(exercises: exercises)
                         .presentationDetents([.height(480), .large])
                         .presentationContentInteraction(.scrolls)
                         .presentationDragIndicator(.visible)
@@ -1288,70 +1310,200 @@ struct CheckInView: View {
 
     private var exerciseSelectorWidget: some View {
         VStack(spacing: 0) {
-            // Context bar
-            HStack(spacing: 0) {
-                // Left — Sequence dropdown pill
-                Menu {
-                    Button {
-                        showSequenceEditor = true
-                    } label: {
-                        Label("Edit Sequences", systemImage: "pencil.line")
-                    }
-                    Divider()
-                    Button {
-                        activeSequenceId = nil
-                    } label: {
-                        HStack {
-                            Text("All")
-                            if activeSequenceId == nil {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                    ForEach(allSequences) { seq in
-                        Button {
-                            activeSequenceId = seq.id
-                        } label: {
-                            HStack {
-                                Text(seq.name)
-                                if seq.id == activeSequenceId {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
+            // Section 1 — Day pills (compact)
+            HStack(spacing: 6) {
+                // Split-editor button (stationary)
+                Button {
+                    hapticFeedback.impactOccurred()
+                    showSplitEditor = true
                 } label: {
-                    HStack(spacing: 4) {
-                        Text(activeSequenceName)
-                            .font(.interSemiBold(size: 12))
-                            .foregroundStyle(.white.opacity(0.7))
+                    HStack(spacing: 6) {
+                        Image("LiftTheBullIcon")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 18, height: 18)
+                        Text("Splits")
+                            .font(.bebasNeue(size: 14))
+                            .kerning(1.5)
                             .lineLimit(1)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 8))
-                            .foregroundStyle(.white.opacity(0.7))
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
+                    .foregroundStyle(Color.appAccent)
+                    .padding(.horizontal, 8)
+                    .frame(height: 26)
                     .background(
-                        Capsule()
-                            .fill(Color.white.opacity(0.06))
+                        RoundedRectangle(cornerRadius: 7)
+                            .fill(Color.appAccent.opacity(0.15))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7)
+                            .stroke(Color.appAccent.opacity(0.3), lineWidth: 1)
                     )
                 }
+                .buttonStyle(.plain)
                 .padding(.leading, 12)
+                .padding(.trailing, 4)
+
+                // Day chips (scrollable)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                    ForEach(daysForActiveSplit) { day in
+                        let isSelected = activeSequenceId == day.id
+                        Button {
+                            hapticFeedback.impactOccurred()
+                            activeSequenceId = day.id
+                            WorkoutSequenceStore.setActiveSequenceId(day.id)
+                        } label: {
+                            Text("\(day.name) Day")
+                                .font(.bebasNeue(size: 14))
+                                .kerning(1.5)
+                                .foregroundStyle(isSelected ? .white : .white.opacity(0.4))
+                                .lineLimit(1)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 4)
+                                .frame(height: 26)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 7)
+                                        .fill(isSelected ? Color.appAccent.opacity(0.2) : Color(white: 0.10))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 7)
+                                        .stroke(isSelected ? Color.appAccent : Color.clear, lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .animation(.easeInOut(duration: 0.15), value: activeSequenceId)
+                    }
+                    }
+                    .padding(.leading, 4)
+                    .padding(.trailing, 12)
+                    .padding(.vertical, 6)
+                }
+            }
+            .frame(height: 38)
+
+            // Separator
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 1)
+                .padding(.horizontal, 12)
+
+            // Section 2 — Exercise chips
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(sequencedExercises) { exercise in
+                            let isSelected = selectedExercisesId == exercise.id
+                            Button {
+                                hapticFeedback.impactOccurred()
+                                selectedExercisesId = exercise.id
+                            } label: {
+                                HStack(spacing: 4) {
+                                    ExerciseIconView(exercise: exercise, size: 24)
+                                        .foregroundStyle(isSelected ? Color.appAccent : .white.opacity(0.4))
+                                    Text(exercise.name)
+                                        .font(.inter(size: 11))
+                                        .foregroundStyle(isSelected ? .white : .white.opacity(0.4))
+                                        .lineLimit(1)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 3)
+                                .frame(height: 30)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(isSelected ? Color.appAccent.opacity(0.2) : Color(white: 0.10))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(isSelected ? Color.appAccent : Color.clear, lineWidth: 1.5)
+                                )
+                                .animation(.easeInOut(duration: 0.15), value: selectedExercisesId)
+                            }
+                            .buttonStyle(.plain)
+                            .simultaneousGesture(
+                                LongPressGesture(minimumDuration: 0.5)
+                                    .onEnded { _ in
+                                        hapticFeedback.impactOccurred()
+                                        selectedExercisesId = exercise.id
+                                        showEditExerciseName = true
+                                    }
+                            )
+                            .id(exercise.id)
+                        }
+                    }
+                    .scrollTargetLayout()
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                }
+                .scrollTargetBehavior(.viewAligned)
+                .id(activeSequenceId)
+                .onChange(of: selectedExercisesId) { _, newId in
+                    guard let newId else { return }
+                    withAnimation {
+                        proxy.scrollTo(newId, anchor: .center)
+                    }
+                }
+                .onAppear {
+                    if let id = selectedExercisesId {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+                }
+            }
+            .frame(height: 40)
+
+            // Separator
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 1)
+                .padding(.horizontal, 12)
+
+            // Section 3 — Selected exercise detail row
+            HStack(spacing: 0) {
+                // Left — Exercise selection + Detail buttons
+                if selectedExercises != nil {
+                    Button {
+                        hapticFeedback.impactOccurred()
+                        showExercisesSelection = true
+                    } label: {
+                        Image(systemName: "rectangle.grid.2x2")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color.appAccent)
+                            .frame(width: 36, height: 36)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(Color.appAccent.opacity(0.15))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(Color.appAccent.opacity(0.3), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.leading, 12)
+
+                }
 
                 Spacer(minLength: 4)
 
-                // Center — Exercise name
+                // Center — Exercise name (tap for details)
                 Button {
                     hapticFeedback.impactOccurred()
-                    showExercisesSelection = true
+                    if selectedExercises != nil {
+                        showEditExerciseName = true
+                    } else {
+                        showExercisesSelection = true
+                    }
                 } label: {
                     if let ex = selectedExercises {
-                        Text(ex.name)
-                            .font(.bebasNeue(size: 22))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
+                        HStack(spacing: 4) {
+                            Text(ex.name)
+                                .font(.bebasNeue(size: 22))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.3))
+                        }
                     } else {
                         Text("Select Exercise")
                             .font(.bebasNeue(size: 22))
@@ -1378,91 +1530,7 @@ struct CheckInView: View {
                         .padding(.trailing, 12)
                 }
             }
-            .frame(height: 44)
-
-            // Separator
-            Rectangle()
-                .fill(Color.white.opacity(0.06))
-                .frame(height: 1)
-                .padding(.horizontal, 12)
-
-            // Chip strip
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(sequencedExercises) { exercise in
-                            let isSelected = selectedExercisesId == exercise.id
-                            Button {
-                                hapticFeedback.impactOccurred()
-                                selectedExercisesId = exercise.id
-                            } label: {
-                                VStack(spacing: 4) {
-                                    HStack(spacing: 4) {
-                                        ExerciseIconView(exercise: exercise, size: 24)
-                                            .foregroundStyle(isSelected ? Color.appAccent : .white.opacity(0.4))
-                                        Text(exercise.name)
-                                            .font(.inter(size: 11))
-                                            .foregroundStyle(isSelected ? .white : .white.opacity(0.4))
-                                            .lineLimit(1)
-                                    }
-
-                                    if !exercise.setPlan.isEmpty {
-                                        let completed = todaySetCount(for: exercise)
-                                        HStack(spacing: 2) {
-                                            ForEach(0..<exercise.setPlan.count, id: \.self) { i in
-                                                Capsule()
-                                                    .fill(i < completed
-                                                        ? Color.green
-                                                        : Color.white.opacity(0.1))
-                                                    .frame(height: 4)
-                                            }
-                                        }
-                                    }
-                                }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .frame(height: 48)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .fill(isSelected ? Color.appAccent.opacity(0.2) : Color(white: 0.10))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .stroke(isSelected ? Color.appAccent : Color.clear, lineWidth: 1.5)
-                                )
-                                .animation(.easeInOut(duration: 0.15), value: selectedExercisesId)
-                            }
-                            .buttonStyle(.plain)
-                            .simultaneousGesture(
-                                LongPressGesture(minimumDuration: 0.5)
-                                    .onEnded { _ in
-                                        hapticFeedback.impactOccurred()
-                                        selectedExercisesId = exercise.id
-                                        showEditExerciseName = true
-                                    }
-                            )
-                            .id(exercise.id)
-                        }
-                    }
-                    .scrollTargetLayout()
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                }
-                .scrollTargetBehavior(.viewAligned)
-                .id(activeSequenceId)
-                .onChange(of: selectedExercisesId) { _, newId in
-                    guard let newId else { return }
-                    withAnimation {
-                        proxy.scrollTo(newId, anchor: .center)
-                    }
-                }
-                .onAppear {
-                    if let id = selectedExercisesId {
-                        proxy.scrollTo(id, anchor: .center)
-                    }
-                }
-            }
-            .frame(height: 64)
+            .frame(height: 52)
         }
         .background(
             LinearGradient(
@@ -1478,15 +1546,18 @@ struct CheckInView: View {
                 .allowsHitTesting(false)
         )
         .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
+        .onChange(of: activeSplitId) { _, _ in
+            // When split changes, auto-select first day
+            if let firstDay = daysForActiveSplit.first {
+                activeSequenceId = firstDay.id
+                WorkoutSequenceStore.setActiveSequenceId(firstDay.id)
+            }
+            if let id = activeSplitId {
+                WorkoutSequenceStore.setActiveSplitId(id)
+            }
+        }
     }
 
-    private var activeSequenceName: String {
-        guard let activeId = activeSequenceId,
-              let seq = allSequences.first(where: { $0.id == activeId }) else {
-            return "All"
-        }
-        return seq.name
-    }
 
     private var graphHeaderView: some View {
         HStack {
@@ -3413,6 +3484,8 @@ struct CheckInView: View {
                 userProperties.availableChangePlates = UserProperties.defaultAvailableChangePlates
                 try? modelContext.save()
             }
+            // Assign default exercises to days now that exercises exist
+            WorkoutSequenceStore.assignDefaultExercisesToDays(context: modelContext)
         }
     }
 }
