@@ -469,8 +469,24 @@ struct CheckInView: View {
             ZStack {
                 // Main content
                 VStack(spacing: 12) {
+                    // Branding header
+                    HStack(spacing: 10) {
+                        Image("LiftTheBullIcon")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 28, height: 28)
+                            .foregroundStyle(Color.appLogoColor)
+
+                        Text("Lift the Bull")
+                            .font(.bebasNeue(size: 22))
+                            .foregroundStyle(.white)
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+
                     programWidget
-                        .padding(.top, 12)
 
                     mainExerciseWidget
 
@@ -590,10 +606,11 @@ struct CheckInView: View {
             .onChange(of: selectedExercisesId) { oldId, newId in
                 if let newId {
                     fetchDataForExercise(newId)
-                    // Deselect day if exercise isn't in the current day's list
-                    if let seqId = activeSequenceId,
-                       let seq = allSequences.first(where: { $0.id == seqId }),
-                       !seq.exerciseIds.contains(newId) {
+                    // Auto-select the day that contains this exercise
+                    if let matchingDay = daysForActiveSplit.first(where: { $0.exerciseIds.contains(newId) }) {
+                        activeSequenceId = matchingDay.id
+                        WorkoutSequenceStore.setActiveSequenceId(matchingDay.id)
+                    } else {
                         activeSequenceId = nil
                     }
                 }
@@ -1494,33 +1511,8 @@ struct CheckInView: View {
     }
 
     private var selectedExerciseRow: some View {
-        HStack(spacing: 0) {
-            // Left — Detail button
-            if selectedExercises != nil {
-                Button {
-                    hapticFeedback.impactOccurred()
-                    showEditExerciseName = true
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.appAccent)
-                        .frame(width: 26, height: 26)
-                        .background(
-                            RoundedRectangle(cornerRadius: 7)
-                                .fill(Color.appAccent.opacity(0.15))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 7)
-                                .stroke(Color.appAccent.opacity(0.3), lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-                .padding(.leading, 12)
-            }
-
-            Spacer(minLength: 4)
-
-            // Center — Exercise name (tap for details)
+        ZStack {
+            // Center — Exercise name (always centered in widget)
             Button {
                 hapticFeedback.impactOccurred()
                 if selectedExercises != nil {
@@ -1531,34 +1523,57 @@ struct CheckInView: View {
             } label: {
                 if let ex = selectedExercises {
                     Text(ex.name)
-                        .font(.bebasNeue(size: 22))
+                        .font(.bebasNeue(size: 24))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                 } else {
                     Text("Select Exercise")
-                        .font(.bebasNeue(size: 22))
+                        .font(.bebasNeue(size: 24))
                         .foregroundStyle(Color.appAccent)
                 }
             }
             .buttonStyle(.plain)
+            .padding(.horizontal, 50)
 
-            Spacer(minLength: 4)
-
-            // Right — e1RM
-            if selectedExercises != nil && !setsForSelected.isEmpty {
-                HStack(spacing: 5) {
-                    Text("e1RM")
-                        .font(.inter(size: 9))
-                        .foregroundStyle(.white.opacity(0.4))
-                    Text(current1RM.rounded1().formatted(.number.precision(.fractionLength(2))))
-                        .font(.interSemiBold(size: 16))
-                        .foregroundStyle(Color.appAccent)
+            HStack(spacing: 0) {
+                // Left — Detail button
+                if selectedExercises != nil {
+                    Button {
+                        hapticFeedback.impactOccurred()
+                        showEditExerciseName = true
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color.appAccent)
+                            .frame(width: 26, height: 26)
+                            .background(
+                                RoundedRectangle(cornerRadius: 7)
+                                    .fill(Color.appAccent.opacity(0.15))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 7)
+                                    .stroke(Color.appAccent.opacity(0.3), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.leading, 12)
                 }
-                .padding(.trailing, 12)
-            } else {
-                Color.clear.frame(width: 70)
+
+                Spacer()
+
+                // Right — e1RM
+                if selectedExercises != nil && !setsForSelected.isEmpty {
+                    HStack(spacing: 5) {
+                        Text("e1RM")
+                            .font(.inter(size: 9))
+                            .foregroundStyle(.white.opacity(0.4))
+                        Text(current1RM.rounded1().formatted(.number.precision(.fractionLength(2))))
+                            .font(.interSemiBold(size: 16))
+                            .foregroundStyle(Color.appAccent)
+                    }
                     .padding(.trailing, 12)
+                }
             }
         }
         .frame(height: 52)
@@ -1577,7 +1592,7 @@ struct CheckInView: View {
             // Sets comparison (set squares + plan tiles)
             setComparisonView
                 .padding(.horizontal, 16)
-                .padding(.top, 8)
+                .padding(.top, 10)
 
             // Legend
             if !setsForSelected.isEmpty {
@@ -1593,7 +1608,7 @@ struct CheckInView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 6)
-                .padding(.bottom, 2)
+                .padding(.bottom, 8)
             }
 
             // Separator
@@ -2002,7 +2017,7 @@ struct CheckInView: View {
     }
 
     private var optionsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             if let mode = effortMode, !setsForSelected.isEmpty {
                 // Header with chevrons + title + controls
                 HStack(spacing: 6) {
@@ -2019,26 +2034,25 @@ struct CheckInView: View {
                         }
                     } label: {
                         Image(systemName: "chevron.left")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(mode == .easy ? Color.clear : Color.appAccent)
-                            .frame(width: 28, height: 28)
+                            .frame(width: 24, height: 24)
                             .contentShape(Rectangle())
                     }
                     .disabled(mode == .easy)
 
                     Spacer()
 
-                    HStack(alignment: .top, spacing: 10) {
+                    HStack(alignment: .center, spacing: 10) {
                         RoundedRectangle(cornerRadius: 3)
                             .fill(SequenceSquareView.color(for: mode.effortKey).opacity(0.3))
-                            .frame(width: 18, height: 18)
+                            .frame(width: 14, height: 14)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 3)
                                     .stroke(SequenceSquareView.color(for: mode.effortKey), lineWidth: 1.5)
                             )
-                            .offset(y: 1)
                         Text(mode.title)
-                            .font(.inter(size: 17))
+                            .font(.inter(size: 15))
                             .foregroundStyle(.white)
                     }
 
@@ -2068,9 +2082,9 @@ struct CheckInView: View {
                             }
                         } label: {
                             Image(systemName: "arrow.up.backward.and.arrow.down.forward")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(.white.opacity(0.5))
-                                .padding(8)
+                                .padding(6)
                                 .background(Color(white: 0.12))
                                 .cornerRadius(8)
                         }
@@ -2089,9 +2103,9 @@ struct CheckInView: View {
                         }
                     } label: {
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(mode == .progress ? Color.clear : Color.appAccent)
-                            .frame(width: 28, height: 28)
+                            .frame(width: 24, height: 24)
                             .contentShape(Rectangle())
                     }
                     .disabled(mode == .progress)
@@ -2100,7 +2114,7 @@ struct CheckInView: View {
                 if setsForSelected.isEmpty {
                     ProgressOptionsEmptyState(message: "Log your first set below")
                         .frame(maxWidth: .infinity)
-                        .frame(height: 120)
+                        .frame(height: 100)
                 } else if mode == .progress {
                     // Progress mode: 4-column layout (unchanged)
                     progressOptionsContent
@@ -2115,7 +2129,7 @@ struct CheckInView: View {
                 } label: {
                     ProgressOptionsEmptyState(message: "Select an Exercise")
                         .frame(maxWidth: .infinity)
-                        .frame(height: 160)
+                        .frame(height: 120)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -2123,17 +2137,17 @@ struct CheckInView: View {
                 // Exercise selected, no effort mode, no sets yet
                 ProgressOptionsEmptyState(message: "Log your first set below")
                     .frame(maxWidth: .infinity)
-                    .frame(height: 160)
+                    .frame(height: 120)
             } else {
                 // Exercise selected, sets exist, no effort mode
                 ProgressOptionsEmptyState(message: "Select an Effort Level")
                     .frame(maxWidth: .infinity)
-                    .frame(height: 160)
+                    .frame(height: 120)
             }
         }
-        .padding(.top, 10)
+        .padding(.top, 6)
         .padding(.horizontal, 10)
-        .padding(.bottom, 0)
+        .padding(.bottom, 8)
     }
 
     private var progressOptionsContent: some View {
@@ -2264,7 +2278,7 @@ struct CheckInView: View {
                         }
                         .padding(.bottom, 8)
                     }
-                    .frame(height: 88)
+                    .frame(height: 120)
                     .onChange(of: sortColumn) { _, _ in
                         withAnimation {
                             proxy.scrollTo("top", anchor: .top)
@@ -2324,7 +2338,7 @@ struct CheckInView: View {
                         }
                         .padding(.bottom, 8)
                     }
-                    .frame(height: 88)
+                    .frame(height: 120)
                     .onChange(of: effortSortColumn) { _, _ in
                         withAnimation { proxy.scrollTo("effortTop", anchor: .top) }
                     }
