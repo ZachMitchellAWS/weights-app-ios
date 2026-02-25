@@ -26,6 +26,8 @@ struct AnalyticsView: View {
     }
     @Query(estimated1RMsDescriptor) private var allEstimated1RMs: [Estimated1RMs]
 
+    @Query(filter: #Predicate<Exercises> { !$0.deleted }, sort: \Exercises.createdAt) private var exercises: [Exercises]
+
     @Query private var entitlementItems: [Entitlements]
     @Environment(\.modelContext) private var modelContext
     @State private var showUpsell = false
@@ -52,7 +54,7 @@ struct AnalyticsView: View {
 
                         TrainingRecencyWidget(allSets: allSets, isPremium: entitlement.isActive, showUpsell: $showUpsell)
 
-                        OneRMProgressionWidget(allEstimated1RMs: allEstimated1RMs)
+                        OneRMProgressionWidget(allEstimated1RMs: allEstimated1RMs, allExerciseNames: exercises.map(\.name))
 
                         ExerciseVolumeWidget(allSets: allSets)
 

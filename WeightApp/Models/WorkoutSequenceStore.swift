@@ -98,8 +98,8 @@ enum WorkoutSequenceStore {
 
         // Define default days
         let pushNames = ["Bench Press", "Overhead Press", "Dips"]
-        let pullNames = ["Deadlift", "Barbell Row", "Pull Ups"]
-        let legNames = ["Squat"]
+        let pullNames = ["Deadlifts", "Barbell Row", "Pull Ups", "Barbell Curls"]
+        let legNames = ["Squats", "Romanian Deadlifts"]
 
         func resolveIds(_ names: [String]) -> [UUID] {
             names.compactMap { exerciseByName[$0]?.id }
@@ -155,8 +155,8 @@ enum WorkoutSequenceStore {
         let exerciseByName = Dictionary(uniqueKeysWithValues: allExercises.map { ($0.name, $0) })
         let dayExerciseMap: [String: [String]] = [
             "Push": ["Bench Press", "Overhead Press", "Dips"],
-            "Pull": ["Deadlift", "Barbell Row", "Pull Ups"],
-            "Leg": ["Squat"]
+            "Pull": ["Deadlifts", "Barbell Row", "Pull Ups", "Barbell Curls"],
+            "Leg": ["Squats", "Romanian Deadlifts"]
         ]
 
         var didChange = false

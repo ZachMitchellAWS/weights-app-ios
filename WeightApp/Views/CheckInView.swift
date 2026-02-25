@@ -62,6 +62,9 @@ struct CheckInView: View {
     @State private var activeSplitId: UUID? = WorkoutSequenceStore.activeSplitId()
     @State private var activeSequenceId: UUID? = WorkoutSequenceStore.activeSequenceId()
     @State private var baseline1RM: Double? = nil
+    @State private var repRangeDebounceTask: Task<Void, Never>?
+    @State private var setPlanCollapsed = true
+    @State private var showE1RMPopup = false
 
     enum EffortMode: Int, CaseIterable {
         case easy = 0, moderate = 1, hard = 2, progress = 3
@@ -72,6 +75,15 @@ struct CheckInView: View {
             case .moderate: return "Moderate Options"
             case .hard: return "Hard Options"
             case .progress: return "Progress Options"
+            }
+        }
+
+        var chipLabel: String {
+            switch self {
+            case .easy: return "Easy Options"
+            case .moderate: return "Moderate Options"
+            case .hard: return "Hard Options"
+            case .progress: return "e1RM Progress Options"
             }
         }
 
@@ -98,7 +110,7 @@ struct CheckInView: View {
             case .easy: return props.easyMinReps...props.easyMaxReps
             case .moderate: return props.moderateMinReps...props.moderateMaxReps
             case .hard: return props.hardMinReps...props.hardMaxReps
-            case .progress: return 1...12
+            case .progress: return props.minReps...props.maxReps
             }
         }
 
@@ -176,12 +188,12 @@ struct CheckInView: View {
     }
 
     private var activeSplit: WorkoutSplit? {
-        guard let id = activeSplitId else { return allSplits.first }
-        return allSplits.first(where: { $0.id == id }) ?? allSplits.first
+        guard let id = activeSplitId else { return nil }
+        return allSplits.first(where: { $0.id == id })
     }
 
     private var daysForActiveSplit: [WorkoutSequence] {
-        guard let split = activeSplit else { return allSequences }
+        guard let split = activeSplit else { return [] }
         let seqMap = Dictionary(uniqueKeysWithValues: allSequences.map { ($0.id, $0) })
         let resolved = split.dayIds.compactMap { seqMap[$0] }
         return resolved.isEmpty ? allSequences : resolved
@@ -257,7 +269,7 @@ struct CheckInView: View {
         // Filter for valid sets (weight >= 0, reps >= 1)
         let sets = allSets
             .filter { $0.exercise?.id == exercise.id && $0.weight >= 0 && $0.reps >= 1 }
-            .reversed()
+            .sorted { $0.createdAt < $1.createdAt }
 
         var result: [SetWithPR] = []
         var currentMax: Double = 0
@@ -406,6 +418,10 @@ struct CheckInView: View {
         var filtered = suggestions.filter {
             $0.reps >= userProperties.minReps && $0.reps <= userProperties.maxReps
         }
+        // For BW+SL exercises, exclude suggestions below bodyweight
+        if selectedExercises?.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
+            filtered = filtered.filter { $0.weight >= bw }
+        }
         if let prPlusOne = lastPRPlusOneSuggestion,
            !filtered.contains(where: { $0.weight == prPlusOne.weight && $0.reps == prPlusOne.reps }) {
             filtered.append(prPlusOne)
@@ -443,6 +459,10 @@ struct CheckInView: View {
         if let bounds = mode.percent1RMBounds {
             results = results.filter { bounds.contains($0.percent1RM) }
         }
+        // For BW+SL exercises, exclude suggestions below bodyweight
+        if selectedExercises?.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
+            results = results.filter { $0.weight >= bw }
+        }
         switch effortSortColumn {
         case .weight:
             return results.sorted { effortSortAscending ? $0.weight < $1.weight : $0.weight > $1.weight }
@@ -469,35 +489,38 @@ struct CheckInView: View {
             ZStack {
                 // Main content
                 VStack(spacing: 12) {
-                    // Branding header
-                    HStack(spacing: 10) {
-                        Image("LiftTheBullIcon")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 28, height: 28)
-                            .foregroundStyle(Color.appLogoColor)
+                    programWidget
+                        .padding(.top, 12)
 
-                        Text("Lift the Bull")
-                            .font(.bebasNeue(size: 22))
-                            .foregroundStyle(.white)
+                    if activeSequenceId != nil || activeSplit == nil {
+                        mainExerciseWidget
+
+                        Divider()
+                            .background(.white.opacity(0.35))
+                            .padding(.horizontal, 4)
+
+                        // Log Set Section
+                        logSetSection
+
+                        Spacer(minLength: 0)
+                    } else {
+                        Spacer()
+
+                        VStack(spacing: 12) {
+                            Image("LiftTheBullIcon")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 48, height: 48)
+                                .foregroundStyle(Color.appLogoColor.opacity(0.3))
+
+                            Text("Select a day to start")
+                                .font(.bebasNeue(size: 20))
+                                .kerning(1.5)
+                                .foregroundStyle(.white.opacity(0.3))
+                        }
 
                         Spacer()
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 10)
-
-                    programWidget
-
-                    mainExerciseWidget
-
-                    Divider()
-                        .background(.white.opacity(0.35))
-                        .padding(.horizontal, 4)
-
-                    // Log Set Section
-                    logSetSection
-
-                    Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 12)
 
@@ -888,7 +911,8 @@ struct CheckInView: View {
             Button {
                 let result = evaluateCalculator()
                 // Allow zero for single load (bodyweight) exercises
-                let minWeight = selectedExercises?.exerciseLoadType == .singleLoad ? 0.0 : 0.01
+                let loadType = selectedExercises?.exerciseLoadType
+                let minWeight = (loadType == .singleLoad || loadType == .bodySingleLoad) ? 0.0 : 0.01
                 if result >= minWeight && result <= 1000 {
                     weight = result
                     hasSetInitialValues = true
@@ -1340,6 +1364,7 @@ struct CheckInView: View {
                     .foregroundStyle(Color.appAccent)
                     .padding(.horizontal, 8)
                     .frame(height: 26)
+                    .frame(minWidth: 76)
                     .background(
                         RoundedRectangle(cornerRadius: 7)
                             .fill(Color.appAccent.opacity(0.15))
@@ -1360,8 +1385,14 @@ struct CheckInView: View {
                         let isSelected = activeSequenceId == day.id
                         Button {
                             hapticFeedback.impactOccurred()
-                            activeSequenceId = day.id
-                            WorkoutSequenceStore.setActiveSequenceId(day.id)
+                            if isSelected {
+                                activeSequenceId = nil
+                                WorkoutSequenceStore.setActiveSequenceId(nil)
+                                selectedExercisesId = nil
+                            } else {
+                                activeSequenceId = day.id
+                                WorkoutSequenceStore.setActiveSequenceId(day.id)
+                            }
                         } label: {
                             Text("\(day.name) Day")
                                 .font(.bebasNeue(size: 14))
@@ -1389,7 +1420,7 @@ struct CheckInView: View {
                     .padding(.vertical, 6)
                 }
             }
-            .frame(height: 38)
+            .frame(height: 42)
 
             // Separator
             Rectangle()
@@ -1404,18 +1435,26 @@ struct CheckInView: View {
                     hapticFeedback.impactOccurred()
                     showExercisesSelection = true
                 } label: {
-                    Image(systemName: "square.grid.2x2.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.appAccent)
-                        .frame(width: 26, height: 26)
-                        .background(
-                            RoundedRectangle(cornerRadius: 7)
-                                .fill(Color.appAccent.opacity(0.15))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 7)
-                                .stroke(Color.appAccent.opacity(0.3), lineWidth: 1)
-                        )
+                    HStack(spacing: 6) {
+                        Image(systemName: "square.grid.2x2.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("All")
+                            .font(.bebasNeue(size: 14))
+                            .kerning(1.5)
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(Color.appAccent)
+                    .padding(.horizontal, 8)
+                    .frame(height: 26)
+                    .frame(minWidth: 76)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7)
+                            .fill(Color.appAccent.opacity(0.15))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7)
+                            .stroke(Color.appAccent.opacity(0.3), lineWidth: 1)
+                    )
                 }
                 .buttonStyle(.plain)
                 .padding(.leading, 12)
@@ -1428,7 +1467,11 @@ struct CheckInView: View {
                             let isSelected = selectedExercisesId == exercise.id
                             Button {
                                 hapticFeedback.impactOccurred()
-                                selectedExercisesId = exercise.id
+                                if isSelected {
+                                    selectedExercisesId = nil
+                                } else {
+                                    selectedExercisesId = exercise.id
+                                }
                             } label: {
                                 HStack(spacing: 4) {
                                     ExerciseIconView(exercise: exercise, size: 24)
@@ -1482,8 +1525,9 @@ struct CheckInView: View {
                 }
             }
             }
-            .frame(height: 40)
+            .frame(height: 44)
         }
+        .padding(.vertical, 4)
         .background(
             LinearGradient(
                 colors: [Color(white: 0.18), Color(white: 0.14)],
@@ -1499,13 +1543,16 @@ struct CheckInView: View {
         )
         .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
         .onChange(of: activeSplitId) { _, _ in
-            // When split changes, auto-select first day
+            WorkoutSequenceStore.setActiveSplitId(activeSplitId)
             if let firstDay = daysForActiveSplit.first {
+                // When split changes, auto-select first day
                 activeSequenceId = firstDay.id
                 WorkoutSequenceStore.setActiveSequenceId(firstDay.id)
-            }
-            if let id = activeSplitId {
-                WorkoutSequenceStore.setActiveSplitId(id)
+            } else {
+                // No split selected — clear day selection, show all exercises
+                activeSequenceId = nil
+                WorkoutSequenceStore.setActiveSequenceId(nil)
+                selectedExercisesId = nil
             }
         }
     }
@@ -1524,12 +1571,14 @@ struct CheckInView: View {
                 if let ex = selectedExercises {
                     Text(ex.name)
                         .font(.bebasNeue(size: 24))
+                        .kerning(1)
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                 } else {
                     Text("Select Exercise")
                         .font(.bebasNeue(size: 24))
+                        .kerning(1)
                         .foregroundStyle(Color.appAccent)
                 }
             }
@@ -1564,15 +1613,40 @@ struct CheckInView: View {
 
                 // Right — e1RM
                 if selectedExercises != nil && !setsForSelected.isEmpty {
-                    HStack(spacing: 5) {
-                        Text("e1RM")
-                            .font(.inter(size: 9))
-                            .foregroundStyle(.white.opacity(0.4))
-                        Text(current1RM.rounded1().formatted(.number.precision(.fractionLength(2))))
-                            .font(.interSemiBold(size: 16))
-                            .foregroundStyle(Color.appAccent)
+                    Button {
+                        showE1RMPopup = true
+                    } label: {
+                        VStack(spacing: 2) {
+                            Text("e1RM")
+                                .font(.inter(size: 9))
+                                .foregroundStyle(.white.opacity(0.4))
+                            Text(current1RM.rounded1().formatted(.number.precision(.fractionLength(2))))
+                                .font(.interSemiBold(size: 16))
+                                .foregroundStyle(Color.appAccent)
+                        }
+                        .padding(.trailing, 12)
                     }
-                    .padding(.trailing, 12)
+                    .buttonStyle(.plain)
+                    .sheet(isPresented: $showE1RMPopup) {
+                        if let exercise = selectedExercises {
+                            NavigationStack {
+                                VStack(spacing: 16) {
+                                    OneRMProgressionChart(
+                                        dataPoints: TrendsCalculator.oneRMProgression(
+                                            from: estimated1RMsForSelected,
+                                            exerciseName: exercise.name
+                                        )
+                                    )
+                                    .padding(.horizontal, 16)
+                                }
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .background(Color.black)
+                                .navigationTitle(exercise.name)
+                                .navigationBarTitleDisplayMode(.inline)
+                            }
+                            .presentationDetents([.medium])
+                        }
+                    }
                 }
             }
         }
@@ -1594,7 +1668,54 @@ struct CheckInView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
 
-            // Legend
+            // Separator
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 1)
+                .padding(.horizontal, 12)
+
+            // Set Options label + effort chips
+            if selectedExercises != nil && !setsForSelected.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        HStack(spacing: 0) {
+                            Text("Set Options")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.7))
+                            Text(" — Pick your next set")
+                                .font(.caption.italic())
+                                .foregroundStyle(.white.opacity(0.35))
+                        }
+                        Spacer()
+                        if let mode = effortMode {
+                            Button {
+                                hapticFeedback.impactOccurred()
+                                if mode == .progress {
+                                    showExpandedProgressOptions = true
+                                } else {
+                                    showExpandedEffortOptions = true
+                                }
+                            } label: {
+                                Image(systemName: "arrow.up.backward.and.arrow.down.forward")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(.white.opacity(0.5))
+                                    .padding(6)
+                                    .background(Color(white: 0.12))
+                                    .cornerRadius(8)
+                            }
+                        }
+                    }
+
+                    effortChipSelector
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+            }
+
+            // Options section (no card wrapper)
+            optionsSection
+
+            // Legend (below options content)
             if !setsForSelected.isEmpty {
                 HStack(spacing: 10) {
                     if displaySetPlan.contains("baseline") {
@@ -1607,18 +1728,9 @@ struct CheckInView: View {
                     LegendItem(color: .setPR, label: "e1RM ↑")
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 6)
+                .padding(.top, 2)
                 .padding(.bottom, 8)
             }
-
-            // Separator
-            Rectangle()
-                .fill(Color.white.opacity(0.06))
-                .frame(height: 1)
-                .padding(.horizontal, 12)
-
-            // Options section (no card wrapper)
-            optionsSection
         }
         .background(
             LinearGradient(
@@ -1642,6 +1754,15 @@ struct CheckInView: View {
                 availableWeightDeltas: availableWeightDeltas,
                 minWeightDelta: minWeightDelta,
                 maxWeightDelta: maxWeightDelta,
+                minReps: Binding(
+                    get: { userProperties.minReps },
+                    set: { userProperties.minReps = $0 }
+                ),
+                maxReps: Binding(
+                    get: { userProperties.maxReps },
+                    set: { userProperties.maxReps = $0 }
+                ),
+                onRepRangeChanged: { scheduleRepRangeSync() },
                 onSelect: { suggestion in
                     selectOption(suggestion)
                 }
@@ -1654,6 +1775,43 @@ struct CheckInView: View {
             ExpandedEffortOptionsSheet(
                 effortMode: effortMode ?? .easy,
                 suggestions: effortSuggestions,
+                repRangeMin: Binding(
+                    get: {
+                        switch effortMode ?? .easy {
+                        case .easy: return userProperties.easyMinReps
+                        case .moderate: return userProperties.moderateMinReps
+                        case .hard: return userProperties.hardMinReps
+                        case .progress: return userProperties.minReps
+                        }
+                    },
+                    set: {
+                        switch effortMode ?? .easy {
+                        case .easy: userProperties.easyMinReps = $0
+                        case .moderate: userProperties.moderateMinReps = $0
+                        case .hard: userProperties.hardMinReps = $0
+                        case .progress: userProperties.minReps = $0
+                        }
+                    }
+                ),
+                repRangeMax: Binding(
+                    get: {
+                        switch effortMode ?? .easy {
+                        case .easy: return userProperties.easyMaxReps
+                        case .moderate: return userProperties.moderateMaxReps
+                        case .hard: return userProperties.hardMaxReps
+                        case .progress: return userProperties.maxReps
+                        }
+                    },
+                    set: {
+                        switch effortMode ?? .easy {
+                        case .easy: userProperties.easyMaxReps = $0
+                        case .moderate: userProperties.moderateMaxReps = $0
+                        case .hard: userProperties.hardMaxReps = $0
+                        case .progress: userProperties.maxReps = $0
+                        }
+                    }
+                ),
+                onRepRangeChanged: { scheduleRepRangeSync() },
                 onSelect: { suggestion in
                     selectEffortOption(suggestion)
                 }
@@ -1892,6 +2050,61 @@ struct CheckInView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             } else {
                 VStack(alignment: .leading, spacing: 10) {
+                    // Set Plan
+                    VStack(alignment: .leading, spacing: 6) {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                setPlanCollapsed.toggle()
+                            }
+                        } label: {
+                            HStack(spacing: 0) {
+                                Text("Set Plan")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.white.opacity(0.7))
+                                if !setPlanCollapsed {
+                                    Text(" — Recommended sequence of sets")
+                                        .font(.caption.italic())
+                                        .foregroundStyle(.white.opacity(0.35))
+                                }
+                                Spacer()
+                                Image(systemName: setPlanCollapsed ? "chevron.right" : "chevron.down")
+                                    .font(.caption2)
+                                    .foregroundStyle(.white.opacity(0.35))
+                            }
+                        }
+                        .buttonStyle(.plain)
+
+                        if !setPlanCollapsed {
+                            if !displaySetPlan.isEmpty {
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 6) {
+                                        ForEach(Array(displaySetPlan.enumerated()), id: \.offset) { index, effort in
+                                            SequenceSquareView(effort: effort, isHighlighted: highlightedPlanTileIndex == index)
+                                                .opacity(setsForSelected.isEmpty ? 0.25 : (index == todaysSets.count ? 1.0 : 0.4))
+                                                .onTapGesture {
+                                                    guard !setsForSelected.isEmpty else { return }
+                                                    hapticFeedback.impactOccurred()
+                                                    let mappedEffort = effort == "baseline" ? "easy" : effort
+                                                    selectedPlanTileIndex = index
+                                                    highlightPlanTile(index)
+                                                    withAnimation {
+                                                        effortMode = EffortMode.from(effort: mappedEffort)
+                                                    }
+                                                }
+                                        }
+                                    }
+                                    .allowsHitTesting(!setsForSelected.isEmpty)
+                                    .padding(.vertical, 2)
+                                    .padding(.horizontal, 2)
+                                }
+                                .frame(height: 46)
+                            } else {
+                                Spacer()
+                                    .frame(height: 42)
+                            }
+                        }
+                    }
+
                     // Sets Today
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Sets Today")
@@ -1917,7 +2130,11 @@ struct CheckInView: View {
                                         }
                                     )
                                     .onTapGesture {
-                                        weight = set.weight
+                                        if selectedExercises?.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
+                                            weight = max(0, set.weight - bw)
+                                        } else {
+                                            weight = set.weight
+                                        }
                                         reps = set.reps
                                         hasSetInitialValues = true
                                         hasSetWeight = true
@@ -1968,46 +2185,6 @@ struct CheckInView: View {
                             }
                             .frame(height: 46)
                     }
-
-                    // Set Plan
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 0) {
-                            Text("Set Plan")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.7))
-                            Text(" — Recommended sequence of sets")
-                                .font(.caption.italic())
-                                .foregroundStyle(.white.opacity(0.35))
-                        }
-
-                        if !displaySetPlan.isEmpty {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 6) {
-                                    ForEach(Array(displaySetPlan.enumerated()), id: \.offset) { index, effort in
-                                        SequenceSquareView(effort: effort, isHighlighted: highlightedPlanTileIndex == index)
-                                            .opacity(setsForSelected.isEmpty ? 0.25 : (index == todaysSets.count ? 1.0 : 0.4))
-                                            .onTapGesture {
-                                                guard !setsForSelected.isEmpty else { return }
-                                                hapticFeedback.impactOccurred()
-                                                let mappedEffort = effort == "baseline" ? "easy" : effort
-                                                selectedPlanTileIndex = index
-                                                highlightPlanTile(index)
-                                                withAnimation {
-                                                    effortMode = EffortMode.from(effort: mappedEffort)
-                                                }
-                                            }
-                                    }
-                                }
-                                .allowsHitTesting(!setsForSelected.isEmpty)
-                                .padding(.vertical, 2)
-                                .padding(.horizontal, 2)
-                            }
-                            .frame(height: 46)
-                        } else {
-                            Spacer()
-                                .frame(height: 42)
-                        }
-                    }
                 }
 
                 Spacer()
@@ -2016,106 +2193,63 @@ struct CheckInView: View {
         }
     }
 
+    private var effortChipSelector: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(EffortMode.allCases, id: \.rawValue) { mode in
+                    let isSelected = effortMode == mode
+                    Button {
+                        hapticFeedback.impactOccurred()
+                        if isSelected {
+                            withAnimation { effortMode = nil }
+                            selectedPlanTileIndex = nil
+                        } else {
+                            if let matchIndex = displaySetPlan.firstIndex(where: { $0 == mode.effortKey }) {
+                                selectedPlanTileIndex = matchIndex
+                            } else {
+                                selectedPlanTileIndex = nil
+                            }
+                            withAnimation { effortMode = mode }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(mode.tileColor.opacity(0.4))
+                                .frame(width: 10, height: 10)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .stroke(mode.tileColor, lineWidth: 1)
+                                )
+                            Text(mode.chipLabel)
+                                .font(.inter(size: 11))
+                                .foregroundStyle(isSelected ? .white : .white.opacity(0.4))
+                                .lineLimit(1)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 3)
+                        .frame(height: 30)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(isSelected ? mode.tileColor.opacity(0.2) : Color(white: 0.10))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(isSelected ? mode.tileColor : Color.clear, lineWidth: 1.5)
+                        )
+                        .animation(.easeInOut(duration: 0.15), value: effortMode)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 2)
+            .padding(.vertical, 2)
+        }
+    }
+
     private var optionsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let mode = effortMode, !setsForSelected.isEmpty {
-                // Header with chevrons + title + controls
-                HStack(spacing: 6) {
-                    // Left chevron
-                    Button {
-                        if let prev = EffortMode(rawValue: mode.rawValue - 1) {
-                            hapticFeedback.impactOccurred()
-                            if let matchIndex = displaySetPlan.firstIndex(where: { $0 == prev.effortKey }) {
-                                selectedPlanTileIndex = matchIndex
-                            } else {
-                                selectedPlanTileIndex = nil
-                            }
-                            withAnimation { effortMode = prev }
-                        }
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(mode == .easy ? Color.clear : Color.appAccent)
-                            .frame(width: 24, height: 24)
-                            .contentShape(Rectangle())
-                    }
-                    .disabled(mode == .easy)
-
-                    Spacer()
-
-                    HStack(alignment: .center, spacing: 10) {
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(SequenceSquareView.color(for: mode.effortKey).opacity(0.3))
-                            .frame(width: 14, height: 14)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 3)
-                                    .stroke(SequenceSquareView.color(for: mode.effortKey), lineWidth: 1.5)
-                            )
-                        Text(mode.title)
-                            .font(.inter(size: 15))
-                            .foregroundStyle(.white)
-                    }
-
-                    Spacer()
-
-                    if setsForSelected.isEmpty {
-                        Button {
-                            hapticFeedback.impactOccurred()
-                            showIncrementSelection = true
-                        } label: {
-                            Image(systemName: "slider.horizontal.3")
-                                .font(.system(size: 20))
-                                .foregroundStyle(Color.appAccent)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(Color(white: 0.12))
-                                .cornerRadius(10)
-                        }
-                    } else {
-                        // Expand button (all modes)
-                        Button {
-                            hapticFeedback.impactOccurred()
-                            if mode == .progress {
-                                showExpandedProgressOptions = true
-                            } else {
-                                showExpandedEffortOptions = true
-                            }
-                        } label: {
-                            Image(systemName: "arrow.up.backward.and.arrow.down.forward")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.5))
-                                .padding(6)
-                                .background(Color(white: 0.12))
-                                .cornerRadius(8)
-                        }
-                    }
-
-                    // Right chevron
-                    Button {
-                        if let next = EffortMode(rawValue: mode.rawValue + 1) {
-                            hapticFeedback.impactOccurred()
-                            if let matchIndex = displaySetPlan.firstIndex(where: { $0 == next.effortKey }) {
-                                selectedPlanTileIndex = matchIndex
-                            } else {
-                                selectedPlanTileIndex = nil
-                            }
-                            withAnimation { effortMode = next }
-                        }
-                    } label: {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(mode == .progress ? Color.clear : Color.appAccent)
-                            .frame(width: 24, height: 24)
-                            .contentShape(Rectangle())
-                    }
-                    .disabled(mode == .progress)
-                }
-
-                if setsForSelected.isEmpty {
-                    ProgressOptionsEmptyState(message: "Log your first set below")
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 100)
-                } else if mode == .progress {
+                if mode == .progress {
                     // Progress mode: 4-column layout (unchanged)
                     progressOptionsContent
                 } else {
@@ -2129,7 +2263,7 @@ struct CheckInView: View {
                 } label: {
                     ProgressOptionsEmptyState(message: "Select an Exercise")
                         .frame(maxWidth: .infinity)
-                        .frame(height: 120)
+                        .frame(height: setPlanCollapsed ? 204 : 152)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -2137,12 +2271,12 @@ struct CheckInView: View {
                 // Exercise selected, no effort mode, no sets yet
                 ProgressOptionsEmptyState(message: "Log your first set below")
                     .frame(maxWidth: .infinity)
-                    .frame(height: 120)
+                    .frame(height: setPlanCollapsed ? 204 : 152)
             } else {
                 // Exercise selected, sets exist, no effort mode
                 ProgressOptionsEmptyState(message: "Select an Effort Level")
                     .frame(maxWidth: .infinity)
-                    .frame(height: 120)
+                    .frame(height: setPlanCollapsed ? 204 : 152)
             }
         }
         .padding(.top, 6)
@@ -2278,7 +2412,7 @@ struct CheckInView: View {
                         }
                         .padding(.bottom, 8)
                     }
-                    .frame(height: 120)
+                    .frame(height: setPlanCollapsed ? 172 : 120)
                     .onChange(of: sortColumn) { _, _ in
                         withAnimation {
                             proxy.scrollTo("top", anchor: .top)
@@ -2338,7 +2472,7 @@ struct CheckInView: View {
                         }
                         .padding(.bottom, 8)
                     }
-                    .frame(height: 120)
+                    .frame(height: setPlanCollapsed ? 172 : 120)
                     .onChange(of: effortSortColumn) { _, _ in
                         withAnimation { proxy.scrollTo("effortTop", anchor: .top) }
                     }
@@ -2366,45 +2500,41 @@ struct CheckInView: View {
         VStack(spacing: 8) {
             // Bodyweight row for Bodyweight + Single Load exercises
             if selectedExercises?.exerciseLoadType == .bodySingleLoad {
-                HStack {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Bodyweight")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.6))
-                        if let bw = userProperties.bodyweight {
-                            Text("\(bw.rounded1().formatted(.number.precision(.fractionLength(1)))) lbs")
-                                .font(.subheadline)
-                                .foregroundStyle(.white)
-                        } else {
-                            Button {
-                                showBodyweightCapture = true
-                            } label: {
-                                Text("Set bodyweight")
-                                    .font(.subheadline)
-                                    .foregroundStyle(Color.appAccent)
-                            }
+                HStack(spacing: 6) {
+                    Text("BW")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.5))
+                    if let bw = userProperties.bodyweight {
+                        Text("\(bw.rounded1().formatted(.number.precision(.fractionLength(1)))) lbs")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.7))
+                    } else {
+                        Button {
+                            showBodyweightCapture = true
+                        } label: {
+                            Text("Set")
+                                .font(.caption2)
+                                .foregroundStyle(Color.appAccent)
                         }
                     }
-
                     Spacer()
-
                     Button {
                         weightModifierIsPlus.toggle()
                         hapticFeedback.impactOccurred()
                     } label: {
                         Text(weightModifierIsPlus ? "+" : "−")
-                            .font(.title2.weight(.bold))
+                            .font(.caption.weight(.bold))
                             .foregroundStyle(.black)
-                            .frame(width: 36, height: 28)
+                            .frame(width: 28, height: 20)
                             .background(Color.appAccent)
-                            .cornerRadius(8)
+                            .cornerRadius(5)
                     }
                     .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .padding(.vertical, 4)
                 .background(Color(white: 0.12))
-                .cornerRadius(10)
+                .cornerRadius(8)
             }
 
             HStack(spacing: 8) {
@@ -2934,6 +3064,9 @@ struct CheckInView: View {
         reps = 8
         if setsForSelected.isEmpty {
             weight = 20.0
+        } else if selectedExercises?.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
+            // For BW+SL, default to additional weight (total minus bodyweight)
+            weight = max(0, (current1RM * 0.8).rounded() - bw)
         } else {
             weight = (current1RM * 0.8).rounded()
         }
@@ -2965,7 +3098,11 @@ struct CheckInView: View {
             hasSetReps = true
         }
         if let weightValue = selectedSetData.weight {
-            weight = weightValue
+            if selectedExercises?.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
+                weight = max(0, weightValue - bw)
+            } else {
+                weight = weightValue
+            }
             hasSetInitialValues = true
             hasSetWeight = true
         }
@@ -2974,15 +3111,27 @@ struct CheckInView: View {
 
     private func isOptionSelected(_ suggestion: OneRMCalculator.Suggestion) -> Bool {
         // Check if current Log Set values match this suggestion
-        return weight == suggestion.weight && reps == suggestion.reps
+        let effectiveWeight: Double
+        if selectedExercises?.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
+            effectiveWeight = weight + bw
+        } else {
+            effectiveWeight = weight
+        }
+        return effectiveWeight == suggestion.weight && reps == suggestion.reps
     }
 
     private var logSetMatchesOption: Bool {
         guard hasSelectedOption else { return false }
-        if effortMode == .progress || effortMode == nil {
-            return filteredSuggestions.contains { $0.weight == weight && $0.reps == reps }
+        let effectiveWeight: Double
+        if selectedExercises?.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
+            effectiveWeight = weight + bw
         } else {
-            return effortSuggestions.contains { $0.weight == weight && $0.reps == reps }
+            effectiveWeight = weight
+        }
+        if effortMode == .progress || effortMode == nil {
+            return filteredSuggestions.contains { $0.weight == effectiveWeight && $0.reps == reps }
+        } else {
+            return effortSuggestions.contains { $0.weight == effectiveWeight && $0.reps == reps }
         }
     }
 
@@ -3065,9 +3214,38 @@ struct CheckInView: View {
         }
     }
 
+    private func scheduleRepRangeSync() {
+        repRangeDebounceTask?.cancel()
+        let props = userProperties
+        let min = props.minReps
+        let max = props.maxReps
+        let easyMin = props.easyMinReps
+        let easyMax = props.easyMaxReps
+        let modMin = props.moderateMinReps
+        let modMax = props.moderateMaxReps
+        let hardMin = props.hardMinReps
+        let hardMax = props.hardMaxReps
+        try? modelContext.save()
+        repRangeDebounceTask = Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            await SyncService.shared.updateAllRepRanges(
+                minReps: min, maxReps: max,
+                easyMinReps: easyMin, easyMaxReps: easyMax,
+                moderateMinReps: modMin, moderateMaxReps: modMax,
+                hardMinReps: hardMin, hardMaxReps: hardMax
+            )
+        }
+    }
+
     private func selectOption(_ suggestion: OneRMCalculator.Suggestion) {
         reps = suggestion.reps
-        weight = suggestion.weight
+        // For BW+SL, suggestion.weight is total — convert to additional weight
+        if selectedExercises?.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
+            weight = max(0, suggestion.weight - bw)
+        } else {
+            weight = suggestion.weight
+        }
         hasSetInitialValues = true
         hasSetWeight = true
         hasSetReps = true
@@ -3076,7 +3254,12 @@ struct CheckInView: View {
 
     private func selectEffortOption(_ suggestion: OneRMCalculator.EffortSuggestion) {
         reps = suggestion.reps
-        weight = suggestion.weight
+        // For BW+SL, suggestion.weight is total — convert to additional weight
+        if selectedExercises?.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
+            weight = max(0, suggestion.weight - bw)
+        } else {
+            weight = suggestion.weight
+        }
         hasSetInitialValues = true
         hasSetWeight = true
         hasSetReps = true
@@ -3084,7 +3267,13 @@ struct CheckInView: View {
     }
 
     private func isEffortOptionSelected(_ suggestion: OneRMCalculator.EffortSuggestion) -> Bool {
-        return weight == suggestion.weight && reps == suggestion.reps
+        let effectiveWeight: Double
+        if selectedExercises?.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
+            effectiveWeight = weight + bw
+        } else {
+            effectiveWeight = weight
+        }
+        return effectiveWeight == suggestion.weight && reps == suggestion.reps
     }
 
     private func formatShortDate(_ date: Date) -> String {
@@ -3139,6 +3328,11 @@ struct CheckInView: View {
         // Refresh local data after logging
         fetchDataForExercise(ex.id)
         refreshTodaySetCounts()
+
+        // Auto-expand set plan after first set
+        if setPlanCollapsed {
+            setPlanCollapsed = false
+        }
 
         overlayDidIncrease = increased
         overlayDelta = d
@@ -4446,6 +4640,9 @@ struct ExpandedProgressOptionsSheet: View {
     let availableWeightDeltas: [Double]
     let minWeightDelta: Double
     let maxWeightDelta: Double
+    @Binding var minReps: Int
+    @Binding var maxReps: Int
+    let onRepRangeChanged: () -> Void
     let onSelect: (OneRMCalculator.Suggestion) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -4534,6 +4731,32 @@ struct ExpandedProgressOptionsSheet: View {
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.4))
                 }
+
+                // Rep range slider
+                HStack {
+                    Text("e1RM ↑")
+                        .foregroundStyle(Color.setPR)
+                        .font(.caption)
+                    Spacer()
+                    Text("\(minReps)–\(maxReps) reps")
+                        .foregroundStyle(.white.opacity(0.5))
+                        .font(.caption)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 6)
+                RangeSliderView(
+                    minValue: Binding(
+                        get: { Double(minReps) },
+                        set: { minReps = Int($0); onRepRangeChanged() }
+                    ),
+                    maxValue: Binding(
+                        get: { Double(maxReps) },
+                        set: { maxReps = Int($0); onRepRangeChanged() }
+                    ),
+                    bounds: 1...12,
+                    minSpan: Double(UserProperties.minRepRangeSpan)
+                )
+                .padding(.horizontal, 16)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
@@ -4667,6 +4890,9 @@ struct ExpandedProgressOptionsSheet: View {
 struct ExpandedEffortOptionsSheet: View {
     let effortMode: CheckInView.EffortMode
     let suggestions: [OneRMCalculator.EffortSuggestion]
+    @Binding var repRangeMin: Int
+    @Binding var repRangeMax: Int
+    let onRepRangeChanged: () -> Void
     let onSelect: (OneRMCalculator.EffortSuggestion) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -4707,6 +4933,32 @@ struct ExpandedEffortOptionsSheet: View {
                 Text(effortMode.subtitle)
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.7))
+
+                // Rep range slider
+                HStack {
+                    Text(effortMode.title)
+                        .foregroundStyle(effortMode.tileColor)
+                        .font(.caption)
+                    Spacer()
+                    Text("\(repRangeMin)–\(repRangeMax) reps")
+                        .foregroundStyle(.white.opacity(0.5))
+                        .font(.caption)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 6)
+                RangeSliderView(
+                    minValue: Binding(
+                        get: { Double(repRangeMin) },
+                        set: { repRangeMin = Int($0); onRepRangeChanged() }
+                    ),
+                    maxValue: Binding(
+                        get: { Double(repRangeMax) },
+                        set: { repRangeMax = Int($0); onRepRangeChanged() }
+                    ),
+                    bounds: 1...12,
+                    minSpan: Double(UserProperties.minRepRangeSpan)
+                )
+                .padding(.horizontal, 16)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)

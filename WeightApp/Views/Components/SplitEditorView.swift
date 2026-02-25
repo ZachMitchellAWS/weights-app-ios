@@ -47,8 +47,13 @@ struct SplitEditorView: View {
                                 NavigationLink(value: split.id) {
                                     HStack {
                                         Button {
-                                            activeId = split.id
-                                            WorkoutSequenceStore.setActiveSplitId(split.id)
+                                            if activeId == split.id {
+                                                activeId = nil
+                                                WorkoutSequenceStore.setActiveSplitId(nil)
+                                            } else {
+                                                activeId = split.id
+                                                WorkoutSequenceStore.setActiveSplitId(split.id)
+                                            }
                                         } label: {
                                             Image(systemName: activeId == split.id ? "checkmark.circle.fill" : "circle")
                                                 .font(.system(size: 20))
@@ -137,7 +142,7 @@ struct SplitEditorView: View {
             }
         }
         .onAppear {
-            activeId = WorkoutSequenceStore.activeSplitId() ?? splits.first?.id
+            activeId = WorkoutSequenceStore.activeSplitId()
         }
     }
 
@@ -148,7 +153,7 @@ struct SplitEditorView: View {
             try? modelContext.save()
             Task { await SyncService.shared.deleteSplit(split.id) }
         }
-        activeId = WorkoutSequenceStore.activeSplitId() ?? splits.first?.id
+        activeId = WorkoutSequenceStore.activeSplitId()
     }
 }
 

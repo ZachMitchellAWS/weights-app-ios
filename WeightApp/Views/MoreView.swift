@@ -60,7 +60,6 @@ struct MoreView: View {
 
     @State private var tempBodyweight: Double = 150
     @State private var repRangeDebounceTask: Task<Void, Never>?
-    @State private var effortRepRangeDebounceTask: Task<Void, Never>?
 
     private var userProperties: UserProperties {
         if let props = userPropertiesItems.first { return props }
@@ -466,35 +465,7 @@ struct MoreView: View {
                                 }
                             }
 
-                            // Rep Range
-                            VStack(alignment: .leading, spacing: 10) {
-                                HStack {
-                                    Text("Rep Range")
-                                        .foregroundStyle(.white.opacity(0.7))
-                                        .font(.subheadline)
-                                        .padding(.leading, 40)
-                                    Spacer()
-                                    Text("\(userProperties.minReps)–\(userProperties.maxReps) reps")
-                                        .foregroundStyle(.white.opacity(0.5))
-                                        .font(.subheadline)
-                                }
-
-                                RangeSliderView(
-                                    minValue: Binding(
-                                        get: { Double(userProperties.minReps) },
-                                        set: { userProperties.minReps = Int($0); try? modelContext.save(); scheduleRepRangeSync() }
-                                    ),
-                                    maxValue: Binding(
-                                        get: { Double(userProperties.maxReps) },
-                                        set: { userProperties.maxReps = Int($0); try? modelContext.save(); scheduleRepRangeSync() }
-                                    ),
-                                    bounds: 1...12,
-                                    minSpan: Double(UserProperties.minRepRangeSpan)
-                                )
-                                .padding(.horizontal, 40)
-                            }
-
-                            effortRepRangesSection
+                            repRangesSection
                         }
                         .padding(.vertical, 4)
                     }
@@ -1115,27 +1086,19 @@ struct MoreView: View {
 
     private func scheduleRepRangeSync() {
         repRangeDebounceTask?.cancel()
-        let minReps = userProperties.minReps
-        let maxReps = userProperties.maxReps
-        repRangeDebounceTask = Task {
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            guard !Task.isCancelled else { return }
-            await SyncService.shared.updateRepRange(minReps: minReps, maxReps: maxReps)
-        }
-    }
-
-    private func scheduleEffortRepRangeSync() {
-        effortRepRangeDebounceTask?.cancel()
+        let min = userProperties.minReps
+        let max = userProperties.maxReps
         let easyMin = userProperties.easyMinReps
         let easyMax = userProperties.easyMaxReps
         let modMin = userProperties.moderateMinReps
         let modMax = userProperties.moderateMaxReps
         let hardMin = userProperties.hardMinReps
         let hardMax = userProperties.hardMaxReps
-        effortRepRangeDebounceTask = Task {
+        repRangeDebounceTask = Task {
             try? await Task.sleep(nanoseconds: 500_000_000)
             guard !Task.isCancelled else { return }
-            await SyncService.shared.updateEffortRepRange(
+            await SyncService.shared.updateAllRepRanges(
+                minReps: min, maxReps: max,
                 easyMinReps: easyMin, easyMaxReps: easyMax,
                 moderateMinReps: modMin, moderateMaxReps: modMax,
                 hardMinReps: hardMin, hardMaxReps: hardMax
@@ -1143,9 +1106,9 @@ struct MoreView: View {
         }
     }
 
-    private var effortRepRangesSection: some View {
+    private var repRangesSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Effort Rep Ranges")
+            Text("Rep Ranges")
                 .foregroundStyle(.white.opacity(0.7))
                 .font(.subheadline)
                 .padding(.leading, 40)
@@ -1164,11 +1127,11 @@ struct MoreView: View {
             RangeSliderView(
                 minValue: Binding(
                     get: { Double(userProperties.easyMinReps) },
-                    set: { userProperties.easyMinReps = Int($0); try? modelContext.save(); scheduleEffortRepRangeSync() }
+                    set: { userProperties.easyMinReps = Int($0); try? modelContext.save(); scheduleRepRangeSync() }
                 ),
                 maxValue: Binding(
                     get: { Double(userProperties.easyMaxReps) },
-                    set: { userProperties.easyMaxReps = Int($0); try? modelContext.save(); scheduleEffortRepRangeSync() }
+                    set: { userProperties.easyMaxReps = Int($0); try? modelContext.save(); scheduleRepRangeSync() }
                 ),
                 bounds: 1...12,
                 minSpan: Double(UserProperties.minRepRangeSpan)
@@ -1189,11 +1152,11 @@ struct MoreView: View {
             RangeSliderView(
                 minValue: Binding(
                     get: { Double(userProperties.moderateMinReps) },
-                    set: { userProperties.moderateMinReps = Int($0); try? modelContext.save(); scheduleEffortRepRangeSync() }
+                    set: { userProperties.moderateMinReps = Int($0); try? modelContext.save(); scheduleRepRangeSync() }
                 ),
                 maxValue: Binding(
                     get: { Double(userProperties.moderateMaxReps) },
-                    set: { userProperties.moderateMaxReps = Int($0); try? modelContext.save(); scheduleEffortRepRangeSync() }
+                    set: { userProperties.moderateMaxReps = Int($0); try? modelContext.save(); scheduleRepRangeSync() }
                 ),
                 bounds: 1...12,
                 minSpan: Double(UserProperties.minRepRangeSpan)
@@ -1214,11 +1177,36 @@ struct MoreView: View {
             RangeSliderView(
                 minValue: Binding(
                     get: { Double(userProperties.hardMinReps) },
-                    set: { userProperties.hardMinReps = Int($0); try? modelContext.save(); scheduleEffortRepRangeSync() }
+                    set: { userProperties.hardMinReps = Int($0); try? modelContext.save(); scheduleRepRangeSync() }
                 ),
                 maxValue: Binding(
                     get: { Double(userProperties.hardMaxReps) },
-                    set: { userProperties.hardMaxReps = Int($0); try? modelContext.save(); scheduleEffortRepRangeSync() }
+                    set: { userProperties.hardMaxReps = Int($0); try? modelContext.save(); scheduleRepRangeSync() }
+                ),
+                bounds: 1...12,
+                minSpan: Double(UserProperties.minRepRangeSpan)
+            )
+            .padding(.horizontal, 40)
+
+            // e1RM ↑ (Progress)
+            HStack {
+                Text("e1RM ↑")
+                    .foregroundStyle(Color.setPR)
+                    .font(.caption)
+                    .padding(.leading, 40)
+                Spacer()
+                Text("\(userProperties.minReps)–\(userProperties.maxReps) reps")
+                    .foregroundStyle(.white.opacity(0.5))
+                    .font(.caption)
+            }
+            RangeSliderView(
+                minValue: Binding(
+                    get: { Double(userProperties.minReps) },
+                    set: { userProperties.minReps = Int($0); try? modelContext.save(); scheduleRepRangeSync() }
+                ),
+                maxValue: Binding(
+                    get: { Double(userProperties.maxReps) },
+                    set: { userProperties.maxReps = Int($0); try? modelContext.save(); scheduleRepRangeSync() }
                 ),
                 bounds: 1...12,
                 minSpan: Double(UserProperties.minRepRangeSpan)

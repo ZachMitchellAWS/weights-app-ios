@@ -266,20 +266,11 @@ class SyncService: ObservableObject {
         }
     }
 
-    func updateRepRange(minReps: Int, maxReps: Int) async {
-        do {
-            let request = UserPropertiesRequest(minReps: minReps, maxReps: maxReps)
-            _ = try await APIService.shared.updateUserProperties(request)
-            retryQueue.removePendingUserPropertiesSync()
-        } catch {
-            SyncLogger.sync.error("Failed to update rep range: \(error.localizedDescription)")
-            retryQueue.addPendingUserPropertiesSync()
-        }
-    }
-
-    func updateEffortRepRange(easyMinReps: Int, easyMaxReps: Int, moderateMinReps: Int, moderateMaxReps: Int, hardMinReps: Int, hardMaxReps: Int) async {
+    func updateAllRepRanges(minReps: Int, maxReps: Int, easyMinReps: Int, easyMaxReps: Int, moderateMinReps: Int, moderateMaxReps: Int, hardMinReps: Int, hardMaxReps: Int) async {
         do {
             let request = UserPropertiesRequest(
+                minReps: minReps,
+                maxReps: maxReps,
                 easyMinReps: easyMinReps,
                 easyMaxReps: easyMaxReps,
                 moderateMinReps: moderateMinReps,
@@ -290,7 +281,7 @@ class SyncService: ObservableObject {
             _ = try await APIService.shared.updateUserProperties(request)
             retryQueue.removePendingUserPropertiesSync()
         } catch {
-            SyncLogger.sync.error("Failed to update effort rep ranges: \(error.localizedDescription)")
+            SyncLogger.sync.error("Failed to update rep ranges: \(error.localizedDescription)")
             retryQueue.addPendingUserPropertiesSync()
         }
     }
@@ -1093,6 +1084,7 @@ class SyncService: ObservableObject {
 
             let existingSplits = (try? context.fetch(FetchDescriptor<WorkoutSplit>())) ?? []
             let existingById = Dictionary(uniqueKeysWithValues: existingSplits.map { ($0.id, $0) })
+            let existingByName = Dictionary(existingSplits.filter { !$0.deleted }.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
 
             for dto in sendableDtos {
                 if dto.deleted == true {
@@ -1106,6 +1098,11 @@ class SyncService: ObservableObject {
                     existing.name = dto.name
                     existing.dayIds = dto.dayIds
                     existing.deleted = dto.deleted ?? false
+                } else if let localDup = existingByName[dto.name] {
+                    // A local split with the same name exists (different ID) — adopt the backend's data
+                    localDup.name = dto.name
+                    localDup.dayIds = dto.dayIds
+                    localDup.deleted = dto.deleted ?? false
                 } else {
                     let split = WorkoutSplit(
                         id: dto.splitId,
@@ -1292,14 +1289,15 @@ class SyncService: ObservableObject {
 
     private func getDefaultExercises() -> [(String, ExerciseLoadType, ExerciseMovementType)] {
         return [
-            ("Deadlift", .barbell, .hinge),
-            ("Squat", .barbell, .squat),
+            ("Deadlifts", .barbell, .hinge),
+            ("Squats", .barbell, .squat),
             ("Bench Press", .barbell, .push),
             ("Overhead Press", .barbell, .push),
             ("Barbell Row", .barbell, .pull),
             ("Pull Ups", .bodySingleLoad, .pull),
             ("Dips", .bodySingleLoad, .push),
-            ("Barbell Curls", .barbell, .pull)
+            ("Barbell Curls", .barbell, .pull),
+            ("Romanian Deadlifts", .barbell, .hinge)
         ]
     }
 
