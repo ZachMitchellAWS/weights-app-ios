@@ -19,7 +19,6 @@ struct LiftSetDTO: Codable {
     let lastModifiedDatetime: Date?
     let isBaselineSet: Bool?
     let rir: Int?
-    let bodyweightUsed: Double?
 
     init(from liftSet: LiftSets) {
         self.liftSetId = liftSet.id
@@ -31,10 +30,9 @@ struct LiftSetDTO: Codable {
         self.lastModifiedDatetime = nil
         self.isBaselineSet = liftSet.isBaselineSet ? true : nil
         self.rir = liftSet.rir
-        self.bodyweightUsed = liftSet.bodyweightUsed
     }
 
-    init(liftSetId: UUID, exerciseId: UUID, reps: Int, weight: Double, createdTimezone: String, createdDatetime: Date, lastModifiedDatetime: Date? = nil, isBaselineSet: Bool? = nil, rir: Int? = nil, bodyweightUsed: Double? = nil) {
+    init(liftSetId: UUID, exerciseId: UUID, reps: Int, weight: Double, createdTimezone: String, createdDatetime: Date, lastModifiedDatetime: Date? = nil, isBaselineSet: Bool? = nil, rir: Int? = nil) {
         self.liftSetId = liftSetId
         self.exerciseId = exerciseId
         self.reps = reps
@@ -44,7 +42,6 @@ struct LiftSetDTO: Codable {
         self.lastModifiedDatetime = lastModifiedDatetime
         self.isBaselineSet = isBaselineSet
         self.rir = rir
-        self.bodyweightUsed = bodyweightUsed
     }
 }
 

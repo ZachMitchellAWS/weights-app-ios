@@ -20,7 +20,6 @@ final class LiftSets {
     var deleted: Bool
     var isBaselineSet: Bool = false
     var rir: Int?  // Reps In Reserve (0-5), only set for baseline sets
-    var bodyweightUsed: Double?  // Bodyweight at time of logging (for Bodyweight + Single Load)
     @Relationship var exercise: Exercises?
 
     init(exercise: Exercises, reps: Int, weight: Double) {

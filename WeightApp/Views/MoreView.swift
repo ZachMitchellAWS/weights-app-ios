@@ -1368,7 +1368,6 @@ struct MoreView: View {
                 guard let exercise = exercises.first(where: { $0.name == exerciseName }) else { continue }
 
                 // Starting 1RM for this exercise (if not already tracked)
-                // For BW+SL exercises, 1RM is total weight (bodyweight + additional)
                 let bw = userProperties.bodyweight ?? 185.0
                 if exerciseMaxes[exerciseName] == nil {
                     exerciseMaxes[exerciseName] = {
@@ -1413,9 +1412,6 @@ struct MoreView: View {
                     let calculatedWeight = roundToAttainable(target1RM * (37.0 - Double(reps)) / 36.0)
 
                     let set = LiftSets(exercise: exercise, reps: reps, weight: calculatedWeight)
-                    if exercise.exerciseLoadType == .bodySingleLoad {
-                        set.bodyweightUsed = bw
-                    }
                     set.createdAt = currentTime
                     set.createdTimezone = TimeZone.current.identifier
                     modelContext.insert(set)
@@ -1482,7 +1478,6 @@ struct MoreView: View {
         }
 
         // Starting 1RM estimates for each exercise
-        // For BW+SL exercises, 1RM is total weight (bodyweight + additional)
         let bw = userProperties.bodyweight ?? 185.0
         func getBase1RM(for exerciseName: String) -> Double {
             switch exerciseName {
@@ -1533,9 +1528,6 @@ struct MoreView: View {
                 let calculatedWeight = roundToAttainable(target1RM * (37.0 - Double(reps)) / 36.0)
 
                 let set = LiftSets(exercise: exercise, reps: reps, weight: calculatedWeight)
-                if exercise.exerciseLoadType == .bodySingleLoad {
-                    set.bodyweightUsed = bw
-                }
                 set.createdAt = currentTime
                 set.createdTimezone = TimeZone.current.identifier
                 modelContext.insert(set)

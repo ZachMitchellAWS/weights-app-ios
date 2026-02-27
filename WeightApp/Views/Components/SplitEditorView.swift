@@ -12,22 +12,62 @@ struct SplitEditorView: View {
     @Query(filter: #Predicate<WorkoutSequence> { !$0.deleted })
     private var allSequences: [WorkoutSequence]
 
+    @Query(filter: #Predicate<SetPlanTemplate> { !$0.deleted })
+    private var allTemplates: [SetPlanTemplate]
+
     @State private var activeId: UUID?
     @State private var showNewSplitAlert = false
     @State private var newSplitName = ""
 
+    private func dayNames(for split: WorkoutSplit) -> String {
+        let seqMap = Dictionary(uniqueKeysWithValues: allSequences.map { ($0.id, $0) })
+        let names = split.dayIds.compactMap { seqMap[$0]?.name }
+        return names.joined(separator: ", ")
+    }
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                ZStack {
-                    LinearGradient(
-                        colors: [Color(white: 0.14), Color(white: 0.10)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .ignoresSafeArea()
+            ZStack {
+                LinearGradient(
+                    colors: [Color(white: 0.14), Color(white: 0.10)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    // Header
+                    HStack {
+                        Text("Split Catalog")
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(.white)
+
+                        Spacer()
+
+                        Button {
+                            newSplitName = ""
+                            showNewSplitAlert = true
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 14, weight: .bold))
+                                Text("New")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                            .foregroundStyle(Color.appAccent)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Color.appAccent.opacity(0.15))
+                            .cornerRadius(20)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, 16)
 
                     if splits.isEmpty {
+                        Spacer()
                         VStack(spacing: 16) {
                             Image(systemName: "square.grid.2x2")
                                 .font(.system(size: 40))
@@ -41,65 +81,36 @@ struct SplitEditorView: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Color.appAccent)
                         }
+                        Spacer()
                     } else {
-                        List {
-                            ForEach(splits) { split in
-                                NavigationLink(value: split.id) {
-                                    HStack {
-                                        Button {
-                                            if activeId == split.id {
-                                                activeId = nil
-                                                WorkoutSequenceStore.setActiveSplitId(nil)
-                                            } else {
-                                                activeId = split.id
-                                                WorkoutSequenceStore.setActiveSplitId(split.id)
-                                            }
-                                        } label: {
-                                            Image(systemName: activeId == split.id ? "checkmark.circle.fill" : "circle")
-                                                .font(.system(size: 20))
-                                                .foregroundStyle(activeId == split.id ? Color.appAccent : .white.opacity(0.3))
-                                        }
-                                        .buttonStyle(.plain)
-
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(split.name)
-                                                .font(.subheadline.weight(.medium))
-                                                .foregroundStyle(.white)
-                                            Text("\(split.dayIds.count) days")
-                                                .font(.caption)
-                                                .foregroundStyle(.white.opacity(0.5))
-                                        }
-
-                                        Spacer()
-                                    }
+                        ScrollView {
+                            VStack(spacing: 12) {
+                                ForEach(splits) { split in
+                                    splitCard(for: split)
                                 }
-                                .listRowBackground(Color(white: 0.12))
-                                .listRowSeparatorTint(.white.opacity(0.08))
                             }
-                            .onDelete(perform: deleteSplits)
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 20)
                         }
-                        .listStyle(.plain)
-                        .scrollContentBackground(.hidden)
                     }
-                }
 
-                // Bottom Done button
-                Button { dismiss() } label: {
-                    Text("Done")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Color.appAccent)
-                        .cornerRadius(10)
+                    // Bottom Done button
+                    Button { dismiss() } label: {
+                        Text("Done")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color.appAccent)
+                            .cornerRadius(10)
+                    }
+                    .padding(.horizontal, 40)
+                    .padding(.top, 24)
+                    .padding(.bottom, 16)
+                    .background(Color(white: 0.10))
                 }
-                .padding(.horizontal, 40)
-                .padding(.top, 24)
-                .padding(.bottom, 16)
-                .background(Color(white: 0.10))
             }
-            .navigationTitle("Splits")
-            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: UUID.self) { splitId in
                 if let split = splits.first(where: { $0.id == splitId }) {
                     SplitDetailView(
@@ -108,19 +119,6 @@ struct SplitEditorView: View {
                     )
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        newSplitName = ""
-                        showNewSplitAlert = true
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(Color.appAccent)
-                    }
-                }
-            }
-            .toolbarColorScheme(.dark, for: .navigationBar)
             .alert("New Split", isPresented: $showNewSplitAlert) {
                 TextField("Name", text: $newSplitName)
                 Button("Cancel", role: .cancel) { }
@@ -146,15 +144,85 @@ struct SplitEditorView: View {
         }
     }
 
-    private func deleteSplits(at offsets: IndexSet) {
-        for index in offsets {
-            let split = splits[index]
-            split.deleted = true
-            try? modelContext.save()
-            Task { await SyncService.shared.deleteSplit(split.id) }
+    @ViewBuilder
+    private func splitCard(for split: WorkoutSplit) -> some View {
+        let isActive = activeId == split.id
+        let names = dayNames(for: split)
+        let templateName = split.setPlanTemplateId.flatMap { tid in allTemplates.first(where: { $0.id == tid })?.name }
+        let templateSuffix = templateName.map { " · \($0)" } ?? ""
+        let subtitle = "\(split.dayIds.count) days" + (names.isEmpty ? "" : " · \(names)") + templateSuffix
+
+        HStack(spacing: 14) {
+            // Checkmark toggle
+            Button {
+                if activeId == split.id {
+                    activeId = nil
+                    WorkoutSequenceStore.setActiveSplitId(nil)
+                } else {
+                    activeId = split.id
+                    WorkoutSequenceStore.setActiveSplitId(split.id)
+                }
+            } label: {
+                Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 22))
+                    .foregroundStyle(isActive ? Color.appAccent : .white.opacity(0.3))
+            }
+            .buttonStyle(.plain)
+
+            // Card body — navigates to detail
+            NavigationLink(value: split.id) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(split.name)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.5))
+                            .lineLimit(1)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.3))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
+        .padding(16)
+        .background(
+            LinearGradient(
+                colors: [Color(white: 0.18), Color(white: 0.14)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+        .cornerRadius(16)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(isActive ? Color.appAccent : Color.white.opacity(0.2), lineWidth: isActive ? 2 : 1)
+        )
+        .contextMenu {
+            Button(role: .destructive) {
+                withAnimation {
+                    deleteSplit(split)
+                }
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+
+    private func deleteSplit(_ split: WorkoutSplit) {
+        split.deleted = true
+        try? modelContext.save()
+        Task { await SyncService.shared.deleteSplit(split.id) }
         activeId = WorkoutSequenceStore.activeSplitId()
     }
+
 }
 
 // MARK: - Split Detail View
@@ -166,6 +234,9 @@ struct SplitDetailView: View {
 
     @Query(filter: #Predicate<WorkoutSequence> { !$0.deleted })
     private var allSequences: [WorkoutSequence]
+
+    @Query(filter: #Predicate<SetPlanTemplate> { !$0.deleted })
+    private var allTemplates: [SetPlanTemplate]
 
     @State private var showAddDay = false
     @State private var showNewDayAlert = false
@@ -195,7 +266,92 @@ struct SplitDetailView: View {
             )
             .ignoresSafeArea()
 
+            VStack(spacing: 0) {
+                // MARK: — Set Plan Section
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 0) {
+                        Text("SET PLAN")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.white.opacity(0.35))
+                            .kerning(1)
+                        Text(" — Overrides exercise plans when active")
+                            .font(.caption2.italic())
+                            .foregroundStyle(.white.opacity(0.2))
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+
+                    HStack(spacing: 12) {
+                        Image(systemName: "list.bullet.rectangle")
+                            .font(.system(size: 16))
+                            .foregroundStyle(Color.appAccent)
+
+                        Menu {
+                            Button {
+                                split.setPlanTemplateId = nil
+                                saveAndSync()
+                            } label: {
+                                HStack {
+                                    Text("Use Exercise Defaults")
+                                    if split.setPlanTemplateId == nil {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+
+                            Divider()
+
+                            ForEach(allTemplates.sorted(by: { $0.isBuiltIn && !$1.isBuiltIn })) { template in
+                                Button {
+                                    split.setPlanTemplateId = template.id
+                                    saveAndSync()
+                                } label: {
+                                    HStack {
+                                        Text(template.name)
+                                        if split.setPlanTemplateId == template.id {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                let overrideName = split.setPlanTemplateId.flatMap { tid in allTemplates.first(where: { $0.id == tid })?.name } ?? "Exercise Defaults"
+                                Text(overrideName)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.white)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.white.opacity(0.4))
+                            }
+                        }
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
+                }
+                .background(Color(white: 0.12))
+
+                // Section divider
+                Rectangle()
+                    .fill(Color.white.opacity(0.06))
+                    .frame(height: 1)
+
+                // MARK: — Days Section
+                HStack {
+                    Text("DAYS")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.white.opacity(0.35))
+                        .kerning(1)
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 14)
+                .padding(.bottom, 6)
+
             if orderedDays.isEmpty {
+                Spacer()
                 VStack(spacing: 16) {
                     Image(systemName: "calendar")
                         .font(.system(size: 40))
@@ -209,6 +365,7 @@ struct SplitDetailView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Color.appAccent)
                 }
+                Spacer()
             } else {
                 List {
                     if editMode?.wrappedValue.isEditing == true {
@@ -257,9 +414,11 @@ struct SplitDetailView: View {
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
             }
+            } // VStack
         }
         .navigationTitle(split.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 12) {

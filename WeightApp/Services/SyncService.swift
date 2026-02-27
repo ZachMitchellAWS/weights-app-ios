@@ -34,6 +34,7 @@ class SyncService: ObservableObject {
         var exercisesComplete: Bool = false
         var sequencesComplete: Bool = false
         var splitsComplete: Bool = false
+        var templatesComplete: Bool = false
         var liftSetsComplete: Bool = false
         var estimated1RMsComplete: Bool = false
 
@@ -154,6 +155,17 @@ class SyncService: ObservableObject {
             syncState = state
         } else {
             SyncLogger.sync.debug("Step 2.6: Splits already synced, skipping")
+        }
+
+        // Step 2.7: Sync set plan templates
+        if !state.templatesComplete {
+            SyncLogger.sync.info("Step 2.7: Syncing set plan templates")
+            await syncSetPlanTemplatesFromBackend()
+            await processTemplateRetryQueue()
+            state.templatesComplete = true
+            syncState = state
+        } else {
+            SyncLogger.sync.debug("Step 2.7: Templates already synced, skipping")
         }
 
         // Step 3: Sync lift sets and estimated 1RMs (interleaved, resumable)
@@ -420,7 +432,6 @@ class SyncService: ObservableObject {
                                 existing.createdAt = dto.createdDatetime
                                 existing.isBaselineSet = dto.isBaselineSet ?? false
                                 existing.rir = dto.rir
-                                existing.bodyweightUsed = dto.bodyweightUsed
                             } else if let exercise = exerciseById[dto.exerciseId] {
                                 let liftSet = LiftSets(exercise: exercise, reps: dto.reps, weight: dto.weight)
                                 liftSet.id = dto.liftSetId
@@ -428,7 +439,6 @@ class SyncService: ObservableObject {
                                 liftSet.createdAt = dto.createdDatetime
                                 liftSet.isBaselineSet = dto.isBaselineSet ?? false
                                 liftSet.rir = dto.rir
-                                liftSet.bodyweightUsed = dto.bodyweightUsed
                                 context.insert(liftSet)
                                 liftSetById[dto.liftSetId] = liftSet
                             }
@@ -663,7 +673,6 @@ class SyncService: ObservableObject {
                     existing.createdAt = dto.createdDatetime
                     existing.isBaselineSet = dto.isBaselineSet ?? false
                     existing.rir = dto.rir
-                    existing.bodyweightUsed = dto.bodyweightUsed
                 } else {
                     let descriptor = FetchDescriptor<Exercises>(predicate: #Predicate { $0.id == dto.exerciseId })
                     if let exercise = try? context.fetch(descriptor).first {
@@ -673,7 +682,6 @@ class SyncService: ObservableObject {
                         liftSet.createdAt = dto.createdDatetime
                         liftSet.isBaselineSet = dto.isBaselineSet ?? false
                         liftSet.rir = dto.rir
-                        liftSet.bodyweightUsed = dto.bodyweightUsed
                         context.insert(liftSet)
                     } else {
                         SyncLogger.sync.debug("Skipping lift set \(dto.liftSetId) — exercise \(dto.exerciseId) not found")
@@ -1098,11 +1106,13 @@ class SyncService: ObservableObject {
                     existing.name = dto.name
                     existing.dayIds = dto.dayIds
                     existing.deleted = dto.deleted ?? false
+                    existing.setPlanTemplateId = dto.setPlanTemplateId
                 } else if let localDup = existingByName[dto.name] {
                     // A local split with the same name exists (different ID) — adopt the backend's data
                     localDup.name = dto.name
                     localDup.dayIds = dto.dayIds
                     localDup.deleted = dto.deleted ?? false
+                    localDup.setPlanTemplateId = dto.setPlanTemplateId
                 } else {
                     let split = WorkoutSplit(
                         id: dto.splitId,
@@ -1110,7 +1120,8 @@ class SyncService: ObservableObject {
                         dayIds: dto.dayIds,
                         createdAt: dto.createdDatetime ?? Date(),
                         createdTimezone: dto.createdTimezone,
-                        deleted: dto.deleted ?? false
+                        deleted: dto.deleted ?? false,
+                        setPlanTemplateId: dto.setPlanTemplateId
                     )
                     context.insert(split)
                 }
@@ -1127,6 +1138,145 @@ class SyncService: ObservableObject {
 
     private func fetchAllSplits(context: ModelContext) -> [WorkoutSplit] {
         let descriptor = FetchDescriptor<WorkoutSplit>()
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    // MARK: - Set Plan Template Sync
+
+    func syncSetPlanTemplatesFromBackend() async {
+        guard let context = modelContext else { return }
+
+        do {
+            let response = try await APIService.shared.getSetPlanTemplates()
+            await importSetPlanTemplatesFromBackend(response.templates)
+
+            // Push any local-only templates (including built-ins) to backend
+            let allLocal = fetchAllTemplates(context: context)
+            let backendIds = Set(response.templates.map { $0.templateId })
+            let localOnly = allLocal.filter { !$0.deleted && !backendIds.contains($0.id) }
+
+            if !localOnly.isEmpty {
+                let dtos = localOnly.map { $0.toDTO() }
+                do {
+                    _ = try await APIService.shared.upsertSetPlanTemplates(dtos)
+                } catch {
+                    SyncLogger.sync.error("Failed to push local templates: \(error.localizedDescription)")
+                    for template in localOnly {
+                        retryQueue.addPendingTemplateUpsert(templateId: template.id)
+                    }
+                }
+            }
+
+            SyncLogger.sync.info("Completed template sync, fetched \(response.templates.count) from backend")
+        } catch {
+            SyncLogger.sync.error("Failed to sync templates: \(error.localizedDescription)")
+        }
+    }
+
+    func syncSetPlanTemplate(_ template: SetPlanTemplate) async {
+        let dto = template.toDTO()
+
+        do {
+            _ = try await APIService.shared.upsertSetPlanTemplates([dto])
+            retryQueue.removePendingTemplateOperation(templateId: template.id)
+            SyncLogger.sync.debug("Synced template \(template.id)")
+        } catch {
+            SyncLogger.sync.error("Failed to sync template \(template.id): \(error.localizedDescription)")
+            retryQueue.addPendingTemplateUpsert(templateId: template.id)
+        }
+    }
+
+    func deleteSetPlanTemplate(_ templateId: UUID) async {
+        do {
+            _ = try await APIService.shared.deleteSetPlanTemplates([templateId])
+            retryQueue.removePendingTemplateOperation(templateId: templateId)
+            SyncLogger.sync.debug("Deleted template \(templateId)")
+        } catch {
+            SyncLogger.sync.error("Failed to delete template \(templateId): \(error.localizedDescription)")
+            retryQueue.addPendingTemplateDelete(templateId: templateId)
+        }
+    }
+
+    func processTemplateRetryQueue() async {
+        guard let context = modelContext else { return }
+
+        let pendingOperations = retryQueue.getPendingTemplateOperations()
+
+        for operation in pendingOperations {
+            switch operation.operationType {
+            case .upsert:
+                if let template = fetchTemplate(by: operation.templateId, context: context) {
+                    do {
+                        _ = try await APIService.shared.upsertSetPlanTemplates([template.toDTO()])
+                        retryQueue.removePendingTemplateOperation(templateId: operation.templateId)
+                    } catch {
+                        retryQueue.incrementTemplateRetryCount(for: operation.templateId)
+                    }
+                } else {
+                    retryQueue.removePendingTemplateOperation(templateId: operation.templateId)
+                }
+
+            case .delete:
+                do {
+                    _ = try await APIService.shared.deleteSetPlanTemplates([operation.templateId])
+                    retryQueue.removePendingTemplateOperation(templateId: operation.templateId)
+                } catch {
+                    retryQueue.incrementTemplateRetryCount(for: operation.templateId)
+                }
+            }
+        }
+    }
+
+    private func importSetPlanTemplatesFromBackend(_ dtos: [SetPlanTemplateDTO]) async {
+        guard let container = modelContainer else { return }
+        let sendableDtos = dtos
+        await Task.detached {
+            let context = ModelContext(container)
+            context.autosaveEnabled = false
+
+            let existingTemplates = (try? context.fetch(FetchDescriptor<SetPlanTemplate>())) ?? []
+            let existingById = Dictionary(uniqueKeysWithValues: existingTemplates.map { ($0.id, $0) })
+
+            for dto in sendableDtos {
+                if dto.deleted == true {
+                    if let existing = existingById[dto.templateId] {
+                        existing.deleted = true
+                    }
+                    continue
+                }
+
+                if let existing = existingById[dto.templateId] {
+                    existing.name = dto.name
+                    existing.effortSequence = dto.effortSequence
+                    existing.isBuiltIn = dto.isBuiltIn
+                    existing.templateDescription = dto.templateDescription
+                    existing.deleted = dto.deleted ?? false
+                } else {
+                    let template = SetPlanTemplate(
+                        id: dto.templateId,
+                        name: dto.name,
+                        effortSequence: dto.effortSequence,
+                        isBuiltIn: dto.isBuiltIn,
+                        templateDescription: dto.templateDescription,
+                        createdAt: dto.createdDatetime ?? Date(),
+                        createdTimezone: dto.createdTimezone,
+                        deleted: dto.deleted ?? false
+                    )
+                    context.insert(template)
+                }
+            }
+
+            try? context.save()
+        }.value
+    }
+
+    private func fetchTemplate(by id: UUID, context: ModelContext) -> SetPlanTemplate? {
+        let descriptor = FetchDescriptor<SetPlanTemplate>(predicate: #Predicate { $0.id == id })
+        return try? context.fetch(descriptor).first
+    }
+
+    private func fetchAllTemplates(context: ModelContext) -> [SetPlanTemplate] {
+        let descriptor = FetchDescriptor<SetPlanTemplate>()
         return (try? context.fetch(descriptor)) ?? []
     }
 
@@ -1261,6 +1411,7 @@ class SyncService: ObservableObject {
                     if let seq = dto.setPlan {
                         existing.setPlan = seq
                     }
+                    existing.setPlanTemplateId = dto.setPlanTemplateId
                 } else {
                     let loadType = ExerciseLoadType(rawValue: dto.loadType) ?? .barbell
                     let movementType = ExerciseMovementType(rawValue: dto.movementType ?? "") ?? .other
@@ -1274,7 +1425,8 @@ class SyncService: ObservableObject {
                         createdTimezone: dto.createdTimezone,
                         notes: dto.notes,
                         deleted: dto.deleted ?? false,
-                        icon: dto.icon ?? "LiftTheBullIcon"
+                        icon: dto.icon ?? "LiftTheBullIcon",
+                        setPlanTemplateId: dto.setPlanTemplateId
                     )
                     if let seq = dto.setPlan {
                         exercise.setPlan = seq
@@ -1294,8 +1446,8 @@ class SyncService: ObservableObject {
             ("Bench Press", .barbell, .push),
             ("Overhead Press", .barbell, .push),
             ("Barbell Row", .barbell, .pull),
-            ("Pull Ups", .bodySingleLoad, .pull),
-            ("Dips", .bodySingleLoad, .push),
+            ("Pull Ups", .singleLoad, .pull),
+            ("Dips", .singleLoad, .push),
             ("Barbell Curls", .barbell, .pull),
             ("Romanian Deadlifts", .barbell, .hinge)
         ]

@@ -95,6 +95,20 @@ struct PendingEstimated1RMOperation: Codable, Equatable {
     }
 }
 
+struct PendingSetPlanTemplateOperation: Codable, Equatable {
+    let templateId: UUID
+    let operationType: PendingOperationType
+    var retryCount: Int
+    let createdAt: Date
+
+    init(templateId: UUID, operationType: PendingOperationType) {
+        self.templateId = templateId
+        self.operationType = operationType
+        self.retryCount = 0
+        self.createdAt = Date()
+    }
+}
+
 class SyncRetryQueue {
     static let shared = SyncRetryQueue()
 
@@ -104,6 +118,7 @@ class SyncRetryQueue {
     private let estimated1RMOperationsKey = "SyncRetryQueue.PendingEstimated1RMOperations"
     private let sequenceOperationsKey = "SyncRetryQueue.PendingSequenceOperations"
     private let splitOperationsKey = "SyncRetryQueue.PendingSplitOperations"
+    private let templateOperationsKey = "SyncRetryQueue.PendingSetPlanTemplateOperations"
     private let maxRetries = 10
 
     private init() {}
@@ -150,10 +165,11 @@ class SyncRetryQueue {
         UserDefaults.standard.removeObject(forKey: estimated1RMOperationsKey)
         UserDefaults.standard.removeObject(forKey: sequenceOperationsKey)
         UserDefaults.standard.removeObject(forKey: splitOperationsKey)
+        UserDefaults.standard.removeObject(forKey: templateOperationsKey)
     }
 
     func hasPendingOperations() -> Bool {
-        return !loadOperations().isEmpty || !loadLiftSetOperations().isEmpty || !loadEstimated1RMOperations().isEmpty || !loadSequenceOperations().isEmpty || !loadSplitOperations().isEmpty
+        return !loadOperations().isEmpty || !loadLiftSetOperations().isEmpty || !loadEstimated1RMOperations().isEmpty || !loadSequenceOperations().isEmpty || !loadSplitOperations().isEmpty || !loadTemplateOperations().isEmpty
     }
 
     // MARK: - User Properties Sync Methods
@@ -530,6 +546,79 @@ class SyncRetryQueue {
             UserDefaults.standard.set(data, forKey: splitOperationsKey)
         } catch {
             SyncLogger.retry.error("Failed to encode pending split operations: \(error)")
+        }
+    }
+
+    // MARK: - Set Plan Template Operations
+
+    func addPendingTemplateUpsert(templateId: UUID) {
+        SyncLogger.retry.debug("Queuing template upsert: \(templateId)")
+        addTemplateOperation(PendingSetPlanTemplateOperation(templateId: templateId, operationType: .upsert))
+    }
+
+    func addPendingTemplateDelete(templateId: UUID) {
+        SyncLogger.retry.debug("Queuing template delete: \(templateId)")
+        addTemplateOperation(PendingSetPlanTemplateOperation(templateId: templateId, operationType: .delete))
+    }
+
+    func removePendingTemplateOperation(templateId: UUID) {
+        SyncLogger.retry.debug("Removing template operation: \(templateId)")
+        var operations = loadTemplateOperations()
+        operations.removeAll { $0.templateId == templateId }
+        saveTemplateOperations(operations)
+    }
+
+    func getPendingTemplateOperations() -> [PendingSetPlanTemplateOperation] {
+        return loadTemplateOperations()
+    }
+
+    func incrementTemplateRetryCount(for templateId: UUID) {
+        var operations = loadTemplateOperations()
+        if let index = operations.firstIndex(where: { $0.templateId == templateId }) {
+            operations[index].retryCount += 1
+            if operations[index].retryCount >= maxRetries {
+                SyncLogger.retry.info("Template \(templateId) dropped after \(self.maxRetries) retries")
+                operations.remove(at: index)
+            }
+        }
+        saveTemplateOperations(operations)
+    }
+
+    func hasTemplatePendingOperations() -> Bool {
+        return !loadTemplateOperations().isEmpty
+    }
+
+    private func addTemplateOperation(_ operation: PendingSetPlanTemplateOperation) {
+        var operations = loadTemplateOperations()
+
+        if let existingIndex = operations.firstIndex(where: { $0.templateId == operation.templateId }) {
+            operations[existingIndex] = operation
+        } else {
+            operations.append(operation)
+        }
+
+        saveTemplateOperations(operations)
+    }
+
+    private func loadTemplateOperations() -> [PendingSetPlanTemplateOperation] {
+        guard let data = UserDefaults.standard.data(forKey: templateOperationsKey) else {
+            return []
+        }
+
+        do {
+            return try JSONDecoder().decode([PendingSetPlanTemplateOperation].self, from: data)
+        } catch {
+            SyncLogger.retry.error("Failed to decode pending template operations: \(error)")
+            return []
+        }
+    }
+
+    private func saveTemplateOperations(_ operations: [PendingSetPlanTemplateOperation]) {
+        do {
+            let data = try JSONEncoder().encode(operations)
+            UserDefaults.standard.set(data, forKey: templateOperationsKey)
+        } catch {
+            SyncLogger.retry.error("Failed to encode pending template operations: \(error)")
         }
     }
 }

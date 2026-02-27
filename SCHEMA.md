@@ -20,8 +20,6 @@
 - `barbell` = "Barbell"
 - `singleLoad` = "Single Load"
 
-**Note:** Backward compatibility handles old `"Bodyweight + Single Load"` values as `.singleLoad`.
-
 ---
 
 ### LiftSet

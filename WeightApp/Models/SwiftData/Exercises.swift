@@ -11,7 +11,6 @@ import SwiftData
 enum ExerciseLoadType: String, Codable, CaseIterable {
     case barbell = "Barbell"
     case singleLoad = "Single Load"
-    case bodySingleLoad = "Bodyweight + Single Load"
 }
 
 enum ExerciseMovementType: String, Codable, CaseIterable {
@@ -38,8 +37,9 @@ final class Exercises {
     var icon: String
     var movementType: String?
     @Attribute(originalName: "setSequence") var setPlan: [String]
+    var setPlanTemplateId: UUID?
 
-    static let defaultSetPlan = ["easy", "easy", "moderate", "moderate", "hard", "hard", "pr"]
+    static let defaultSetPlan = ["easy", "moderate", "moderate", "hard", "pr"]
 
     init(name: String, isCustom: Bool, loadType: ExerciseLoadType = .barbell, movementType: ExerciseMovementType = .other, icon: String = "LiftTheBullIcon") {
         self.id = UUID()
@@ -53,12 +53,14 @@ final class Exercises {
         self.deleted = false
         self.icon = icon
         self.setPlan = Exercises.defaultSetPlan
+        self.setPlanTemplateId = SetPlanTemplate.standardId
     }
 
     init(id: UUID? = nil, name: String, isCustom: Bool, loadType: ExerciseLoadType = .barbell,
          movementType: ExerciseMovementType = .other,
          createdAt: Date = Date(), createdTimezone: String = TimeZone.current.identifier,
-         notes: String? = nil, deleted: Bool = false, icon: String = "LiftTheBullIcon") {
+         notes: String? = nil, deleted: Bool = false, icon: String = "LiftTheBullIcon",
+         setPlanTemplateId: UUID? = nil) {
         self.id = id ?? UUID()
         self.name = name
         self.isCustom = isCustom
@@ -70,6 +72,7 @@ final class Exercises {
         self.deleted = deleted
         self.icon = icon
         self.setPlan = Exercises.defaultSetPlan
+        self.setPlanTemplateId = setPlanTemplateId
     }
 
     var exerciseLoadType: ExerciseLoadType {

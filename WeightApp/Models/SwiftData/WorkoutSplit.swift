@@ -9,6 +9,7 @@ final class WorkoutSplit {
     var name: String
     var dayIds: [UUID]
     var deleted: Bool
+    var setPlanTemplateId: UUID?
 
     init(name: String, dayIds: [UUID] = []) {
         self.id = UUID()
@@ -17,14 +18,16 @@ final class WorkoutSplit {
         self.name = name
         self.dayIds = dayIds
         self.deleted = false
+        self.setPlanTemplateId = nil
     }
 
-    init(id: UUID, name: String, dayIds: [UUID], createdAt: Date, createdTimezone: String, deleted: Bool = false) {
+    init(id: UUID, name: String, dayIds: [UUID], createdAt: Date, createdTimezone: String, deleted: Bool = false, setPlanTemplateId: UUID? = nil) {
         self.id = id
         self.name = name
         self.dayIds = dayIds
         self.createdAt = createdAt
         self.createdTimezone = createdTimezone
         self.deleted = deleted
+        self.setPlanTemplateId = setPlanTemplateId
     }
 }

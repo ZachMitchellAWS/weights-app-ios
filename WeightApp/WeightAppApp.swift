@@ -27,7 +27,7 @@ struct WeightAppApp: App {
 
         // Create the model container
         do {
-            modelContainer = try ModelContainer(for: Exercises.self, LiftSets.self, UserProperties.self, Estimated1RMs.self, Entitlements.self, WorkoutSequence.self, WorkoutSplit.self)
+            modelContainer = try ModelContainer(for: Exercises.self, LiftSets.self, UserProperties.self, Estimated1RMs.self, Entitlements.self, WorkoutSequence.self, WorkoutSplit.self, SetPlanTemplate.self)
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
          }
@@ -117,6 +117,9 @@ struct WeightAppApp: App {
                 // Migrate sequences into default split if needed
                 WorkoutSequenceStore.migrateSequencesToSplits(context: context)
 
+                // Seed built-in set plan templates
+                SetPlanTemplate.seedBuiltIns(context: context)
+
                 // Start listening for StoreKit transaction updates (renewals, etc.)
                 transactionListenerTask = PurchaseService.shared.listenForTransactions()
 
@@ -129,6 +132,7 @@ struct WeightAppApp: App {
                         await SyncService.shared.processSplitRetryQueue()
                         await SyncService.shared.processLiftSetRetryQueue()
                         await SyncService.shared.processEstimated1RMRetryQueue()
+                        await SyncService.shared.processTemplateRetryQueue()
 
                         // Sync entitlement status from backend
                         await EntitlementsService.shared.syncEntitlementStatus()

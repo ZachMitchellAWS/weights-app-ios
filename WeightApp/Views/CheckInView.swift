@@ -12,6 +12,7 @@ struct CheckInView: View {
     @Query private var userPropertiesItems: [UserProperties]
     @Query(filter: #Predicate<WorkoutSequence> { !$0.deleted }) private var allSequences: [WorkoutSequence]
     @Query(filter: #Predicate<WorkoutSplit> { !$0.deleted }) private var allSplits: [WorkoutSplit]
+    @Query(filter: #Predicate<SetPlanTemplate> { !$0.deleted }) private var allTemplates: [SetPlanTemplate]
 
     @State private var setsForExercise: [LiftSets] = []
     @State private var estimated1RMsForExercise: [Estimated1RMs] = []
@@ -31,7 +32,6 @@ struct CheckInView: View {
     @State private var hasSelectedOption = false
 
 
-    @State private var weightModifierIsPlus: Bool = true  // +/- toggle for BW exercises
     @State private var showSubmitOverlay = false
     @State private var overlayDidIncrease = false
     @State private var overlayDelta: Double = 0
@@ -49,8 +49,6 @@ struct CheckInView: View {
     @State private var weightDelta: Double = 5.0
     @State private var showExercisesSelection = false
     @State private var selectedSquareId: UUID? = nil
-    @State private var showBodyweightCapture = false
-    @State private var tempBodyweight: Double = 0
     @State private var showEditExerciseName = false
     @State private var showNoExercisesAlert = false
     @State private var isRetryingSync = false
@@ -61,7 +59,6 @@ struct CheckInView: View {
     @State private var showSplitEditor = false
     @State private var activeSplitId: UUID? = WorkoutSequenceStore.activeSplitId()
     @State private var activeSequenceId: UUID? = WorkoutSequenceStore.activeSequenceId()
-    @State private var baseline1RM: Double? = nil
     @State private var repRangeDebounceTask: Task<Void, Never>?
     @State private var setPlanCollapsed = true
     @State private var showE1RMPopup = false
@@ -192,6 +189,18 @@ struct CheckInView: View {
         return allSplits.first(where: { $0.id == id })
     }
 
+    private var splitOverrideTemplateName: String? {
+        guard let split = activeSplit, let templateId = split.setPlanTemplateId,
+              let template = allTemplates.first(where: { $0.id == templateId }) else { return nil }
+        return template.name
+    }
+
+    private var splitOverrideInfo: String? {
+        guard let split = activeSplit, let templateId = split.setPlanTemplateId,
+              let template = allTemplates.first(where: { $0.id == templateId }) else { return nil }
+        return "Split is currently overriding (\(template.name))"
+    }
+
     private var daysForActiveSplit: [WorkoutSequence] {
         guard let split = activeSplit else { return [] }
         let seqMap = Dictionary(uniqueKeysWithValues: allSequences.map { ($0.id, $0) })
@@ -227,33 +236,31 @@ struct CheckInView: View {
         estimated1RMsForExercise
     }
 
-    private var isFirstSetForExercise: Bool {
-        setsForSelected.isEmpty
-    }
-
-
-    /// The set plan with the first tile overridden to "baseline" when the exercise
-    /// has no prior session 1RM (i.e. this is the first-ever session for the exercise).
     private var displaySetPlan: [String] {
-        guard let exercise = selectedExercises, !exercise.setPlan.isEmpty else { return [] }
-        var plan = exercise.setPlan
-        if priorSession1RM == nil {
-            plan[0] = "baseline"
+        guard let exercise = selectedExercises else { return [] }
+
+        // Priority 1: Active split has a template override
+        if let split = activeSplit, let splitTemplateId = split.setPlanTemplateId,
+           let template = allTemplates.first(where: { $0.id == splitTemplateId }) {
+            return template.effortSequence
         }
-        return plan
+
+        // Priority 2: Exercise has a template
+        if let templateId = exercise.setPlanTemplateId,
+           let template = allTemplates.first(where: { $0.id == templateId }) {
+            return template.effortSequence
+        }
+
+        // Priority 3: Fallback to inline setPlan
+        guard !exercise.setPlan.isEmpty else { return [] }
+        return exercise.setPlan
     }
 
     private var nextPlannedEffortMode: EffortMode? {
         let nextIndex = todaysSets.count
         guard nextIndex < displaySetPlan.count else { return nil }
         let effortKey = displaySetPlan[nextIndex]
-        let mappedKey = effortKey == "baseline" ? "easy" : effortKey
-        return EffortMode.from(effort: mappedKey)
-    }
-
-    private var priorSession1RM: Double? {
-        let todayStart = Calendar.current.startOfDay(for: today)
-        return estimated1RMsForSelected.first { $0.createdAt < todayStart }?.value
+        return EffortMode.from(effort: effortKey)
     }
 
     struct SetWithPR {
@@ -415,12 +422,9 @@ struct CheckInView: View {
     }
 
     private var filteredSuggestions: [OneRMCalculator.Suggestion] {
+        guard current1RM > 0 else { return [] }
         var filtered = suggestions.filter {
             $0.reps >= userProperties.minReps && $0.reps <= userProperties.maxReps
-        }
-        // For BW+SL exercises, exclude suggestions below bodyweight
-        if selectedExercises?.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
-            filtered = filtered.filter { $0.weight >= bw }
         }
         if let prPlusOne = lastPRPlusOneSuggestion,
            !filtered.contains(where: { $0.weight == prPlusOne.weight && $0.reps == prPlusOne.reps }) {
@@ -459,10 +463,6 @@ struct CheckInView: View {
         if let bounds = mode.percent1RMBounds {
             results = results.filter { bounds.contains($0.percent1RM) }
         }
-        // For BW+SL exercises, exclude suggestions below bodyweight
-        if selectedExercises?.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
-            results = results.filter { $0.weight >= bw }
-        }
         switch effortSortColumn {
         case .weight:
             return results.sorted { effortSortAscending ? $0.weight < $1.weight : $0.weight > $1.weight }
@@ -492,35 +492,13 @@ struct CheckInView: View {
                     programWidget
                         .padding(.top, 12)
 
-                    if activeSequenceId != nil || activeSplit == nil {
-                        mainExerciseWidget
-
-                        Divider()
-                            .background(.white.opacity(0.35))
-                            .padding(.horizontal, 4)
-
-                        // Log Set Section
-                        logSetSection
-
-                        Spacer(minLength: 0)
-                    } else {
-                        Spacer()
-
-                        VStack(spacing: 12) {
-                            Image("LiftTheBullIcon")
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 48, height: 48)
-                                .foregroundStyle(Color.appLogoColor.opacity(0.3))
-
-                            Text("Select a day to start")
-                                .font(.bebasNeue(size: 20))
-                                .kerning(1.5)
-                                .foregroundStyle(.white.opacity(0.3))
-                        }
-
-                        Spacer()
-                    }
+                    mainExerciseWidget
+                    Divider()
+                        .background(.white.opacity(0.35))
+                        .padding(.horizontal, 4)
+                    // Log Set Section
+                    logSetSection
+                    Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 12)
 
@@ -582,7 +560,6 @@ struct CheckInView: View {
                         exercise: selectedExercises,
                         reps: reps,
                         weight: weight,
-                        isBaseline: isFirstSetForExercise,
                         onConfirm: {
                             hapticFeedback.impactOccurred()
                             showLogConfirmation = false
@@ -591,17 +568,77 @@ struct CheckInView: View {
                         onCancel: {
                             hapticFeedback.impactOccurred()
                             showLogConfirmation = false
-                        },
-                        onBaselineConfirm: { rir in
-                            hapticFeedback.impactOccurred()
-                            showLogConfirmation = false
-                            logBaselineSet(rir: rir)
-                        },
-                        bodyweight: selectedExercises?.exerciseLoadType == .bodySingleLoad ? userProperties.bodyweight : nil,
-                        weightModifierIsPlus: weightModifierIsPlus
+                        }
                     )
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     .zIndex(11)
+                }
+
+                if showE1RMPopup, let exercise = selectedExercises {
+                    // Dimmed backdrop
+                    Color.black.opacity(0.55)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                showE1RMPopup = false
+                            }
+                        }
+                        .zIndex(11.5)
+
+                    // Popup card
+                    VStack(spacing: 0) {
+                        // Header
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("e1RM Progression")
+                                    .font(.interSemiBold(size: 13))
+                                    .foregroundStyle(.white.opacity(0.85))
+                                Text(exercise.name)
+                                    .font(.inter(size: 11))
+                                    .foregroundStyle(.white.opacity(0.45))
+                            }
+                            Spacer()
+                            Button {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                    showE1RMPopup = false
+                                }
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(.white.opacity(0.5))
+                                    .frame(width: 26, height: 26)
+                                    .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
+                                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.white.opacity(0.12), lineWidth: 1))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 16)
+                        .padding(.bottom, 12)
+
+                        // Divider
+                        Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1).padding(.horizontal, 16)
+
+                        // Chart
+                        OneRMProgressionChart(
+                            dataPoints: TrendsCalculator.oneRMProgression(
+                                from: estimated1RMsForSelected,
+                                exerciseName: exercise.name
+                            )
+                        )
+                        .padding(.horizontal, 16)
+                        .padding(.top, 14)
+                        .padding(.bottom, 18)
+                    }
+                    .background(
+                        LinearGradient(colors: [Color(white: 0.18), Color(white: 0.14)], startPoint: .top, endPoint: .bottom)
+                            .cornerRadius(16)
+                    )
+                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.5), radius: 24, y: 8)
+                    .padding(.horizontal, 16)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                    .zIndex(12)
                 }
             }
             .onAppear {
@@ -643,8 +680,6 @@ struct CheckInView: View {
                 selectedPlanTileIndex = nil
                 highlightPlanTile(nil)
                 effortMode = nil
-                baseline1RM = nil
-                weightModifierIsPlus = true
                 // Auto-advance to next set plan effort level
                 // (deferred to let todaysSets recompute after exercise change)
                 DispatchQueue.main.async {
@@ -658,10 +693,6 @@ struct CheckInView: View {
 // Save selected exercise to UserDefaults
                 if let id = newId {
                     UserDefaults.standard.set(id.uuidString, forKey: lastSelectedExerciseKey)
-                }
-                // Prompt for bodyweight if selecting a BW+SL exercise without bodyweight set
-                if let ex = selectedExercises, ex.exerciseLoadType == .bodySingleLoad, userProperties.bodyweight == nil {
-                    showBodyweightCapture = true
                 }
                 // Show exercise selected overlay when selection changes (skip initial load)
                 if oldId != nil, oldId != newId, newId != nil, selectedExercises != nil {
@@ -680,23 +711,13 @@ struct CheckInView: View {
                     }
                 }
             }
-            .onChange(of: setsForExercise.count) { _, newCount in
+            .onChange(of: setsForExercise.count) { _, _ in
                 recomputeSetsWithPRInfo()
-                // Safety: clear effort mode if exercise has no data
-                if newCount == 0 {
-                    effortMode = nil
-                    selectedPlanTileIndex = nil
-                }
             }
             .onChange(of: selectedSetData.shouldPopulate) { _, shouldPopulate in
                 if shouldPopulate {
                     populateFromSelectedSet()
                     selectedSetData.shouldPopulate = false
-                }
-            }
-            .onChange(of: showBodyweightCapture) { _, isShowing in
-                if isShowing {
-                    tempBodyweight = userProperties.bodyweight ?? 0
                 }
             }
             .onChange(of: scenePhase) { _, newPhase in
@@ -733,11 +754,12 @@ struct CheckInView: View {
                 ExercisesSelectionView(
                     exercises: exercises,
                     selectedExercisesId: $selectedExercisesId,
+                    splitOverrideInfo: splitOverrideInfo,
                     onExerciseCreated: { name, loadType, movementType, icon in
                         createExercise(name: name, loadType: loadType, movementType: movementType, icon: icon)
                     },
-                    onExerciseSaved: { exercise, name, movementType, icon, notes, setPlan in
-                        saveExercise(exercise, name: name, movementType: movementType, icon: icon, notes: notes, setPlan: setPlan)
+                    onExerciseSaved: { exercise, name, movementType, icon, notes, setPlan, setPlanTemplateId in
+                        saveExercise(exercise, name: name, movementType: movementType, icon: icon, notes: notes, setPlan: setPlan, setPlanTemplateId: setPlanTemplateId)
                     },
                     onExerciseDeleted: { exercise in
                         deleteExercise(exercise)
@@ -749,19 +771,15 @@ struct CheckInView: View {
                 .interactiveDismissDisabled(false)
                 .presentationDragIndicator(.visible)
             }
-                .sheet(isPresented: $showBodyweightCapture) {
-                    bodyweightCaptureSheet
-                        .presentationDetents([.height(500)])
-                        .presentationDragIndicator(.visible)
-                }
                 .sheet(isPresented: $showEditExerciseName) {
                     if let ex = selectedExercises {
                         NavigationStack {
                             EditExerciseFormView(
                                 exercise: ex,
                                 showBackChevron: false,
-                                onSave: { exercise, name, movementType, icon, notes, setPlan in
-                                    saveExercise(exercise, name: name, movementType: movementType, icon: icon, notes: notes, setPlan: setPlan)
+                                splitOverrideInfo: splitOverrideInfo,
+                                onSave: { exercise, name, movementType, icon, notes, setPlan, setPlanTemplateId in
+                                    saveExercise(exercise, name: name, movementType: movementType, icon: icon, notes: notes, setPlan: setPlan, setPlanTemplateId: setPlanTemplateId)
                                 },
                                 onDelete: { exercise in
                                     deleteExercise(exercise)
@@ -912,7 +930,7 @@ struct CheckInView: View {
                 let result = evaluateCalculator()
                 // Allow zero for single load (bodyweight) exercises
                 let loadType = selectedExercises?.exerciseLoadType
-                let minWeight = (loadType == .singleLoad || loadType == .bodySingleLoad) ? 0.0 : 0.01
+                let minWeight = (loadType == .singleLoad) ? 0.0 : 0.01
                 if result >= minWeight && result <= 1000 {
                     weight = result
                     hasSetInitialValues = true
@@ -1257,91 +1275,6 @@ struct CheckInView: View {
         }
     }
 
-    private var bodyweightCaptureSheet: some View {
-        NavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
-
-                VStack(spacing: 16) {
-                    Spacer()
-                        .frame(height: 8)
-
-                    Text("Set Bodyweight")
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.white)
-
-                    Text("Your bodyweight is used for calculating 1RM on bodyweight exercises")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.7))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
-
-                    Spacer()
-                        .frame(height: 20)
-
-                    // Weight Picker
-                    HStack(spacing: 0) {
-                        Picker("Weight", selection: $tempBodyweight) {
-                            ForEach(Array(stride(from: 50.0, through: 500.0, by: 0.5)), id: \.self) { weight in
-                                Text("\(weight, specifier: "%.1f")")
-                                    .tag(weight)
-                            }
-                        }
-                        .pickerStyle(.wheel)
-                        .frame(maxWidth: .infinity)
-
-                        Text("lbs")
-                            .font(.title2)
-                            .foregroundStyle(.white.opacity(0.7))
-                            .padding(.trailing, 40)
-                    }
-                    .frame(height: 200)
-
-                    Spacer()
-
-                    // Buttons
-                    HStack(spacing: 16) {
-                        Button {
-                            tempBodyweight = 0
-                            userProperties.bodyweight = nil
-                            try? modelContext.save()
-                            showBodyweightCapture = false
-                            showLogConfirmation = true
-                        } label: {
-                            Text("Clear")
-                                .font(.headline)
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 50)
-                                .background(Color.white.opacity(0.1))
-                                .cornerRadius(12)
-                        }
-
-                        Button {
-                            userProperties.bodyweight = tempBodyweight
-                            try? modelContext.save()
-                            showBodyweightCapture = false
-                            showLogConfirmation = true
-                        } label: {
-                            Text("Done")
-                                .font(.headline)
-                                .foregroundStyle(.black)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 50)
-                                .background(Color.appAccent)
-                                .cornerRadius(12)
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 20)
-                }
-            }
-        }
-    }
-
-
-
     private var programWidget: some View {
         VStack(spacing: 0) {
             // Section 1 — Day pills (compact)
@@ -1378,49 +1311,62 @@ struct CheckInView: View {
                 .padding(.leading, 12)
                 .padding(.trailing, 4)
 
-                // Day chips (scrollable)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                    ForEach(daysForActiveSplit) { day in
-                        let isSelected = activeSequenceId == day.id
-                        Button {
-                            hapticFeedback.impactOccurred()
-                            if isSelected {
-                                activeSequenceId = nil
-                                WorkoutSequenceStore.setActiveSequenceId(nil)
-                                selectedExercisesId = nil
-                            } else {
-                                activeSequenceId = day.id
-                                WorkoutSequenceStore.setActiveSequenceId(day.id)
+                // Day chips
+                if daysForActiveSplit.isEmpty {
+                    Spacer()
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                        ForEach(daysForActiveSplit) { day in
+                            let isSelected = activeSequenceId == day.id
+                            Button {
+                                hapticFeedback.impactOccurred()
+                                if isSelected {
+                                    activeSequenceId = nil
+                                    WorkoutSequenceStore.setActiveSequenceId(nil)
+                                    selectedExercisesId = nil
+                                } else {
+                                    activeSequenceId = day.id
+                                    WorkoutSequenceStore.setActiveSequenceId(day.id)
+                                }
+                            } label: {
+                                Text("\(day.name) Day")
+                                    .font(.bebasNeue(size: 14))
+                                    .kerning(1.5)
+                                    .foregroundStyle(isSelected ? .white : .white.opacity(0.4))
+                                    .lineLimit(1)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 4)
+                                    .frame(height: 26)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 7)
+                                            .fill(isSelected ? Color.appAccent.opacity(0.2) : Color(white: 0.10))
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 7)
+                                            .stroke(isSelected ? Color.appAccent : Color.clear, lineWidth: 1)
+                                    )
                             }
-                        } label: {
-                            Text("\(day.name) Day")
-                                .font(.bebasNeue(size: 14))
-                                .kerning(1.5)
-                                .foregroundStyle(isSelected ? .white : .white.opacity(0.4))
-                                .lineLimit(1)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 4)
-                                .frame(height: 26)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 7)
-                                        .fill(isSelected ? Color.appAccent.opacity(0.2) : Color(white: 0.10))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 7)
-                                        .stroke(isSelected ? Color.appAccent : Color.clear, lineWidth: 1)
-                                )
+                            .buttonStyle(.plain)
+                            .animation(.easeInOut(duration: 0.15), value: activeSequenceId)
                         }
-                        .buttonStyle(.plain)
-                        .animation(.easeInOut(duration: 0.15), value: activeSequenceId)
+                        }
+                        .padding(.leading, 4)
+                        .padding(.trailing, 12)
+                        .padding(.vertical, 6)
                     }
-                    }
-                    .padding(.leading, 4)
-                    .padding(.trailing, 12)
-                    .padding(.vertical, 6)
                 }
             }
             .frame(height: 42)
+            .overlay {
+                if daysForActiveSplit.isEmpty {
+                    Text("Free Training")
+                        .font(.bebasNeue(size: 14))
+                        .kerning(1.5)
+                        .foregroundStyle(.white.opacity(0.25))
+                        .allowsHitTesting(false)
+                }
+            }
 
             // Separator
             Rectangle()
@@ -1611,42 +1557,30 @@ struct CheckInView: View {
 
                 Spacer()
 
-                // Right — e1RM
-                if selectedExercises != nil && !setsForSelected.isEmpty {
+                // Right — e1RM (hidden when zero)
+                if selectedExercises != nil && current1RM > 0 {
                     Button {
-                        showE1RMPopup = true
+                        hapticFeedback.impactOccurred()
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            showE1RMPopup = true
+                        }
                     } label: {
                         VStack(spacing: 2) {
                             Text("e1RM")
                                 .font(.inter(size: 9))
                                 .foregroundStyle(.white.opacity(0.4))
-                            Text(current1RM.rounded1().formatted(.number.precision(.fractionLength(2))))
-                                .font(.interSemiBold(size: 16))
-                                .foregroundStyle(Color.appAccent)
+                            HStack(spacing: 4) {
+                                Text(current1RM.rounded1().formatted(.number.precision(.fractionLength(2))))
+                                    .font(.interSemiBold(size: 16))
+                                    .foregroundStyle(Color.appAccent)
+                                Image(systemName: "chart.line.uptrend.xyaxis")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(Color.appAccent.opacity(0.7))
+                            }
                         }
                         .padding(.trailing, 12)
                     }
                     .buttonStyle(.plain)
-                    .sheet(isPresented: $showE1RMPopup) {
-                        if let exercise = selectedExercises {
-                            NavigationStack {
-                                VStack(spacing: 16) {
-                                    OneRMProgressionChart(
-                                        dataPoints: TrendsCalculator.oneRMProgression(
-                                            from: estimated1RMsForSelected,
-                                            exerciseName: exercise.name
-                                        )
-                                    )
-                                    .padding(.horizontal, 16)
-                                }
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(Color.black)
-                                .navigationTitle(exercise.name)
-                                .navigationBarTitleDisplayMode(.inline)
-                            }
-                            .presentationDetents([.medium])
-                        }
-                    }
                 }
             }
         }
@@ -1668,69 +1602,68 @@ struct CheckInView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
 
-            // Separator
+            // Separator (hidden when no exercise selected, matching Set Options visibility)
             Rectangle()
                 .fill(Color.white.opacity(0.06))
                 .frame(height: 1)
                 .padding(.horizontal, 12)
+                .opacity(selectedExercises != nil ? 1 : 0)
 
-            // Set Options label + effort chips
-            if selectedExercises != nil && !setsForSelected.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        HStack(spacing: 0) {
-                            Text("Set Options")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.7))
-                            Text(" — Pick your next set")
-                                .font(.caption.italic())
-                                .foregroundStyle(.white.opacity(0.35))
-                        }
-                        Spacer()
+            // Set Options label + effort chips (always rendered for consistent height)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    HStack(spacing: 0) {
+                        Text("Set Options")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.7))
+                        Text(" — Pick your next set")
+                            .font(.caption.italic())
+                            .foregroundStyle(.white.opacity(0.35))
+                    }
+                    Spacer()
+                    Button {
+                        hapticFeedback.impactOccurred()
                         if let mode = effortMode {
-                            Button {
-                                hapticFeedback.impactOccurred()
-                                if mode == .progress {
-                                    showExpandedProgressOptions = true
-                                } else {
-                                    showExpandedEffortOptions = true
-                                }
-                            } label: {
-                                Image(systemName: "arrow.up.backward.and.arrow.down.forward")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundStyle(.white.opacity(0.5))
-                                    .padding(6)
-                                    .background(Color(white: 0.12))
-                                    .cornerRadius(8)
+                            if mode == .progress {
+                                showExpandedProgressOptions = true
+                            } else {
+                                showExpandedEffortOptions = true
                             }
                         }
+                    } label: {
+                        Image(systemName: "arrow.up.backward.and.arrow.down.forward")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.5))
+                            .padding(6)
+                            .background(Color(white: 0.12))
+                            .cornerRadius(8)
                     }
-
-                    effortChipSelector
+                    .opacity(effortMode != nil ? 1 : 0)
+                    .allowsHitTesting(effortMode != nil)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
+
+                effortChipSelector
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .opacity(selectedExercises != nil ? 1 : 0)
+            .allowsHitTesting(selectedExercises != nil)
 
             // Options section (no card wrapper)
             optionsSection
 
-            // Legend (below options content)
-            if !setsForSelected.isEmpty {
-                HStack(spacing: 10) {
-                    if displaySetPlan.contains("baseline") {
-                        LegendItem(color: .white, label: "Base")
-                    }
-                    LegendItem(color: .setEasy, label: "Easy")
-                    LegendItem(color: .setModerate, label: "Moderate")
-                    LegendItem(color: .setHard, label: "Hard")
-                    LegendItem(color: .setNearMax, label: "Redline")
-                    LegendItem(color: .setPR, label: "e1RM ↑")
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 2)
-                .padding(.bottom, 8)
+            // Legend (below options content, always rendered for consistent height)
+            HStack(spacing: 10) {
+                LegendItem(color: .setEasy, label: "Easy")
+                LegendItem(color: .setModerate, label: "Moderate")
+                LegendItem(color: .setHard, label: "Hard")
+                LegendItem(color: .setNearMax, label: "Redline")
+                LegendItem(color: .setPR, label: "e1RM ↑")
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 2)
+            .padding(.bottom, 8)
+            .opacity(!setsForSelected.isEmpty ? 1 : 0)
         }
         .background(
             LinearGradient(
@@ -2016,38 +1949,44 @@ struct CheckInView: View {
 
         return Group {
             if todaysSets.isEmpty && (selectedExercises?.setPlan.isEmpty ?? true) {
-                // Empty state with placeholder grid of colored squares
-                ZStack {
-                    // Placeholder grid
-                    VStack(spacing: 16) {
-                        ForEach(0..<placeholderSquares.count, id: \.self) { row in
-                            HStack(spacing: 10) {
-                                ForEach(0..<placeholderSquares[row].count, id: \.self) { col in
-                                    let color = placeholderSquares[row][col]
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(color.opacity(0.3))
-                                        .frame(width: 36, height: 36)
-                                        .overlay(
+                // Empty state — mirrors non-empty branch layout for consistent height
+                VStack(alignment: .leading, spacing: 10) {
+                    // Matches "Set Plan" label height
+                    Text(" ")
+                        .font(.caption.weight(.semibold))
+                        .opacity(0)
+
+                    // Placeholder grid centered in "Sets Today" area
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(" ")
+                            .font(.caption.weight(.semibold))
+                            .opacity(0)
+
+                        ZStack {
+                            VStack(spacing: 16) {
+                                ForEach(0..<placeholderSquares.count, id: \.self) { row in
+                                    HStack(spacing: 10) {
+                                        ForEach(0..<placeholderSquares[row].count, id: \.self) { col in
+                                            let color = placeholderSquares[row][col]
                                             RoundedRectangle(cornerRadius: 6)
-                                                .stroke(color.opacity(0.5), lineWidth: 1.5)
-                                        )
+                                                .fill(color.opacity(0.3))
+                                                .frame(width: 36, height: 36)
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 6)
+                                                        .stroke(color.opacity(0.5), lineWidth: 1.5)
+                                                )
+                                        }
+                                    }
                                 }
                             }
                         }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 46)
                     }
 
-                    // Overlay text (commented out to simplify)
-                    // VStack(spacing: 8) {
-                    //     Text("No Sets Yet")
-                    //         .font(.subheadline.weight(.semibold))
-                    //         .foregroundStyle(.white)
-                    //
-                    //     Text("Your set intensity will appear here")
-                    //         .font(.caption)
-                    //         .foregroundStyle(.white.opacity(0.7))
-                    // }
+                    Spacer()
+                        .frame(height: 8)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             } else {
                 VStack(alignment: .leading, spacing: 10) {
                     // Set Plan
@@ -2062,15 +2001,30 @@ struct CheckInView: View {
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(.white.opacity(0.7))
                                 if !setPlanCollapsed {
-                                    Text(" — Recommended sequence of sets")
+                                    Text(" — Recommended sequence of sets. See ")
                                         .font(.caption.italic())
                                         .foregroundStyle(.white.opacity(0.35))
+                                    Image(systemName: "slider.horizontal.3")
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundStyle(.white.opacity(0.35))
+                                        .frame(width: 18, height: 18)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 5)
+                                                .fill(Color.white.opacity(0.08))
+                                        )
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 5)
+                                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                                        )
                                 }
                                 Spacer()
                                 Image(systemName: setPlanCollapsed ? "chevron.right" : "chevron.down")
                                     .font(.caption2)
                                     .foregroundStyle(.white.opacity(0.35))
                             }
+                            .padding(.vertical, 10)
+                            .contentShape(Rectangle())
+                            .padding(.vertical, -10)
                         }
                         .buttonStyle(.plain)
 
@@ -2084,11 +2038,10 @@ struct CheckInView: View {
                                                 .onTapGesture {
                                                     guard !setsForSelected.isEmpty else { return }
                                                     hapticFeedback.impactOccurred()
-                                                    let mappedEffort = effort == "baseline" ? "easy" : effort
                                                     selectedPlanTileIndex = index
                                                     highlightPlanTile(index)
                                                     withAnimation {
-                                                        effortMode = EffortMode.from(effort: mappedEffort)
+                                                        effortMode = EffortMode.from(effort: effort)
                                                     }
                                                 }
                                         }
@@ -2130,11 +2083,7 @@ struct CheckInView: View {
                                         }
                                     )
                                     .onTapGesture {
-                                        if selectedExercises?.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
-                                            weight = max(0, set.weight - bw)
-                                        } else {
-                                            weight = set.weight
-                                        }
+                                        weight = set.weight
                                         reps = set.reps
                                         hasSetInitialValues = true
                                         hasSetWeight = true
@@ -2158,7 +2107,8 @@ struct CheckInView: View {
 
                                     if remaining > 0 {
                                         ForEach(0..<remaining, id: \.self) { i in
-                                            let effortKey = displaySetPlan[completedCount + i]
+                                            let planIndex = completedCount + i
+                                            let effortKey = planIndex < displaySetPlan.count ? displaySetPlan[planIndex] : "easy"
                                             let color = SequenceSquareView.color(for: effortKey)
                                             let isNext = (i == 0)
                                             RoundedRectangle(cornerRadius: 6)
@@ -2194,6 +2144,7 @@ struct CheckInView: View {
     }
 
     private var effortChipSelector: some View {
+        ScrollViewReader { proxy in
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(EffortMode.allCases, id: \.rawValue) { mode in
@@ -2239,42 +2190,46 @@ struct CheckInView: View {
                         .animation(.easeInOut(duration: 0.15), value: effortMode)
                     }
                     .buttonStyle(.plain)
+                    .id(mode.rawValue)
                 }
             }
             .padding(.horizontal, 2)
             .padding(.vertical, 2)
         }
+        .onChange(of: effortMode) { _, newMode in
+            if let mode = newMode {
+                withAnimation {
+                    proxy.scrollTo(mode.rawValue, anchor: .center)
+                }
+            }
+        }
+        }
     }
 
     private var optionsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let mode = effortMode, !setsForSelected.isEmpty {
+            if let mode = effortMode {
                 if mode == .progress {
-                    // Progress mode: 4-column layout (unchanged)
                     progressOptionsContent
                 } else {
-                    // Effort mode: 3-column layout
                     effortOptionsContent
                 }
             } else if selectedExercises == nil {
-                // No exercise selected — entire widget is tappable
                 Button {
                     showExercisesSelection = true
                 } label: {
                     ProgressOptionsEmptyState(message: "Select an Exercise")
                         .frame(maxWidth: .infinity)
-                        .frame(height: setPlanCollapsed ? 204 : 152)
+                        .frame(height: 204)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             } else if setsForSelected.isEmpty {
-                // Exercise selected, no effort mode, no sets yet
-                ProgressOptionsEmptyState(message: "Log your first set below")
+                ProgressOptionsEmptyState(message: "Log your first set")
                     .frame(maxWidth: .infinity)
                     .frame(height: setPlanCollapsed ? 204 : 152)
             } else {
-                // Exercise selected, sets exist, no effort mode
-                ProgressOptionsEmptyState(message: "Select an Effort Level")
+                ProgressOptionsEmptyState(message: nil)
                     .frame(maxWidth: .infinity)
                     .frame(height: setPlanCollapsed ? 204 : 152)
             }
@@ -2286,6 +2241,39 @@ struct CheckInView: View {
 
     private var progressOptionsContent: some View {
         VStack(spacing: 8) {
+            if filteredSuggestions.isEmpty {
+                VStack(spacing: 0) {
+                    Spacer()
+
+                    Image("LiftTheBullIcon")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 48, height: 48)
+                        .foregroundStyle(.white.opacity(0.15))
+
+                    Spacer()
+                        .frame(height: 16)
+
+                    Text(setsForSelected.isEmpty
+                        ? "Log your first set to see progress options"
+                        : "Lift with load to unlock progress options")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .multilineTextAlignment(.center)
+
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: setPlanCollapsed ? 204 : 152)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.setPR.opacity(0.08))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .strokeBorder(Color.setPR.opacity(0.4), lineWidth: 1.5)
+                        )
+                )
+            } else {
             // Fixed header row with labels
             HStack(spacing: 12) {
                 Button {
@@ -2437,106 +2425,110 @@ struct CheckInView: View {
                 .frame(height: 8)
                 .allowsHitTesting(false)
             }
+            }
         }
     }
 
     private var effortOptionsContent: some View {
         VStack(spacing: 8) {
-            // 3-column sortable header
-            HStack(spacing: 0) {
-                effortColumnButton(title: "WEIGHT", column: .weight)
-                effortColumnButton(title: "REPS", column: .reps)
-                effortColumnButton(title: "e1RM %", column: .percent1RM)
-            }
-            .frame(height: 24)
-            .padding(.horizontal, 12)
-
-            ZStack(alignment: .bottom) {
-                ScrollViewReader { proxy in
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 8) {
-                            ForEach(Array(effortSuggestions.enumerated()), id: \.element.id) { index, suggestion in
-                                EffortOptionCard(
-                                    suggestion: suggestion,
-                                    isSelected: isEffortOptionSelected(suggestion),
-                                    sortColumn: effortSortColumn,
-                                    columnHighlighted: effortColumnHighlighted,
-                                    accentColor: (effortMode ?? .easy).tileColor
-                                )
-                                .onTapGesture {
-                                    hapticFeedback.impactOccurred()
-                                    selectEffortOption(suggestion)
-                                }
-                                .id(index == 0 ? "effortTop" : nil)
-                            }
-                        }
-                        .padding(.bottom, 8)
-                    }
-                    .frame(height: setPlanCollapsed ? 172 : 120)
-                    .onChange(of: effortSortColumn) { _, _ in
-                        withAnimation { proxy.scrollTo("effortTop", anchor: .top) }
-                    }
-                    .onChange(of: effortSortAscending) { _, _ in
-                        withAnimation { proxy.scrollTo("effortTop", anchor: .top) }
-                    }
+            if effortSuggestions.isEmpty {
+                // Starter suggestion when e1RM is too low
+                starterSuggestionCard
+            } else {
+                // 3-column sortable header
+                HStack(spacing: 0) {
+                    effortColumnButton(title: "WEIGHT", column: .weight)
+                    effortColumnButton(title: "REPS", column: .reps)
+                    effortColumnButton(title: "e1RM %", column: .percent1RM)
                 }
+                .frame(height: 24)
+                .padding(.horizontal, 12)
 
-                LinearGradient(
-                    colors: [
-                        Color(white: 0.14).opacity(0),
-                        Color(white: 0.14).opacity(0.8),
-                        Color(white: 0.14)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 8)
-                .allowsHitTesting(false)
+                ZStack(alignment: .bottom) {
+                    ScrollViewReader { proxy in
+                        ScrollView(.vertical, showsIndicators: false) {
+                            VStack(spacing: 8) {
+                                ForEach(Array(effortSuggestions.enumerated()), id: \.element.id) { index, suggestion in
+                                    EffortOptionCard(
+                                        suggestion: suggestion,
+                                        isSelected: isEffortOptionSelected(suggestion),
+                                        sortColumn: effortSortColumn,
+                                        columnHighlighted: effortColumnHighlighted,
+                                        accentColor: (effortMode ?? .easy).tileColor
+                                    )
+                                    .onTapGesture {
+                                        hapticFeedback.impactOccurred()
+                                        selectEffortOption(suggestion)
+                                    }
+                                    .id(index == 0 ? "effortTop" : nil)
+                                }
+                            }
+                            .padding(.bottom, 8)
+                        }
+                        .frame(height: setPlanCollapsed ? 172 : 120)
+                        .onChange(of: effortSortColumn) { _, _ in
+                            withAnimation { proxy.scrollTo("effortTop", anchor: .top) }
+                        }
+                        .onChange(of: effortSortAscending) { _, _ in
+                            withAnimation { proxy.scrollTo("effortTop", anchor: .top) }
+                        }
+                    }
+
+                    LinearGradient(
+                        colors: [
+                            Color(white: 0.14).opacity(0),
+                            Color(white: 0.14).opacity(0.8),
+                            Color(white: 0.14)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 8)
+                    .allowsHitTesting(false)
+                }
             }
         }
     }
 
+    private var starterSuggestionCard: some View {
+        let accentColor = (effortMode ?? .easy).tileColor
+        let effortLabel = (effortMode ?? .easy).chipLabel.lowercased()
+        let message = setsForSelected.isEmpty
+            ? "Log your first set to unlock suggestions"
+            : "Lift with load to unlock \(effortLabel)"
+        return VStack(spacing: 0) {
+            Spacer()
+
+            Image("LiftTheBullIcon")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 48, height: 48)
+                .foregroundStyle(.white.opacity(0.15))
+
+            Spacer()
+                .frame(height: 16)
+
+            Text(message)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white.opacity(0.5))
+                .multilineTextAlignment(.center)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: setPlanCollapsed ? 204 : 152)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(accentColor.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(accentColor.opacity(0.4), lineWidth: 1.5)
+                )
+        )
+    }
+
     private var logSetSection: some View {
         VStack(spacing: 8) {
-            // Bodyweight row for Bodyweight + Single Load exercises
-            if selectedExercises?.exerciseLoadType == .bodySingleLoad {
-                HStack(spacing: 6) {
-                    Text("BW")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.5))
-                    if let bw = userProperties.bodyweight {
-                        Text("\(bw.rounded1().formatted(.number.precision(.fractionLength(1)))) lbs")
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.7))
-                    } else {
-                        Button {
-                            showBodyweightCapture = true
-                        } label: {
-                            Text("Set")
-                                .font(.caption2)
-                                .foregroundStyle(Color.appAccent)
-                        }
-                    }
-                    Spacer()
-                    Button {
-                        weightModifierIsPlus.toggle()
-                        hapticFeedback.impactOccurred()
-                    } label: {
-                        Text(weightModifierIsPlus ? "+" : "−")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(.black)
-                            .frame(width: 28, height: 20)
-                            .background(Color.appAccent)
-                            .cornerRadius(5)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 4)
-                .background(Color(white: 0.12))
-                .cornerRadius(8)
-            }
-
             HStack(spacing: 8) {
                 // Weight with increment/decrement
                 HStack(spacing: 8) {
@@ -2812,27 +2804,8 @@ struct CheckInView: View {
         let exercise: Exercises?
         let reps: Int
         let weight: Double
-        let isBaseline: Bool
         let onConfirm: () -> Void
         let onCancel: () -> Void
-        let onBaselineConfirm: ((Int) -> Void)?
-        var bodyweight: Double? = nil
-        var weightModifierIsPlus: Bool = true
-
-        private var totalWeight: Double {
-            if let bw = bodyweight, exercise?.exerciseLoadType == .bodySingleLoad {
-                return weightModifierIsPlus ? (bw + weight) : (bw - weight)
-            }
-            return weight
-        }
-
-        private var weightText: String {
-            if let bw = bodyweight, exercise?.exerciseLoadType == .bodySingleLoad {
-                let op = weightModifierIsPlus ? "+" : "−"
-                return "\(bw.rounded1().formatted(.number.precision(.fractionLength(1)))) \(op) \(weight.rounded1().formatted(.number.precision(.fractionLength(2)))) = \(totalWeight.rounded1().formatted(.number.precision(.fractionLength(1)))) lbs"
-            }
-            return "\(weight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs"
-        }
 
         var body: some View {
             ZStack {
@@ -2858,7 +2831,7 @@ struct CheckInView: View {
                     // Set details in a compact pill
                     HStack(spacing: 16) {
                         HStack(spacing: 6) {
-                            Text(weightText)
+                            Text("\(weight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
                                 .font(.bebasNeue(size: 22))
                                 .foregroundStyle(.white)
                         }
@@ -2891,39 +2864,33 @@ struct CheckInView: View {
                         .frame(height: 1)
                         .padding(.horizontal, 4)
 
-                    if isBaseline {
-                        // Baseline mode: RIR selection via slider
-                        BaselineRIRSlider(onBaselineConfirm: onBaselineConfirm)
-                    } else {
-                        // Normal mode: Cancel/Confirm buttons
-                        HStack(spacing: 10) {
-                            Button {
-                                onCancel()
-                            } label: {
-                                Text("Cancel")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(.white.opacity(0.8))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                    .background(Color(white: 0.2))
-                                    .cornerRadius(10)
-                            }
-                            .buttonStyle(.plain)
-
-                            Button {
-                                onConfirm()
-                            } label: {
-                                Text("Confirm")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(.black)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                    .background(Color.appAccent)
-                                    .cornerRadius(10)
-                                    .shadow(color: Color.appAccent.opacity(0.3), radius: 8)
-                            }
-                            .buttonStyle(.plain)
+                    HStack(spacing: 10) {
+                        Button {
+                            onCancel()
+                        } label: {
+                            Text("Cancel")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.8))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(Color(white: 0.2))
+                                .cornerRadius(10)
                         }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            onConfirm()
+                        } label: {
+                            Text("Confirm")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.black)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(Color.appAccent)
+                                .cornerRadius(10)
+                                .shadow(color: Color.appAccent.opacity(0.3), radius: 8)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(24)
@@ -2953,51 +2920,6 @@ struct CheckInView: View {
         }
     }
 
-    private struct BaselineRIRSlider: View {
-        let onBaselineConfirm: ((Int) -> Void)?
-        @State private var rir: Double = 3
-        @State private var lastHapticValue: Int = 3
-
-        var body: some View {
-            VStack(spacing: 12) {
-                (Text("How many ")
-                    + Text("more").foregroundColor(Color.appAccent).bold()
-                    + Text(" reps could you have done?"))
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .multilineTextAlignment(.center)
-
-                Text("\(Int(rir))")
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(.white)
-
-                Slider(value: $rir, in: 0...10, step: 1)
-                    .tint(Color.appAccent)
-                    .onChange(of: rir) { _, newValue in
-                        let rounded = Int(newValue)
-                        if rounded != lastHapticValue {
-                            lastHapticValue = rounded
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        }
-                    }
-                    .padding(.bottom, 12)
-
-                Button {
-                    onBaselineConfirm?(Int(rir))
-                } label: {
-                    Text("Confirm")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Color.appAccent)
-                        .cornerRadius(10)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
     private func createExercise(name: String, loadType: ExerciseLoadType, movementType: ExerciseMovementType, icon: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -3010,7 +2932,7 @@ struct CheckInView: View {
         Task { await SyncService.shared.syncExercise(ex) }
     }
 
-    private func saveExercise(_ exercise: Exercises, name: String, movementType: ExerciseMovementType, icon: String, notes: String?, setPlan: [String]) {
+    private func saveExercise(_ exercise: Exercises, name: String, movementType: ExerciseMovementType, icon: String, notes: String?, setPlan: [String], setPlanTemplateId: UUID?) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
@@ -3019,6 +2941,7 @@ struct CheckInView: View {
         exercise.exerciseMovementType = movementType
         exercise.notes = notes
         exercise.setPlan = setPlan
+        exercise.setPlanTemplateId = setPlanTemplateId
         try? modelContext.save()
 
         // Sync edited exercise to backend
@@ -3064,9 +2987,6 @@ struct CheckInView: View {
         reps = 8
         if setsForSelected.isEmpty {
             weight = 20.0
-        } else if selectedExercises?.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
-            // For BW+SL, default to additional weight (total minus bodyweight)
-            weight = max(0, (current1RM * 0.8).rounded() - bw)
         } else {
             weight = (current1RM * 0.8).rounded()
         }
@@ -3098,11 +3018,7 @@ struct CheckInView: View {
             hasSetReps = true
         }
         if let weightValue = selectedSetData.weight {
-            if selectedExercises?.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
-                weight = max(0, weightValue - bw)
-            } else {
-                weight = weightValue
-            }
+            weight = weightValue
             hasSetInitialValues = true
             hasSetWeight = true
         }
@@ -3110,28 +3026,15 @@ struct CheckInView: View {
     }
 
     private func isOptionSelected(_ suggestion: OneRMCalculator.Suggestion) -> Bool {
-        // Check if current Log Set values match this suggestion
-        let effectiveWeight: Double
-        if selectedExercises?.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
-            effectiveWeight = weight + bw
-        } else {
-            effectiveWeight = weight
-        }
-        return effectiveWeight == suggestion.weight && reps == suggestion.reps
+        return weight == suggestion.weight && reps == suggestion.reps
     }
 
     private var logSetMatchesOption: Bool {
         guard hasSelectedOption else { return false }
-        let effectiveWeight: Double
-        if selectedExercises?.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
-            effectiveWeight = weight + bw
-        } else {
-            effectiveWeight = weight
-        }
         if effortMode == .progress || effortMode == nil {
-            return filteredSuggestions.contains { $0.weight == effectiveWeight && $0.reps == reps }
+            return filteredSuggestions.contains { $0.weight == weight && $0.reps == reps }
         } else {
-            return effortSuggestions.contains { $0.weight == effectiveWeight && $0.reps == reps }
+            return effortSuggestions.contains { $0.weight == weight && $0.reps == reps }
         }
     }
 
@@ -3240,12 +3143,7 @@ struct CheckInView: View {
 
     private func selectOption(_ suggestion: OneRMCalculator.Suggestion) {
         reps = suggestion.reps
-        // For BW+SL, suggestion.weight is total — convert to additional weight
-        if selectedExercises?.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
-            weight = max(0, suggestion.weight - bw)
-        } else {
-            weight = suggestion.weight
-        }
+        weight = suggestion.weight
         hasSetInitialValues = true
         hasSetWeight = true
         hasSetReps = true
@@ -3254,12 +3152,7 @@ struct CheckInView: View {
 
     private func selectEffortOption(_ suggestion: OneRMCalculator.EffortSuggestion) {
         reps = suggestion.reps
-        // For BW+SL, suggestion.weight is total — convert to additional weight
-        if selectedExercises?.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
-            weight = max(0, suggestion.weight - bw)
-        } else {
-            weight = suggestion.weight
-        }
+        weight = suggestion.weight
         hasSetInitialValues = true
         hasSetWeight = true
         hasSetReps = true
@@ -3267,13 +3160,7 @@ struct CheckInView: View {
     }
 
     private func isEffortOptionSelected(_ suggestion: OneRMCalculator.EffortSuggestion) -> Bool {
-        let effectiveWeight: Double
-        if selectedExercises?.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
-            effectiveWeight = weight + bw
-        } else {
-            effectiveWeight = weight
-        }
-        return effectiveWeight == suggestion.weight && reps == suggestion.reps
+        return weight == suggestion.weight && reps == suggestion.reps
     }
 
     private func formatShortDate(_ date: Date) -> String {
@@ -3295,18 +3182,7 @@ struct CheckInView: View {
 
         let before = current1RM
 
-        // For Bodyweight + Single Load: store total weight (bodyweight ± additional)
-        let storedWeight: Double
-        if ex.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
-            storedWeight = weightModifierIsPlus ? (bw + weight) : (bw - weight)
-        } else {
-            storedWeight = weight
-        }
-
-        let set = LiftSets(exercise: ex, reps: reps, weight: storedWeight)
-        if ex.exerciseLoadType == .bodySingleLoad {
-            set.bodyweightUsed = userProperties.bodyweight
-        }
+        let set = LiftSets(exercise: ex, reps: reps, weight: weight)
         modelContext.insert(set)
 
         let newEstimate = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
@@ -3342,25 +3218,35 @@ struct CheckInView: View {
         if increased {
             overlayIntensityColor = .setPR
             overlayIntensityLabel = "PR"
-        } else if storedWeight == 0 {
-            // Bodyweight exercise with no weight - color by reps
-            switch reps {
-            case 12...:
-                overlayIntensityColor = .setNearMax
-                overlayIntensityLabel = "Redline"
-            case 9..<12:
-                overlayIntensityColor = .setHard
-                overlayIntensityLabel = "Hard"
-            case 6..<9:
-                overlayIntensityColor = .setModerate
-                overlayIntensityLabel = "Moderate"
-            default:
-                overlayIntensityColor = .setEasy
-                overlayIntensityLabel = "Easy"
+        } else if weight == 0 {
+            // Check for rep-based PR on zero-weight sets
+            let previousMaxReps = setsForExercise
+                .filter { $0.id != set.id && $0.weight == 0 }
+                .map(\.reps)
+                .max() ?? 0
+            if reps > previousMaxReps {
+                overlayIntensityColor = .setPR
+                overlayIntensityLabel = "PR"
+            } else {
+                // Not a rep PR — color by reps
+                switch reps {
+                case 12...:
+                    overlayIntensityColor = .setNearMax
+                    overlayIntensityLabel = "Redline"
+                case 9..<12:
+                    overlayIntensityColor = .setHard
+                    overlayIntensityLabel = "Hard"
+                case 6..<9:
+                    overlayIntensityColor = .setModerate
+                    overlayIntensityLabel = "Moderate"
+                default:
+                    overlayIntensityColor = .setEasy
+                    overlayIntensityLabel = "Easy"
+                }
             }
         } else {
             // Weighted exercise - color by percent1RM
-            let percent1RM = before > 0 ? OneRMCalculator.estimate1RM(weight: storedWeight, reps: reps) / before : 0
+            let percent1RM = before > 0 ? OneRMCalculator.estimate1RM(weight: weight, reps: reps) / before : 0
             let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: percent1RM)
             overlayIntensityLabel = (bucket == .pr) ? "Redline" : bucket.rawValue
             switch bucket {
@@ -3399,79 +3285,6 @@ struct CheckInView: View {
             }
         }
     }
-
-    private func logBaselineSet(rir: Int) {
-        guard let ex = selectedExercises else { return }
-
-        // For Bodyweight + Single Load: store total weight (bodyweight ± additional)
-        let storedWeight: Double
-        if ex.exerciseLoadType == .bodySingleLoad, let bw = userProperties.bodyweight {
-            storedWeight = weightModifierIsPlus ? (bw + weight) : (bw - weight)
-        } else {
-            storedWeight = weight
-        }
-
-        let set = LiftSets(exercise: ex, reps: reps, weight: storedWeight)
-        if ex.exerciseLoadType == .bodySingleLoad {
-            set.bodyweightUsed = userProperties.bodyweight
-        }
-        set.isBaselineSet = true
-        set.rir = rir
-        modelContext.insert(set)
-
-        let rirAdjusted1RM = OneRMCalculator.estimate1RMWithRIR(
-            weight: set.weight, reps: set.reps, rir: rir
-        )
-        baseline1RM = rirAdjusted1RM
-
-        let estimated = Estimated1RMs(exercise: ex, value: rirAdjusted1RM, setId: set.id)
-        modelContext.insert(estimated)
-
-        Task {
-            await SyncService.shared.syncLiftSet(set)
-            await SyncService.shared.syncEstimated1RM(estimated)
-        }
-
-        // Refresh local data after logging
-        fetchDataForExercise(ex.id)
-        refreshTodaySetCounts()
-
-        overlayDidIncrease = false
-        overlayDelta = 0
-        overlayNew1RM = rirAdjusted1RM
-
-        // Baseline sets always show white
-        overlayIntensityColor = .white
-        overlayIntensityLabel = "Baseline"
-
-        // Show overlay immediately, then clear/advance effort mode afterward
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-            showSubmitOverlay = true
-        }
-
-        DispatchQueue.main.async {
-            selectedPlanTileIndex = nil
-            highlightPlanTile(nil)
-            hasSelectedOption = false
-            withAnimation { effortMode = nil }
-
-            DispatchQueue.main.async {
-                if let next = nextPlannedEffortMode {
-                    withAnimation { effortMode = next }
-                }
-            }
-        }
-
-        Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            await MainActor.run {
-                withAnimation(.easeOut(duration: 0.18)) {
-                    showSubmitOverlay = false
-                }
-            }
-        }
-    }
-
 
     private func highlightPlanTile(_ index: Int?) {
         highlightDismissTask?.cancel()
@@ -3688,19 +3501,24 @@ struct NewExerciseFormView: View {
 
 struct EditExerciseFormView: View {
     let exercise: Exercises
-    let onSave: (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?, _ setPlan: [String]) -> Void
+    let onSave: (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?, _ setPlan: [String], _ setPlanTemplateId: UUID?) -> Void
     let onDelete: ((_ exercise: Exercises) -> Void)?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+
+    @Query(filter: #Predicate<SetPlanTemplate> { !$0.deleted }) private var allTemplates: [SetPlanTemplate]
 
     @State private var name: String
     @State private var movementType: ExerciseMovementType
     @State private var icon: String
     @State private var notesInput: String
     @State private var setPlan: [String]
+    @State private var setPlanTemplateId: UUID?
     @State private var showDeleteSection = false
     @State private var showDeleteConfirmation = false
     @State private var deleteConfirmationChecked = false
     @State private var showNotesCopied = false
+    @State private var showTemplatePicker = false
 
     private let maxNameLength = 25
     private let maxNotesLength = 500
@@ -3710,13 +3528,17 @@ struct EditExerciseFormView: View {
 
     /// Whether this view is shown inside a NavigationStack (push) or standalone sheet
     let showBackChevron: Bool
+    /// If the active split has a set plan override, describes it (e.g. "PPL is overriding (Deload)")
+    let splitOverrideInfo: String?
 
     init(exercise: Exercises,
          showBackChevron: Bool = true,
-         onSave: @escaping (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?, _ setPlan: [String]) -> Void,
+         splitOverrideInfo: String? = nil,
+         onSave: @escaping (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?, _ setPlan: [String], _ setPlanTemplateId: UUID?) -> Void,
          onDelete: ((_ exercise: Exercises) -> Void)? = nil) {
         self.exercise = exercise
         self.showBackChevron = showBackChevron
+        self.splitOverrideInfo = splitOverrideInfo
         self.onSave = onSave
         self.onDelete = onDelete
         self._name = State(initialValue: exercise.name)
@@ -3724,6 +3546,21 @@ struct EditExerciseFormView: View {
         self._icon = State(initialValue: exercise.icon)
         self._notesInput = State(initialValue: exercise.notes ?? "")
         self._setPlan = State(initialValue: exercise.setPlan)
+        self._setPlanTemplateId = State(initialValue: exercise.setPlanTemplateId)
+    }
+
+    private var selectedTemplate: SetPlanTemplate? {
+        guard let id = setPlanTemplateId else { return nil }
+        return allTemplates.first(where: { $0.id == id })
+    }
+
+    private var isCustomSetPlan: Bool {
+        setPlanTemplateId == nil
+    }
+
+    /// True when the set plan squares should be interactive (Freeform or a user-created template)
+    private var isEditableSetPlan: Bool {
+        isCustomSetPlan || (selectedTemplate != nil && !selectedTemplate!.isBuiltIn)
     }
 
     private var hasUnsavedChanges: Bool {
@@ -3733,8 +3570,14 @@ struct EditExerciseFormView: View {
         let notesChanged = notesInput != (exercise.notes ?? "")
         let movementTypeChanged = movementType != exercise.exerciseMovementType
         let sequenceChanged = setPlan != exercise.setPlan
+        let templateChanged = setPlanTemplateId != exercise.setPlanTemplateId
         guard !trimmedName.isEmpty else { return false }
-        return nameChanged || iconChanged || notesChanged || movementTypeChanged || sequenceChanged
+        return nameChanged || iconChanged || notesChanged || movementTypeChanged || sequenceChanged || templateChanged
+    }
+
+    private func saveAndSyncTemplate(_ template: SetPlanTemplate) {
+        try? modelContext.save()
+        Task { await SyncService.shared.syncSetPlanTemplate(template) }
     }
 
     var body: some View {
@@ -3766,8 +3609,15 @@ struct EditExerciseFormView: View {
 
                 Button {
                     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-                    onSave(exercise, trimmed, movementType, icon, notesInput.isEmpty ? nil : notesInput, setPlan)
+                    let currentPlan = setPlan
+                    let currentTemplateId = setPlanTemplateId
+                    let currentMovement = movementType
+                    let currentIcon = icon
+                    let currentNotes = notesInput.isEmpty ? nil : notesInput
                     dismiss()
+                    DispatchQueue.main.async {
+                        onSave(exercise, trimmed, currentMovement, currentIcon, currentNotes, currentPlan, currentTemplateId)
+                    }
                 } label: {
                     Text("Save")
                         .font(.subheadline.weight(.semibold))
@@ -3813,60 +3663,117 @@ struct EditExerciseFormView: View {
                         }
                     }
 
-                    // Set Plan editor
+                    // Set Plan template picker
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Set Plan")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.7))
+                        HStack(spacing: 0) {
+                            Text("Set Plan")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.7))
+                            if let info = splitOverrideInfo {
+                                Text(" — \(info)")
+                                    .font(.subheadline.italic())
+                                    .foregroundStyle(.white.opacity(0.35))
+                            }
+                            Spacer()
+                            Button {
+                                showTemplatePicker = true
+                            } label: {
+                                Image(systemName: "square.stack")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                            .buttonStyle(.plain)
+                        }
 
-                        Text("Tap to cycle effort level. Long-press to remove.")
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.4))
+                        // Template selector button
+                        Button {
+                            showTemplatePicker = true
+                        } label: {
+                            HStack {
+                                Text(selectedTemplate?.name ?? "Freeform")
+                                    .foregroundStyle(.white)
+                                Spacer()
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.5))
+                            }
+                            .padding(14)
+                            .background(Color(white: 0.08))
+                            .cornerRadius(10)
+                        }
+                        .buttonStyle(.plain)
 
+                        // Preview of current sequence
+                        let previewSequence = selectedTemplate?.effortSequence ?? setPlan
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 6) {
-                                ForEach(Array(setPlan.enumerated()), id: \.offset) { index, effort in
-                                    SequenceSquareView(effort: effort)
-                                        .onTapGesture {
-                                            let levels = Self.effortLevels
-                                            if let current = levels.firstIndex(of: effort) {
-                                                setPlan[index] = levels[(current + 1) % levels.count]
-                                            } else {
-                                                setPlan[index] = "easy"
+                                ForEach(Array(previewSequence.enumerated()), id: \.offset) { index, effort in
+                                    if isEditableSetPlan {
+                                        SequenceSquareView(effort: effort)
+                                            .onTapGesture {
+                                                let levels = Self.effortLevels
+                                                let next = levels[((levels.firstIndex(of: effort) ?? 0) + 1) % levels.count]
+                                                if isCustomSetPlan {
+                                                    setPlan[index] = next
+                                                } else if let template = selectedTemplate {
+                                                    template.effortSequence[index] = next
+                                                    saveAndSyncTemplate(template)
+                                                }
+                                                hapticFeedback.impactOccurred()
                                             }
-                                            hapticFeedback.impactOccurred()
-                                        }
-                                        .onLongPressGesture {
-                                            guard setPlan.count > 1 else { return }
-                                            setPlan.remove(at: index)
-                                            hapticFeedback.impactOccurred()
-                                        }
+                                            .onLongPressGesture {
+                                                if isCustomSetPlan {
+                                                    guard setPlan.count > 1 else { return }
+                                                    setPlan.remove(at: index)
+                                                } else if let template = selectedTemplate {
+                                                    guard template.effortSequence.count > 1 else { return }
+                                                    template.effortSequence.remove(at: index)
+                                                    saveAndSyncTemplate(template)
+                                                }
+                                                hapticFeedback.impactOccurred()
+                                            }
+                                    } else {
+                                        SequenceSquareView(effort: effort)
+                                    }
                                 }
 
-                                // Add button
-                                Button {
-                                    setPlan.append("easy")
-                                    hapticFeedback.impactOccurred()
-                                } label: {
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(Color(white: 0.15))
-                                        .frame(width: 42, height: 42)
-                                        .overlay(
-                                            Image(systemName: "plus")
-                                                .font(.system(size: 16, weight: .semibold))
-                                                .foregroundStyle(.white.opacity(0.5))
-                                        )
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 6)
-                                                .stroke(Color.white.opacity(0.2), lineWidth: 1.5)
-                                        )
+                                if isEditableSetPlan {
+                                    // Add button for custom editing
+                                    Button {
+                                        if isCustomSetPlan {
+                                            setPlan.append("easy")
+                                        } else if let template = selectedTemplate {
+                                            template.effortSequence.append("easy")
+                                            saveAndSyncTemplate(template)
+                                        }
+                                        hapticFeedback.impactOccurred()
+                                    } label: {
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(Color(white: 0.15))
+                                            .frame(width: 42, height: 42)
+                                            .overlay(
+                                                Image(systemName: "plus")
+                                                    .font(.system(size: 16, weight: .semibold))
+                                                    .foregroundStyle(.white.opacity(0.5))
+                                            )
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 6)
+                                                    .stroke(Color.white.opacity(0.2), lineWidth: 1.5)
+                                            )
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
                             }
                             .padding(.vertical, 2)
                             .padding(.horizontal, 2)
                         }
                         .frame(height: 46)
+
+                        if isEditableSetPlan {
+                            Text("Tap to cycle effort level. Long-press to remove.")
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(0.4))
+                        }
 
                         // Legend
                         HStack(spacing: 8) {
@@ -3881,6 +3788,17 @@ struct EditExerciseFormView: View {
                                 }
                             }
                         }
+                    }
+                    .sheet(isPresented: $showTemplatePicker) {
+                        SetPlanTemplatePickerView(
+                            selectedTemplateId: $setPlanTemplateId,
+                            onCustomSelected: {
+                                setPlanTemplateId = nil
+                            }
+                        )
+                        .presentationDetents([.medium, .large])
+                        .presentationContentInteraction(.scrolls)
+                        .presentationDragIndicator(.visible)
                     }
 
                     // Load type (read-only)
@@ -3898,38 +3816,54 @@ struct EditExerciseFormView: View {
                             .foregroundStyle(.white.opacity(0.6))
                     }
 
-                    // Movement Type Picker
+                    // Movement Type
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Movement Type")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.white.opacity(0.7))
 
-                        Menu {
-                            ForEach(ExerciseMovementType.allCases, id: \.self) { type in
-                                Button {
-                                    movementType = type
-                                } label: {
-                                    HStack {
-                                        Text(type.rawValue)
-                                        if movementType == type {
-                                            Image(systemName: "checkmark")
+                        if exercise.isCustom {
+                            Menu {
+                                ForEach(ExerciseMovementType.allCases, id: \.self) { type in
+                                    Button {
+                                        movementType = type
+                                    } label: {
+                                        HStack {
+                                            Text(type.rawValue)
+                                            if movementType == type {
+                                                Image(systemName: "checkmark")
+                                            }
                                         }
                                     }
                                 }
+                            } label: {
+                                HStack {
+                                    Text(movementType.rawValue)
+                                        .foregroundStyle(.white)
+                                    Spacer()
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .font(.caption)
+                                        .foregroundStyle(.white.opacity(0.5))
+                                }
+                                .padding(14)
+                                .background(Color(white: 0.08))
+                                .cornerRadius(10)
                             }
-                        } label: {
-                            HStack {
-                                Text(movementType.rawValue)
-                                    .foregroundStyle(.white)
-                                Spacer()
-                                Image(systemName: "chevron.up.chevron.down")
-                                    .font(.caption)
-                                    .foregroundStyle(.white.opacity(0.5))
-                            }
-                            .padding(14)
-                            .background(Color(white: 0.08))
-                            .cornerRadius(10)
+                        } else {
+                            Text(movementType.rawValue)
+                                .font(.body)
+                                .padding(14)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color(white: 0.08))
+                                .cornerRadius(10)
+                                .foregroundStyle(.white.opacity(0.6))
                         }
+                    }
+
+                    if !exercise.isCustom {
+                        Text("Load type and movement type are set by default and can't be changed.")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.4))
                     }
 
                     // Icon Picker
@@ -4103,8 +4037,9 @@ struct EditExerciseFormView: View {
 struct ExercisesSelectionView: View {
     let exercises: [Exercises]
     @Binding var selectedExercisesId: UUID?
+    let splitOverrideInfo: String?
     let onExerciseCreated: (_ name: String, _ loadType: ExerciseLoadType, _ movementType: ExerciseMovementType, _ icon: String) -> Void
-    let onExerciseSaved: (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?, _ setPlan: [String]) -> Void
+    let onExerciseSaved: (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?, _ setPlan: [String], _ setPlanTemplateId: UUID?) -> Void
     let onExerciseDeleted: (_ exercise: Exercises) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -4148,7 +4083,7 @@ struct ExercisesSelectionView: View {
                 VStack(spacing: 0) {
                     // Header with title and add button
                     HStack {
-                        Text("Select Exercise")
+                        Text("Exercise Catalog")
                             .font(.title2.weight(.bold))
                             .foregroundStyle(.white)
 
@@ -4304,8 +4239,9 @@ struct ExercisesSelectionView: View {
                     if let exercise = exercises.first(where: { $0.id == exerciseId }) {
                         EditExerciseFormView(
                             exercise: exercise,
-                            onSave: { exercise, name, movementType, icon, notes, setPlan in
-                                onExerciseSaved(exercise, name, movementType, icon, notes, setPlan)
+                            splitOverrideInfo: splitOverrideInfo,
+                            onSave: { exercise, name, movementType, icon, notes, setPlan, setPlanTemplateId in
+                                onExerciseSaved(exercise, name, movementType, icon, notes, setPlan, setPlanTemplateId)
                             },
                             onDelete: { exercise in
                                 onExerciseDeleted(exercise)
@@ -4534,7 +4470,6 @@ struct SequenceSquareView: View {
         case "hard": return .setHard
         case "redline": return .setNearMax
         case "pr": return .setPR
-        case "baseline": return .white
         default: return .setEasy
         }
     }
@@ -4554,7 +4489,7 @@ struct SequenceSquareView: View {
 }
 
 struct ProgressOptionsEmptyState: View {
-    var message: String = "Log your first set below"
+    var message: String? = "Log your first set below"
 
     var body: some View {
         ZStack {
@@ -4579,11 +4514,13 @@ struct ProgressOptionsEmptyState: View {
                     .foregroundStyle(Color.appLogoColor)
                     .shadow(color: Color.appLogoColor.opacity(0.3), radius: 14, x: 0, y: 0)
 
-                Text(message)
-                    .font(.interSemiBold(size: 16))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 6)
+                if let message {
+                    Text(message)
+                        .font(.interSemiBold(size: 16))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 6)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

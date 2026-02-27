@@ -21,11 +21,26 @@ struct OneRMProgressionChart: View {
         } else {
             Chart {
                 ForEach(dataPoints) { point in
+                    AreaMark(
+                        x: .value("Date", point.date),
+                        y: .value("1RM", point.value)
+                    )
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [Color.appAccent.opacity(0.18), Color.appAccent.opacity(0.0)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .interpolationMethod(.catmullRom)
+
                     LineMark(
                         x: .value("Date", point.date),
                         y: .value("1RM", point.value)
                     )
                     .foregroundStyle(Color.appAccent)
+                    .interpolationMethod(.catmullRom)
+                    .lineStyle(StrokeStyle(lineWidth: 2))
 
                     if point.isPR {
                         PointMark(
@@ -37,20 +52,23 @@ struct OneRMProgressionChart: View {
                     }
                 }
             }
+            .chartYScale(domain: .automatic(includesZero: false))
             .chartXAxis {
-                AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+                AxisMarks(values: .automatic(desiredCount: 3)) { _ in
                     AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                        .foregroundStyle(Color.white.opacity(0.1))
+                        .foregroundStyle(Color.white.opacity(0.08))
                     AxisValueLabel()
-                        .foregroundStyle(Color.white.opacity(0.5))
+                        .font(.inter(size: 9))
+                        .foregroundStyle(Color.white.opacity(0.4))
                 }
             }
             .chartYAxis {
                 AxisMarks(position: .leading) { _ in
                     AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                        .foregroundStyle(Color.white.opacity(0.1))
+                        .foregroundStyle(Color.white.opacity(0.08))
                     AxisValueLabel()
-                        .foregroundStyle(Color.white.opacity(0.5))
+                        .font(.inter(size: 9))
+                        .foregroundStyle(Color.white.opacity(0.4))
                 }
             }
             .frame(height: 180)

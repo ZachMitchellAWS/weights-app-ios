@@ -100,6 +100,7 @@ enum OneRMCalculator {
             for reps in repRange {
                 let rawWeight = targetE1RM * 30.0 / (30.0 + Double(reps))
                 let rounded = max(0, (rawWeight / increment).rounded() * increment)
+                guard rounded >= increment else { continue }
                 let key = "\(rounded)-\(reps)"
                 guard seen.insert(key).inserted else { continue }
                 let actualPct = estimate1RM(weight: rounded, reps: reps) / current1RM * 100.0

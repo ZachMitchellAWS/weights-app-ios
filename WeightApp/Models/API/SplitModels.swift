@@ -9,6 +9,7 @@ struct SplitDTO: Codable {
     let createdTimezone: String
     let createdDatetime: Date?
     let deleted: Bool?
+    let setPlanTemplateId: UUID?
 
     init(from split: WorkoutSplit) {
         self.splitId = split.id
@@ -17,15 +18,17 @@ struct SplitDTO: Codable {
         self.createdTimezone = split.createdTimezone
         self.createdDatetime = split.createdAt
         self.deleted = split.deleted
+        self.setPlanTemplateId = split.setPlanTemplateId
     }
 
-    init(splitId: UUID, name: String, dayIds: [UUID], createdTimezone: String, createdDatetime: Date? = nil, deleted: Bool? = nil) {
+    init(splitId: UUID, name: String, dayIds: [UUID], createdTimezone: String, createdDatetime: Date? = nil, deleted: Bool? = nil, setPlanTemplateId: UUID? = nil) {
         self.splitId = splitId
         self.name = name
         self.dayIds = dayIds
         self.createdTimezone = createdTimezone
         self.createdDatetime = createdDatetime
         self.deleted = deleted
+        self.setPlanTemplateId = setPlanTemplateId
     }
 }
 
