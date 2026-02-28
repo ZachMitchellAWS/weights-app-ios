@@ -24,6 +24,7 @@ final class UserProperties {
     var moderateMaxReps: Int = 10
     var hardMinReps: Int = 3
     var hardMaxReps: Int = 6
+    var activeSetPlanTemplateId: UUID?
 
     init() {
         self.id = UserProperties.singletonID
@@ -37,6 +38,7 @@ final class UserProperties {
         self.moderateMaxReps = UserProperties.defaultModerateMaxReps
         self.hardMinReps = UserProperties.defaultHardMinReps
         self.hardMaxReps = UserProperties.defaultHardMaxReps
+        self.activeSetPlanTemplateId = nil
     }
 
     static let defaultAvailableChangePlates: [Double] = [2.5]

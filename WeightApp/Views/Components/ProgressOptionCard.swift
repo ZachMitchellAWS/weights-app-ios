@@ -65,7 +65,7 @@ struct ProgressOptionCard: View {
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(isSelected ? accentColor.opacity(0.12) : Color(white: 0.16))
+                .fill(isSelected ? accentColor.opacity(0.08) : Color.clear)
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
                         .strokeBorder(isSelected ? accentColor : Color.white.opacity(0.15), lineWidth: isSelected ? 2 : 1)
@@ -128,7 +128,7 @@ struct EffortOptionCard: View {
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(isSelected ? accentColor.opacity(0.12) : Color(white: 0.16))
+                .fill(isSelected ? accentColor.opacity(0.08) : Color.clear)
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
                         .strokeBorder(isSelected ? accentColor : Color.white.opacity(0.15), lineWidth: isSelected ? 2 : 1)

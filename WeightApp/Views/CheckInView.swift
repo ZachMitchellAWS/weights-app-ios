@@ -47,20 +47,20 @@ struct CheckInView: View {
     @State private var repsInput: String = ""
     @State private var showLogConfirmation = false
     @State private var weightDelta: Double = 5.0
-    @State private var showExercisesSelection = false
+    @State private var showHub = false
+    @State private var hubSection: HubSection = .exercises
+    @State private var hubDeepLinkExerciseId: UUID?
     @State private var selectedSquareId: UUID? = nil
-    @State private var showEditExerciseName = false
+    @State private var sessionScrollTarget: UUID? = nil
     @State private var showNoExercisesAlert = false
     @State private var isRetryingSync = false
     @State private var showIncrementSelection = false
     @State private var showExpandedProgressOptions = false
     @State private var showExerciseSelectedOverlay = false
     @State private var exerciseOverlayDismissTask: Task<Void, Never>?
-    @State private var showSplitEditor = false
     @State private var activeSplitId: UUID? = WorkoutSequenceStore.activeSplitId()
     @State private var activeSequenceId: UUID? = WorkoutSequenceStore.activeSequenceId()
     @State private var repRangeDebounceTask: Task<Void, Never>?
-    @State private var setPlanCollapsed = true
     @State private var showE1RMPopup = false
 
     enum EffortMode: Int, CaseIterable {
@@ -189,18 +189,6 @@ struct CheckInView: View {
         return allSplits.first(where: { $0.id == id })
     }
 
-    private var splitOverrideTemplateName: String? {
-        guard let split = activeSplit, let templateId = split.setPlanTemplateId,
-              let template = allTemplates.first(where: { $0.id == templateId }) else { return nil }
-        return template.name
-    }
-
-    private var splitOverrideInfo: String? {
-        guard let split = activeSplit, let templateId = split.setPlanTemplateId,
-              let template = allTemplates.first(where: { $0.id == templateId }) else { return nil }
-        return "Split is currently overriding (\(template.name))"
-    }
-
     private var daysForActiveSplit: [WorkoutSequence] {
         guard let split = activeSplit else { return [] }
         let seqMap = Dictionary(uniqueKeysWithValues: allSequences.map { ($0.id, $0) })
@@ -236,24 +224,13 @@ struct CheckInView: View {
         estimated1RMsForExercise
     }
 
+    private var activeSetPlanTemplate: SetPlanTemplate? {
+        guard let templateId = userProperties.activeSetPlanTemplateId else { return nil }
+        return allTemplates.first(where: { $0.id == templateId })
+    }
+
     private var displaySetPlan: [String] {
-        guard let exercise = selectedExercises else { return [] }
-
-        // Priority 1: Active split has a template override
-        if let split = activeSplit, let splitTemplateId = split.setPlanTemplateId,
-           let template = allTemplates.first(where: { $0.id == splitTemplateId }) {
-            return template.effortSequence
-        }
-
-        // Priority 2: Exercise has a template
-        if let templateId = exercise.setPlanTemplateId,
-           let template = allTemplates.first(where: { $0.id == templateId }) {
-            return template.effortSequence
-        }
-
-        // Priority 3: Fallback to inline setPlan
-        guard !exercise.setPlan.isEmpty else { return [] }
-        return exercise.setPlan
+        activeSetPlanTemplate?.effortSequence ?? []
     }
 
     private var nextPlannedEffortMode: EffortMode? {
@@ -750,57 +727,33 @@ struct CheckInView: View {
                     .presentationDetents([.height(480)])
                     .presentationDragIndicator(.visible)
             }
-            .sheet(isPresented: $showExercisesSelection) {
-                ExercisesSelectionView(
+            .sheet(isPresented: $showHub, onDismiss: {
+                activeSplitId = WorkoutSequenceStore.activeSplitId()
+                hubDeepLinkExerciseId = nil
+                hubSection = .exercises  // Reset so next open detects the change
+            }) {
+                HubView(
                     exercises: exercises,
                     selectedExercisesId: $selectedExercisesId,
-                    splitOverrideInfo: splitOverrideInfo,
+                    selectedSection: $hubSection,
+                    deepLinkExerciseId: hubDeepLinkExerciseId,
                     onExerciseCreated: { name, loadType, movementType, icon in
                         createExercise(name: name, loadType: loadType, movementType: movementType, icon: icon)
                     },
-                    onExerciseSaved: { exercise, name, movementType, icon, notes, setPlan, setPlanTemplateId in
-                        saveExercise(exercise, name: name, movementType: movementType, icon: icon, notes: notes, setPlan: setPlan, setPlanTemplateId: setPlanTemplateId)
+                    onExerciseSaved: { exercise, name, movementType, icon, notes in
+                        saveExercise(exercise, name: name, movementType: movementType, icon: icon, notes: notes)
                     },
                     onExerciseDeleted: { exercise in
                         deleteExercise(exercise)
-                        showExercisesSelection = false
+                        showHub = false
                     }
                 )
-                .presentationDetents([.height(480), .large])
+                .presentationDetents([.large])
                 .presentationContentInteraction(.scrolls)
-                .interactiveDismissDisabled(false)
                 .presentationDragIndicator(.visible)
             }
-                .sheet(isPresented: $showEditExerciseName) {
-                    if let ex = selectedExercises {
-                        NavigationStack {
-                            EditExerciseFormView(
-                                exercise: ex,
-                                showBackChevron: false,
-                                splitOverrideInfo: splitOverrideInfo,
-                                onSave: { exercise, name, movementType, icon, notes, setPlan, setPlanTemplateId in
-                                    saveExercise(exercise, name: name, movementType: movementType, icon: icon, notes: notes, setPlan: setPlan, setPlanTemplateId: setPlanTemplateId)
-                                },
-                                onDelete: { exercise in
-                                    deleteExercise(exercise)
-                                }
-                            )
-                        }
-                        .presentationDetents([.height(480), .large])
-                        .presentationContentInteraction(.scrolls)
-                        .presentationDragIndicator(.visible)
-                    }
-                }
                 .sheet(isPresented: $showIncrementSelection) {
                     AvailableChangePlatesView()
-                        .presentationDetents([.height(480), .large])
-                        .presentationContentInteraction(.scrolls)
-                        .presentationDragIndicator(.visible)
-                }
-                .sheet(isPresented: $showSplitEditor, onDismiss: {
-                    activeSplitId = WorkoutSequenceStore.activeSplitId()
-                }) {
-                    SplitEditorView(exercises: exercises)
                         .presentationDetents([.height(480), .large])
                         .presentationContentInteraction(.scrolls)
                         .presentationDragIndicator(.visible)
@@ -1282,7 +1235,9 @@ struct CheckInView: View {
                 // Split-editor button (stationary)
                 Button {
                     hapticFeedback.impactOccurred()
-                    showSplitEditor = true
+                    hubSection = .splits
+                    hubDeepLinkExerciseId = nil
+                    showHub = true
                 } label: {
                     HStack(spacing: 6) {
                         Image("LiftTheBullIcon")
@@ -1379,7 +1334,7 @@ struct CheckInView: View {
                 // Exercise selection button (stationary)
                 Button {
                     hapticFeedback.impactOccurred()
-                    showExercisesSelection = true
+                    hubSection = .exercises; hubDeepLinkExerciseId = nil; showHub = true
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "square.grid.2x2.fill")
@@ -1446,7 +1401,7 @@ struct CheckInView: View {
                                     .onEnded { _ in
                                         hapticFeedback.impactOccurred()
                                         selectedExercisesId = exercise.id
-                                        showEditExerciseName = true
+                                        hubSection = .exercises; hubDeepLinkExerciseId = exercise.id; showHub = true
                                     }
                             )
                             .id(exercise.id)
@@ -1508,10 +1463,10 @@ struct CheckInView: View {
             // Center — Exercise name (always centered in widget)
             Button {
                 hapticFeedback.impactOccurred()
-                if selectedExercises != nil {
-                    showEditExerciseName = true
+                if let ex = selectedExercises {
+                    hubSection = .exercises; hubDeepLinkExerciseId = ex.id; showHub = true
                 } else {
-                    showExercisesSelection = true
+                    hubSection = .exercises; hubDeepLinkExerciseId = nil; showHub = true
                 }
             } label: {
                 if let ex = selectedExercises {
@@ -1533,10 +1488,10 @@ struct CheckInView: View {
 
             HStack(spacing: 0) {
                 // Left — Detail button
-                if selectedExercises != nil {
+                if let ex = selectedExercises {
                     Button {
                         hapticFeedback.impactOccurred()
-                        showEditExerciseName = true
+                        hubSection = .exercises; hubDeepLinkExerciseId = ex.id; showHub = true
                     } label: {
                         Image(systemName: "slider.horizontal.3")
                             .font(.system(size: 11, weight: .semibold))
@@ -1591,80 +1546,78 @@ struct CheckInView: View {
         VStack(spacing: 0) {
             selectedExerciseRow
 
-            // Separator
-            Rectangle()
-                .fill(Color.white.opacity(0.06))
-                .frame(height: 1)
-                .padding(.horizontal, 12)
+            // Session zone (set plan + sets)
+            VStack(spacing: 0) {
+                setComparisonView
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, selectedExercises == nil ? 4 : 8)
+            .frame(height: selectedExercises == nil ? 60 : nil)
+            .background {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(white: 0.11))
+            }
+            .padding(.horizontal, 4)
+            .padding(.top, 10)
 
-            // Sets comparison (set squares + plan tiles)
-            setComparisonView
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
+            // Options container (flex to fill remaining space)
+            VStack(spacing: 0) {
+                // Effort chips + expand button inline
+                HStack(spacing: 8) {
+                    effortChipSelector
 
-            // Separator (hidden when no exercise selected, matching Set Options visibility)
-            Rectangle()
-                .fill(Color.white.opacity(0.06))
-                .frame(height: 1)
-                .padding(.horizontal, 12)
-                .opacity(selectedExercises != nil ? 1 : 0)
-
-            // Set Options label + effort chips (always rendered for consistent height)
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    HStack(spacing: 0) {
-                        Text("Set Options")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.7))
-                        Text(" — Pick your next set")
-                            .font(.caption.italic())
-                            .foregroundStyle(.white.opacity(0.35))
-                    }
-                    Spacer()
                     Button {
                         hapticFeedback.impactOccurred()
-                        if let mode = effortMode {
-                            if mode == .progress {
-                                showExpandedProgressOptions = true
-                            } else {
-                                showExpandedEffortOptions = true
+                        let mode = effortMode ?? .easy
+                        if mode == .progress {
+                            showExpandedProgressOptions = true
+                        } else {
+                            if effortMode == nil {
+                                withAnimation { effortMode = .easy }
                             }
+                            showExpandedEffortOptions = true
                         }
                     } label: {
                         Image(systemName: "arrow.up.backward.and.arrow.down.forward")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.white.opacity(0.5))
-                            .padding(6)
-                            .background(Color(white: 0.12))
-                            .cornerRadius(8)
-                    }
-                    .opacity(effortMode != nil ? 1 : 0)
-                    .allowsHitTesting(effortMode != nil)
+                            .frame(width: 30, height: 30)
+                            .background(Color(white: 0.16))
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
                 }
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+                .opacity(selectedExercises != nil && !setsForSelected.isEmpty ? 1 : 0)
+                .allowsHitTesting(selectedExercises != nil && !setsForSelected.isEmpty)
 
-                effortChipSelector
+                // Options section
+                optionsSection
+
+                // Legend
+                HStack(spacing: 10) {
+                    LegendItem(color: .setEasy, label: "Easy")
+                    LegendItem(color: .setModerate, label: "Moderate")
+                    LegendItem(color: .setHard, label: "Hard")
+                    LegendItem(color: .setNearMax, label: "Redline")
+                    LegendItem(color: .setPR, label: "e1RM ↑")
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 2)
+                .padding(.bottom, 12)
+                .opacity(!setsForSelected.isEmpty ? 1 : 0)
+                .layoutPriority(1)
             }
-            .padding(.horizontal, 16)
+            .frame(maxHeight: .infinity)
+            .background {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(white: 0.11))
+            }
+            .padding(.horizontal, 4)
             .padding(.top, 10)
-            .opacity(selectedExercises != nil ? 1 : 0)
-            .allowsHitTesting(selectedExercises != nil)
-
-            // Options section (no card wrapper)
-            optionsSection
-
-            // Legend (below options content, always rendered for consistent height)
-            HStack(spacing: 10) {
-                LegendItem(color: .setEasy, label: "Easy")
-                LegendItem(color: .setModerate, label: "Moderate")
-                LegendItem(color: .setHard, label: "Hard")
-                LegendItem(color: .setNearMax, label: "Redline")
-                LegendItem(color: .setPR, label: "e1RM ↑")
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 2)
             .padding(.bottom, 8)
-            .opacity(!setsForSelected.isEmpty ? 1 : 0)
         }
+        .frame(height: 420)
         .background(
             LinearGradient(
                 colors: [Color(white: 0.18), Color(white: 0.14)],
@@ -1698,9 +1651,16 @@ struct CheckInView: View {
                 onRepRangeChanged: { scheduleRepRangeSync() },
                 onSelect: { suggestion in
                     selectOption(suggestion)
+                },
+                onSwitchMode: { newMode in
+                    showExpandedProgressOptions = false
+                    withAnimation { effortMode = newMode }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        showExpandedEffortOptions = true
+                    }
                 }
             )
-            .presentationDetents([.height(480), .large])
+            .presentationDetents([.large])
             .presentationContentInteraction(.scrolls)
             .presentationDragIndicator(.visible)
         }
@@ -1747,9 +1707,20 @@ struct CheckInView: View {
                 onRepRangeChanged: { scheduleRepRangeSync() },
                 onSelect: { suggestion in
                     selectEffortOption(suggestion)
+                },
+                onSwitchMode: { newMode in
+                    showExpandedEffortOptions = false
+                    withAnimation { effortMode = newMode }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        if newMode == .progress {
+                            showExpandedProgressOptions = true
+                        } else {
+                            showExpandedEffortOptions = true
+                        }
+                    }
                 }
             )
-            .presentationDetents([.height(400), .large])
+            .presentationDetents([.large])
             .presentationContentInteraction(.scrolls)
             .presentationDragIndicator(.visible)
         }
@@ -1942,158 +1913,141 @@ struct CheckInView: View {
     }
 
     private var setComparisonView: some View {
-        let placeholderSquares: [[Color]] = [
-            [.setEasy, .setModerate, .setHard, .setPR, .setNearMax, .setHard, .setModerate],
-            [.setModerate, .setHard, .setNearMax, .setPR, .setHard, .setModerate, .setEasy]
-        ]
+        let standardSequence = SetPlanTemplate.builtInTemplates.first(where: { $0.id == SetPlanTemplate.standardId })?.sequence ?? ["easy", "moderate", "moderate", "hard", "pr"]
 
         return Group {
-            if todaysSets.isEmpty && (selectedExercises?.setPlan.isEmpty ?? true) {
-                // Empty state — mirrors non-empty branch layout for consistent height
-                VStack(alignment: .leading, spacing: 10) {
-                    // Matches "Set Plan" label height
-                    Text(" ")
-                        .font(.caption.weight(.semibold))
-                        .opacity(0)
-
-                    // Placeholder grid centered in "Sets Today" area
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(" ")
-                            .font(.caption.weight(.semibold))
-                            .opacity(0)
-
-                        ZStack {
-                            VStack(spacing: 16) {
-                                ForEach(0..<placeholderSquares.count, id: \.self) { row in
-                                    HStack(spacing: 10) {
-                                        ForEach(0..<placeholderSquares[row].count, id: \.self) { col in
-                                            let color = placeholderSquares[row][col]
-                                            RoundedRectangle(cornerRadius: 6)
-                                                .fill(color.opacity(0.3))
-                                                .frame(width: 36, height: 36)
-                                                .overlay(
-                                                    RoundedRectangle(cornerRadius: 6)
-                                                        .stroke(color.opacity(0.5), lineWidth: 1.5)
-                                                )
-                                        }
-                                    }
-                                }
+            if selectedExercises == nil {
+                // Empty state — colorful placeholder tiles
+                let placeholderSequence = ["easy", "easy", "moderate", "moderate", "hard", "hard", "pr"]
+                VStack {
+                    Spacer()
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(Array(placeholderSequence.enumerated()), id: \.offset) { _, effort in
+                                let color = SequenceSquareView.color(for: effort)
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(color.opacity(0.35))
+                                    .frame(width: 42, height: 42)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .stroke(color.opacity(0.6), lineWidth: 1.5)
+                                    )
                             }
                         }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 46)
+                        .padding(.vertical, 2)
+                        .padding(.horizontal, 2)
                     }
-
+                    .frame(height: 46)
+                    .scrollIndicators(.hidden)
+                    .allowsHitTesting(false)
                     Spacer()
-                        .frame(height: 8)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 10) {
-                    // Set Plan
-                    VStack(alignment: .leading, spacing: 6) {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                setPlanCollapsed.toggle()
+                    // Set Plan — compact Menu + mini sequence preview + edit button
+                    HStack(spacing: 8) {
+                        // Active template label with Menu to switch (includes "None" option)
+                        Menu {
+                            let sorted = allTemplates.sorted {
+                                if $0.isBuiltIn != $1.isBuiltIn { return $0.isBuiltIn }
+                                return $0.createdAt < $1.createdAt
+                            }
+                            ForEach(sorted) { t in
+                                Button {
+                                    hapticFeedback.impactOccurred()
+                                    userProperties.activeSetPlanTemplateId = t.id
+                                    try? modelContext.save()
+                                    Task { await SyncService.shared.updateActiveSetPlanTemplate(t.id) }
+                                } label: {
+                                    Label(t.name, systemImage: userProperties.activeSetPlanTemplateId == t.id ? "checkmark" : "")
+                                }
+                            }
+                            Divider()
+                            Button {
+                                hapticFeedback.impactOccurred()
+                                userProperties.activeSetPlanTemplateId = nil
+                                try? modelContext.save()
+                                Task { await SyncService.shared.updateActiveSetPlanTemplate(nil) }
+                            } label: {
+                                Label("None", systemImage: activeSetPlanTemplate == nil ? "checkmark" : "")
                             }
                         } label: {
-                            HStack(spacing: 0) {
-                                Text("Set Plan")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.white.opacity(0.7))
-                                if !setPlanCollapsed {
-                                    Text(" — Recommended sequence of sets. See ")
-                                        .font(.caption.italic())
-                                        .foregroundStyle(.white.opacity(0.35))
-                                    Image(systemName: "slider.horizontal.3")
-                                        .font(.system(size: 9, weight: .semibold))
-                                        .foregroundStyle(.white.opacity(0.35))
-                                        .frame(width: 18, height: 18)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 5)
-                                                .fill(Color.white.opacity(0.08))
-                                        )
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 5)
-                                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                                        )
-                                }
-                                Spacer()
-                                Image(systemName: setPlanCollapsed ? "chevron.right" : "chevron.down")
-                                    .font(.caption2)
-                                    .foregroundStyle(.white.opacity(0.35))
+                            HStack(spacing: 4) {
+                                Text(activeSetPlanTemplate != nil ? "\(activeSetPlanTemplate!.name) Session" : "– –")
+                                    .font(.inter(size: 11))
+                                    .lineLimit(1)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 7, weight: .bold))
                             }
-                            .padding(.vertical, 10)
-                            .contentShape(Rectangle())
-                            .padding(.vertical, -10)
+                            .foregroundStyle(.white.opacity(0.5))
+                            .padding(.horizontal, 8)
+                            .frame(height: 22)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color(white: 0.12)))
+                        }
+
+                        // Mini sequence preview squares
+                        if !displaySetPlan.isEmpty {
+                            let currentIndex = todaysSets.count
+                            let pastPlan = currentIndex >= displaySetPlan.count
+                            HStack(spacing: 3) {
+                                ForEach(Array(displaySetPlan.enumerated()), id: \.offset) { index, effort in
+                                    RoundedRectangle(cornerRadius: 2.5)
+                                        .fill(SequenceSquareView.color(for: effort).opacity(pastPlan || index == currentIndex ? 0.6 : 0.25))
+                                        .frame(width: 9, height: 9)
+                                }
+                            }
+                        }
+
+                        Spacer()
+
+                        // Edit button → opens Hub Set Plans tab
+                        Button {
+                            hapticFeedback.impactOccurred()
+                            hubSection = .setPlans
+                            hubDeepLinkExerciseId = nil
+                            showHub = true
+                        } label: {
+                            Image(systemName: "square.stack")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.35))
                         }
                         .buttonStyle(.plain)
-
-                        if !setPlanCollapsed {
-                            if !displaySetPlan.isEmpty {
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 6) {
-                                        ForEach(Array(displaySetPlan.enumerated()), id: \.offset) { index, effort in
-                                            SequenceSquareView(effort: effort, isHighlighted: highlightedPlanTileIndex == index)
-                                                .opacity(setsForSelected.isEmpty ? 0.25 : (index == todaysSets.count ? 1.0 : 0.4))
-                                                .onTapGesture {
-                                                    guard !setsForSelected.isEmpty else { return }
-                                                    hapticFeedback.impactOccurred()
-                                                    selectedPlanTileIndex = index
-                                                    highlightPlanTile(index)
-                                                    withAnimation {
-                                                        effortMode = EffortMode.from(effort: effort)
-                                                    }
-                                                }
-                                        }
-                                    }
-                                    .allowsHitTesting(!setsForSelected.isEmpty)
-                                    .padding(.vertical, 2)
-                                    .padding(.horizontal, 2)
-                                }
-                                .frame(height: 46)
-                            } else {
-                                Spacer()
-                                    .frame(height: 42)
-                            }
-                        }
                     }
 
-                    // Sets Today
+                    // Session
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Sets Today")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.7))
-
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                ForEach(Array(todaysSets.enumerated()), id: \.element.id) { index, set in
-                                    SetSquareView(
-                                        set: set,
-                                        allSets: setsForExercise,
-                                        currentWeight: weight,
-                                        currentReps: reps,
-                                        hasSetValues: hasSetInitialValues,
-                                        selectedSquareId: selectedSquareId,
-                                        allEstimated1RMs: estimated1RMsForExercise,
-                                        onDelete: {
-                                            if let id = selectedExercisesId {
-                                                fetchDataForExercise(id)
+                        ScrollViewReader { sessionProxy in
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 6) {
+                                    ForEach(Array(todaysSets.enumerated()), id: \.element.id) { index, set in
+                                        SetSquareView(
+                                            set: set,
+                                            allSets: setsForExercise,
+                                            currentWeight: weight,
+                                            currentReps: reps,
+                                            hasSetValues: hasSetInitialValues,
+                                            selectedSquareId: selectedSquareId,
+                                            allEstimated1RMs: estimated1RMsForExercise,
+                                            onDelete: {
+                                                if let id = selectedExercisesId {
+                                                    fetchDataForExercise(id)
+                                                }
+                                                refreshTodaySetCounts()
                                             }
-                                            refreshTodaySetCounts()
-                                        }
-                                    )
-                                    .onTapGesture {
-                                        weight = set.weight
-                                        reps = set.reps
-                                        hasSetInitialValues = true
-                                        hasSetWeight = true
-                                        hasSetReps = true
-                                        selectedSquareId = set.id
+                                        )
+                                        .id(set.id)
+                                        .onTapGesture {
+                                            weight = set.weight
+                                            reps = set.reps
+                                            hasSetInitialValues = true
+                                            hasSetWeight = true
+                                            hasSetReps = true
+                                            selectedSquareId = set.id
 
-                                        hapticFeedback.impactOccurred()
-                                        Task {
-                                            try? await Task.sleep(nanoseconds: 300_000_000)
-                                            await MainActor.run {
+                                            hapticFeedback.impactOccurred()
+                                            Task {
+                                                try? await Task.sleep(nanoseconds: 300_000_000)
+                                                await MainActor.run {
                                                     selectedSquareId = nil
                                                 }
                                             }
@@ -2111,14 +2065,26 @@ struct CheckInView: View {
                                             let effortKey = planIndex < displaySetPlan.count ? displaySetPlan[planIndex] : "easy"
                                             let color = SequenceSquareView.color(for: effortKey)
                                             let isNext = (i == 0)
+                                            let isHighlighted = highlightedPlanTileIndex == planIndex
                                             RoundedRectangle(cornerRadius: 6)
                                                 .fill(Color.clear)
                                                 .frame(width: 42, height: 42)
                                                 .overlay(
                                                     RoundedRectangle(cornerRadius: 6)
-                                                        .stroke(isNext ? color.opacity(0.7) : Color.white.opacity(0.2), lineWidth: isNext ? 2 : 1.5)
+                                                        .stroke(isHighlighted ? color : (isNext ? color.opacity(0.7) : Color.white.opacity(0.2)), lineWidth: isHighlighted ? 2.5 : (isNext ? 2 : 1.5))
                                                 )
+                                                .shadow(color: isHighlighted ? color.opacity(0.5) : .clear, radius: 4)
+                                                .onTapGesture {
+                                                    guard !setsForSelected.isEmpty else { return }
+                                                    hapticFeedback.impactOccurred()
+                                                    selectedPlanTileIndex = planIndex
+                                                    highlightPlanTile(planIndex)
+                                                    withAnimation {
+                                                        effortMode = EffortMode.from(effort: effortKey)
+                                                    }
+                                                }
                                         }
+                                        .allowsHitTesting(!setsForSelected.isEmpty)
                                     } else {
                                         // Plan exhausted — static outline for overflow sets
                                         RoundedRectangle(cornerRadius: 6)
@@ -2134,6 +2100,16 @@ struct CheckInView: View {
                                 .padding(.horizontal, 2)
                             }
                             .frame(height: 46)
+                            .scrollIndicators(.hidden)
+                            .onChange(of: sessionScrollTarget) { _, target in
+                                if let target {
+                                    withAnimation {
+                                        sessionProxy.scrollTo(target, anchor: .trailing)
+                                    }
+                                    sessionScrollTarget = nil
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -2181,7 +2157,7 @@ struct CheckInView: View {
                         .frame(height: 30)
                         .background(
                             RoundedRectangle(cornerRadius: 10)
-                                .fill(isSelected ? mode.tileColor.opacity(0.2) : Color(white: 0.10))
+                                .fill(isSelected ? mode.tileColor.opacity(0.2) : Color(white: 0.16))
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 10)
@@ -2216,24 +2192,22 @@ struct CheckInView: View {
                 }
             } else if selectedExercises == nil {
                 Button {
-                    showExercisesSelection = true
+                    hubSection = .exercises; hubDeepLinkExerciseId = nil; showHub = true
                 } label: {
                     ProgressOptionsEmptyState(message: "Select an Exercise")
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 204)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             } else if setsForSelected.isEmpty {
                 ProgressOptionsEmptyState(message: "Log your first set")
-                    .frame(maxWidth: .infinity)
-                    .frame(height: setPlanCollapsed ? 204 : 152)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ProgressOptionsEmptyState(message: nil)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: setPlanCollapsed ? 204 : 152)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .frame(maxHeight: .infinity)
         .padding(.top, 6)
         .padding(.horizontal, 10)
         .padding(.bottom, 8)
@@ -2242,37 +2216,36 @@ struct CheckInView: View {
     private var progressOptionsContent: some View {
         VStack(spacing: 8) {
             if filteredSuggestions.isEmpty {
-                VStack(spacing: 0) {
-                    Spacer()
+                ZStack {
+                    RadialGradient(
+                        colors: [
+                            Color.setPR.opacity(0.08),
+                            Color.clear
+                        ],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: 80
+                    )
 
-                    Image("LiftTheBullIcon")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 48, height: 48)
-                        .foregroundStyle(.white.opacity(0.15))
+                    VStack(spacing: 14) {
+                        Image("LiftTheBullIcon")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 72, height: 72)
+                            .foregroundStyle(Color.setPR)
+                            .shadow(color: Color.setPR.opacity(0.3), radius: 14, x: 0, y: 0)
 
-                    Spacer()
-                        .frame(height: 16)
-
-                    Text(setsForSelected.isEmpty
-                        ? "Log your first set to see progress options"
-                        : "Lift with load to unlock progress options")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.5))
-                        .multilineTextAlignment(.center)
-
-                    Spacer()
+                        Text(setsForSelected.isEmpty
+                            ? "Log a Set to Unlock Progress Options"
+                            : "Lift with Load to Unlock Progress Options")
+                            .font(.bebasNeue(size: 20))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .padding(.top, 6)
+                    }
+                    .offset(y: 10)
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: setPlanCollapsed ? 204 : 152)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.setPR.opacity(0.08))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .strokeBorder(Color.setPR.opacity(0.4), lineWidth: 1.5)
-                        )
-                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
             // Fixed header row with labels
             HStack(spacing: 12) {
@@ -2400,7 +2373,7 @@ struct CheckInView: View {
                         }
                         .padding(.bottom, 8)
                     }
-                    .frame(height: setPlanCollapsed ? 172 : 120)
+                    .frame(maxHeight: .infinity)
                     .onChange(of: sortColumn) { _, _ in
                         withAnimation {
                             proxy.scrollTo("top", anchor: .top)
@@ -2465,7 +2438,7 @@ struct CheckInView: View {
                             }
                             .padding(.bottom, 8)
                         }
-                        .frame(height: setPlanCollapsed ? 172 : 120)
+                        .frame(maxHeight: .infinity)
                         .onChange(of: effortSortColumn) { _, _ in
                             withAnimation { proxy.scrollTo("effortTop", anchor: .top) }
                         }
@@ -2492,49 +2465,54 @@ struct CheckInView: View {
 
     private var starterSuggestionCard: some View {
         let accentColor = (effortMode ?? .easy).tileColor
-        let effortLabel = (effortMode ?? .easy).chipLabel.lowercased()
-        let message = setsForSelected.isEmpty
-            ? "Log your first set to unlock suggestions"
-            : "Lift with load to unlock \(effortLabel)"
-        return VStack(spacing: 0) {
-            Spacer()
+        let modeName: String = {
+            switch effortMode ?? .easy {
+            case .easy: return "Easy"
+            case .moderate: return "Moderate"
+            case .hard: return "Hard"
+            case .progress: return "Progress"
+            }
+        }()
+        return ZStack {
+            RadialGradient(
+                colors: [
+                    accentColor.opacity(0.08),
+                    Color.clear
+                ],
+                center: .center,
+                startRadius: 0,
+                endRadius: 80
+            )
 
-            Image("LiftTheBullIcon")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 48, height: 48)
-                .foregroundStyle(.white.opacity(0.15))
+            VStack(spacing: 14) {
+                Image("LiftTheBullIcon")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 72, height: 72)
+                    .foregroundStyle(accentColor)
+                    .shadow(color: accentColor.opacity(0.3), radius: 14, x: 0, y: 0)
 
-            Spacer()
-                .frame(height: 16)
-
-            Text(message)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white.opacity(0.5))
-                .multilineTextAlignment(.center)
-
-            Spacer()
+                Text(setsForSelected.isEmpty
+                    ? "Log a Set to Unlock \(modeName) Options"
+                    : "Lift with Load to Unlock \(modeName) Options")
+                    .font(.bebasNeue(size: 20))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 6)
+            }
+            .offset(y: 10)
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: setPlanCollapsed ? 204 : 152)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(accentColor.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(accentColor.opacity(0.4), lineWidth: 1.5)
-                )
-        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var logSetSection: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
             HStack(spacing: 8) {
                 // Weight with increment/decrement
                 HStack(spacing: 8) {
                     Button {
                         guard selectedExercises != nil else {
-                            showExercisesSelection = true
+                            hubSection = .exercises; hubDeepLinkExerciseId = nil; showHub = true
                             return
                         }
                         if !hasSetWeight {
@@ -2553,14 +2531,14 @@ struct CheckInView: View {
 
                     Button {
                         guard selectedExercises != nil else {
-                            showExercisesSelection = true
+                            hubSection = .exercises; hubDeepLinkExerciseId = nil; showHub = true
                             return
                         }
                         showWeightPicker = true
                     } label: {
                         VStack(spacing: 1) {
                             Text(hasSetWeight ? weight.rounded1().formatted(.number.precision(.fractionLength(2))) : "---")
-                                .font(.title2)
+                                .font(.title3)
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
@@ -2574,7 +2552,7 @@ struct CheckInView: View {
 
                     Button {
                         guard selectedExercises != nil else {
-                            showExercisesSelection = true
+                            hubSection = .exercises; hubDeepLinkExerciseId = nil; showHub = true
                             return
                         }
                         if !hasSetWeight {
@@ -2601,7 +2579,7 @@ struct CheckInView: View {
                 HStack(spacing: 8) {
                     Button {
                         guard selectedExercises != nil else {
-                            showExercisesSelection = true
+                            hubSection = .exercises; hubDeepLinkExerciseId = nil; showHub = true
                             return
                         }
                         hasSetInitialValues = true
@@ -2616,14 +2594,14 @@ struct CheckInView: View {
 
                     Button {
                         guard selectedExercises != nil else {
-                            showExercisesSelection = true
+                            hubSection = .exercises; hubDeepLinkExerciseId = nil; showHub = true
                             return
                         }
                         showRepsPicker = true
                     } label: {
                         VStack(spacing: 2) {
                             Text(hasSetReps ? "\(reps)" : "---")
-                                .font(.title2)
+                                .font(.title3)
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
@@ -2637,7 +2615,7 @@ struct CheckInView: View {
 
                     Button {
                         guard selectedExercises != nil else {
-                            showExercisesSelection = true
+                            hubSection = .exercises; hubDeepLinkExerciseId = nil; showHub = true
                             return
                         }
                         hasSetInitialValues = true
@@ -2661,7 +2639,7 @@ struct CheckInView: View {
             Button {
                 hapticFeedback.impactOccurred()
                 guard selectedExercises != nil else {
-                    showExercisesSelection = true
+                    hubSection = .exercises; hubDeepLinkExerciseId = nil; showHub = true
                     return
                 }
                 if !hasSetWeight {
@@ -2686,8 +2664,7 @@ struct CheckInView: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
-        .padding(.top, 16)
-        .padding(.bottom, 16)
+        .padding(.vertical, 12)
         .background(
             LinearGradient(
                 colors: [Color(white: 0.18), Color(white: 0.14)],
@@ -2932,7 +2909,7 @@ struct CheckInView: View {
         Task { await SyncService.shared.syncExercise(ex) }
     }
 
-    private func saveExercise(_ exercise: Exercises, name: String, movementType: ExerciseMovementType, icon: String, notes: String?, setPlan: [String], setPlanTemplateId: UUID?) {
+    private func saveExercise(_ exercise: Exercises, name: String, movementType: ExerciseMovementType, icon: String, notes: String?) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
@@ -2940,8 +2917,6 @@ struct CheckInView: View {
         exercise.icon = icon
         exercise.exerciseMovementType = movementType
         exercise.notes = notes
-        exercise.setPlan = setPlan
-        exercise.setPlanTemplateId = setPlanTemplateId
         try? modelContext.save()
 
         // Sync edited exercise to backend
@@ -2973,8 +2948,8 @@ struct CheckInView: View {
         modelContext.delete(exercise)
         try? modelContext.save()
 
-        // Close the edit sheet if open
-        showEditExerciseName = false
+        // Close the hub sheet if open
+        showHub = false
 
         // Select a different exercise
         selectedExercisesId = exercises.first(where: { $0.id != exercise.id })?.id
@@ -3205,10 +3180,8 @@ struct CheckInView: View {
         fetchDataForExercise(ex.id)
         refreshTodaySetCounts()
 
-        // Auto-expand set plan after first set
-        if setPlanCollapsed {
-            setPlanCollapsed = false
-        }
+        // Scroll session view to the newly logged set
+        sessionScrollTarget = set.id
 
         overlayDidIncrease = increased
         overlayDelta = d
@@ -3501,66 +3474,39 @@ struct NewExerciseFormView: View {
 
 struct EditExerciseFormView: View {
     let exercise: Exercises
-    let onSave: (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?, _ setPlan: [String], _ setPlanTemplateId: UUID?) -> Void
+    let onSave: (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void
     let onDelete: ((_ exercise: Exercises) -> Void)?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
-
-    @Query(filter: #Predicate<SetPlanTemplate> { !$0.deleted }) private var allTemplates: [SetPlanTemplate]
 
     @State private var name: String
     @State private var movementType: ExerciseMovementType
     @State private var icon: String
     @State private var notesInput: String
-    @State private var setPlan: [String]
-    @State private var setPlanTemplateId: UUID?
     @State private var showDeleteSection = false
     @State private var showDeleteConfirmation = false
     @State private var deleteConfirmationChecked = false
     @State private var showNotesCopied = false
-    @State private var showTemplatePicker = false
 
     private let maxNameLength = 25
     private let maxNotesLength = 500
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
 
-    private static let effortLevels = ["easy", "moderate", "hard", "redline", "pr"]
-
     /// Whether this view is shown inside a NavigationStack (push) or standalone sheet
     let showBackChevron: Bool
-    /// If the active split has a set plan override, describes it (e.g. "PPL is overriding (Deload)")
-    let splitOverrideInfo: String?
 
     init(exercise: Exercises,
          showBackChevron: Bool = true,
-         splitOverrideInfo: String? = nil,
-         onSave: @escaping (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?, _ setPlan: [String], _ setPlanTemplateId: UUID?) -> Void,
+         onSave: @escaping (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void,
          onDelete: ((_ exercise: Exercises) -> Void)? = nil) {
         self.exercise = exercise
         self.showBackChevron = showBackChevron
-        self.splitOverrideInfo = splitOverrideInfo
         self.onSave = onSave
         self.onDelete = onDelete
         self._name = State(initialValue: exercise.name)
         self._movementType = State(initialValue: exercise.exerciseMovementType)
         self._icon = State(initialValue: exercise.icon)
         self._notesInput = State(initialValue: exercise.notes ?? "")
-        self._setPlan = State(initialValue: exercise.setPlan)
-        self._setPlanTemplateId = State(initialValue: exercise.setPlanTemplateId)
-    }
-
-    private var selectedTemplate: SetPlanTemplate? {
-        guard let id = setPlanTemplateId else { return nil }
-        return allTemplates.first(where: { $0.id == id })
-    }
-
-    private var isCustomSetPlan: Bool {
-        setPlanTemplateId == nil
-    }
-
-    /// True when the set plan squares should be interactive (Freeform or a user-created template)
-    private var isEditableSetPlan: Bool {
-        isCustomSetPlan || (selectedTemplate != nil && !selectedTemplate!.isBuiltIn)
     }
 
     private var hasUnsavedChanges: Bool {
@@ -3569,15 +3515,8 @@ struct EditExerciseFormView: View {
         let iconChanged = icon != exercise.icon
         let notesChanged = notesInput != (exercise.notes ?? "")
         let movementTypeChanged = movementType != exercise.exerciseMovementType
-        let sequenceChanged = setPlan != exercise.setPlan
-        let templateChanged = setPlanTemplateId != exercise.setPlanTemplateId
         guard !trimmedName.isEmpty else { return false }
-        return nameChanged || iconChanged || notesChanged || movementTypeChanged || sequenceChanged || templateChanged
-    }
-
-    private func saveAndSyncTemplate(_ template: SetPlanTemplate) {
-        try? modelContext.save()
-        Task { await SyncService.shared.syncSetPlanTemplate(template) }
+        return nameChanged || iconChanged || notesChanged || movementTypeChanged
     }
 
     var body: some View {
@@ -3609,14 +3548,12 @@ struct EditExerciseFormView: View {
 
                 Button {
                     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let currentPlan = setPlan
-                    let currentTemplateId = setPlanTemplateId
                     let currentMovement = movementType
                     let currentIcon = icon
                     let currentNotes = notesInput.isEmpty ? nil : notesInput
                     dismiss()
                     DispatchQueue.main.async {
-                        onSave(exercise, trimmed, currentMovement, currentIcon, currentNotes, currentPlan, currentTemplateId)
+                        onSave(exercise, trimmed, currentMovement, currentIcon, currentNotes)
                     }
                 } label: {
                     Text("Save")
@@ -3661,144 +3598,6 @@ struct EditExerciseFormView: View {
                                 .foregroundStyle(.white.opacity(0.5))
                             Spacer()
                         }
-                    }
-
-                    // Set Plan template picker
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 0) {
-                            Text("Set Plan")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.7))
-                            if let info = splitOverrideInfo {
-                                Text(" — \(info)")
-                                    .font(.subheadline.italic())
-                                    .foregroundStyle(.white.opacity(0.35))
-                            }
-                            Spacer()
-                            Button {
-                                showTemplatePicker = true
-                            } label: {
-                                Image(systemName: "square.stack")
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                            .buttonStyle(.plain)
-                        }
-
-                        // Template selector button
-                        Button {
-                            showTemplatePicker = true
-                        } label: {
-                            HStack {
-                                Text(selectedTemplate?.name ?? "Freeform")
-                                    .foregroundStyle(.white)
-                                Spacer()
-                                Image(systemName: "chevron.up.chevron.down")
-                                    .font(.caption)
-                                    .foregroundStyle(.white.opacity(0.5))
-                            }
-                            .padding(14)
-                            .background(Color(white: 0.08))
-                            .cornerRadius(10)
-                        }
-                        .buttonStyle(.plain)
-
-                        // Preview of current sequence
-                        let previewSequence = selectedTemplate?.effortSequence ?? setPlan
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                ForEach(Array(previewSequence.enumerated()), id: \.offset) { index, effort in
-                                    if isEditableSetPlan {
-                                        SequenceSquareView(effort: effort)
-                                            .onTapGesture {
-                                                let levels = Self.effortLevels
-                                                let next = levels[((levels.firstIndex(of: effort) ?? 0) + 1) % levels.count]
-                                                if isCustomSetPlan {
-                                                    setPlan[index] = next
-                                                } else if let template = selectedTemplate {
-                                                    template.effortSequence[index] = next
-                                                    saveAndSyncTemplate(template)
-                                                }
-                                                hapticFeedback.impactOccurred()
-                                            }
-                                            .onLongPressGesture {
-                                                if isCustomSetPlan {
-                                                    guard setPlan.count > 1 else { return }
-                                                    setPlan.remove(at: index)
-                                                } else if let template = selectedTemplate {
-                                                    guard template.effortSequence.count > 1 else { return }
-                                                    template.effortSequence.remove(at: index)
-                                                    saveAndSyncTemplate(template)
-                                                }
-                                                hapticFeedback.impactOccurred()
-                                            }
-                                    } else {
-                                        SequenceSquareView(effort: effort)
-                                    }
-                                }
-
-                                if isEditableSetPlan {
-                                    // Add button for custom editing
-                                    Button {
-                                        if isCustomSetPlan {
-                                            setPlan.append("easy")
-                                        } else if let template = selectedTemplate {
-                                            template.effortSequence.append("easy")
-                                            saveAndSyncTemplate(template)
-                                        }
-                                        hapticFeedback.impactOccurred()
-                                    } label: {
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .fill(Color(white: 0.15))
-                                            .frame(width: 42, height: 42)
-                                            .overlay(
-                                                Image(systemName: "plus")
-                                                    .font(.system(size: 16, weight: .semibold))
-                                                    .foregroundStyle(.white.opacity(0.5))
-                                            )
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 6)
-                                                    .stroke(Color.white.opacity(0.2), lineWidth: 1.5)
-                                            )
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                            .padding(.vertical, 2)
-                            .padding(.horizontal, 2)
-                        }
-                        .frame(height: 46)
-
-                        if isEditableSetPlan {
-                            Text("Tap to cycle effort level. Long-press to remove.")
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(0.4))
-                        }
-
-                        // Legend
-                        HStack(spacing: 8) {
-                            ForEach(Self.effortLevels, id: \.self) { level in
-                                HStack(spacing: 3) {
-                                    Circle()
-                                        .fill(SequenceSquareView.color(for: level))
-                                        .frame(width: 8, height: 8)
-                                    Text(level == "pr" ? "e1RM ↑" : level.capitalized)
-                                        .font(.caption2)
-                                        .foregroundStyle(.white.opacity(0.5))
-                                }
-                            }
-                        }
-                    }
-                    .sheet(isPresented: $showTemplatePicker) {
-                        SetPlanTemplatePickerView(
-                            selectedTemplateId: $setPlanTemplateId,
-                            onCustomSelected: {
-                                setPlanTemplateId = nil
-                            }
-                        )
-                        .presentationDetents([.medium, .large])
-                        .presentationContentInteraction(.scrolls)
-                        .presentationDragIndicator(.visible)
                     }
 
                     // Load type (read-only)
@@ -4037,21 +3836,16 @@ struct EditExerciseFormView: View {
 struct ExercisesSelectionView: View {
     let exercises: [Exercises]
     @Binding var selectedExercisesId: UUID?
-    let splitOverrideInfo: String?
+    var initialDeepLinkExerciseId: UUID? = nil
     let onExerciseCreated: (_ name: String, _ loadType: ExerciseLoadType, _ movementType: ExerciseMovementType, _ icon: String) -> Void
-    let onExerciseSaved: (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?, _ setPlan: [String], _ setPlanTemplateId: UUID?) -> Void
+    let onExerciseSaved: (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void
     let onExerciseDeleted: (_ exercise: Exercises) -> Void
-    @Environment(\.dismiss) private var dismiss
 
     @State private var navigationPath = NavigationPath()
+    @State private var hasAppliedDeepLink = false
     @State private var searchText = ""
     @State private var collapsedSections: Set<ExerciseMovementType> = []
     @FocusState private var isSearchFocused: Bool
-
-    private let columns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12)
-    ]
 
     private var filteredExercises: [Exercises] {
         if searchText.isEmpty {
@@ -4199,17 +3993,20 @@ struct ExercisesSelectionView: View {
                                         }
                                         .buttonStyle(.plain)
 
-                                        // Exercise cards
+                                        // Exercise rows
                                         if !collapsedSections.contains(movementType) {
-                                            LazyVGrid(columns: columns, spacing: 12) {
+                                            VStack(spacing: 8) {
                                                 ForEach(sectionExercises) { exercise in
-                                                    ExercisesCardButton(
+                                                    ExerciseRowView(
                                                         exercise: exercise,
                                                         isSelected: selectedExercisesId == exercise.id,
                                                         onSelect: {
                                                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                                            selectedExercisesId = exercise.id
-                                                            dismiss()
+                                                            if selectedExercisesId == exercise.id {
+                                                                selectedExercisesId = nil
+                                                            } else {
+                                                                selectedExercisesId = exercise.id
+                                                            }
                                                         },
                                                         onEdit: {
                                                             navigationPath.append(ExerciseNavDestination.editExercise(exerciseId: exercise.id))
@@ -4239,9 +4036,8 @@ struct ExercisesSelectionView: View {
                     if let exercise = exercises.first(where: { $0.id == exerciseId }) {
                         EditExerciseFormView(
                             exercise: exercise,
-                            splitOverrideInfo: splitOverrideInfo,
-                            onSave: { exercise, name, movementType, icon, notes, setPlan, setPlanTemplateId in
-                                onExerciseSaved(exercise, name, movementType, icon, notes, setPlan, setPlanTemplateId)
+                            onSave: { exercise, name, movementType, icon, notes in
+                                onExerciseSaved(exercise, name, movementType, icon, notes)
                             },
                             onDelete: { exercise in
                                 onExerciseDeleted(exercise)
@@ -4250,50 +4046,69 @@ struct ExercisesSelectionView: View {
                     }
                 }
             }
+            .onAppear {
+                if !hasAppliedDeepLink, let deepLinkId = initialDeepLinkExerciseId {
+                    hasAppliedDeepLink = true
+                    navigationPath.append(ExerciseNavDestination.editExercise(exerciseId: deepLinkId))
+                }
+            }
         }
     }
 }
 
-struct ExercisesCardButton: View {
+struct ExerciseRowView: View {
     let exercise: Exercises
     let isSelected: Bool
     let onSelect: () -> Void
     let onEdit: () -> Void
 
     var body: some View {
-        Button {
-            onSelect()
-        } label: {
-            VStack(spacing: 12) {
-                // Exercise icon
-                ExerciseIconView(exercise: exercise, size: 90)
-                    .foregroundStyle(Color.appAccent)
-
-                Text(exercise.name)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.8)
-                    .frame(height: 36, alignment: .top)
+        HStack(spacing: 14) {
+            // Left: selection toggle
+            Button {
+                onSelect()
+            } label: {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 22))
+                    .foregroundStyle(isSelected ? Color.appAccent : .white.opacity(0.3))
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 140)
-            .padding(12)
-            .background(
-                LinearGradient(
-                    colors: [Color(white: 0.18), Color(white: 0.14)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            .cornerRadius(16)
-            .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(isSelected ? Color.appAccent : Color.white.opacity(0.2), lineWidth: isSelected ? 2 : 1)
-            )
+            .buttonStyle(.plain)
+
+            // Center: icon + name + subtitle → taps into detail
+            Button { onEdit() } label: {
+                HStack(spacing: 12) {
+                    ExerciseIconView(exercise: exercise, size: 32)
+                        .foregroundStyle(Color.appAccent)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(exercise.name)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        Text("\(exercise.exerciseLoadType.rawValue) · \(exercise.exerciseMovementType.rawValue)")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.5))
+                            .lineLimit(1)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.3))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(LinearGradient(colors: [Color(white: 0.18), Color(white: 0.14)], startPoint: .top, endPoint: .bottom))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(isSelected ? Color.appAccent : Color.white.opacity(0.15), lineWidth: isSelected ? 2 : 1)
+        )
     }
 }
 
@@ -4504,7 +4319,7 @@ struct ProgressOptionsEmptyState: View {
                 endRadius: 80
             )
 
-            // Content
+            // Content — offset down to visually center below chips row
             VStack(spacing: 14) {
                 // Lift the Bull logo with subtle glow
                 Image("LiftTheBullIcon")
@@ -4516,12 +4331,13 @@ struct ProgressOptionsEmptyState: View {
 
                 if let message {
                     Text(message)
-                        .font(.interSemiBold(size: 16))
+                        .font(.bebasNeue(size: 20))
                         .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
                         .padding(.top, 6)
                 }
             }
+            .offset(y: 10)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -4581,6 +4397,7 @@ struct ExpandedProgressOptionsSheet: View {
     @Binding var maxReps: Int
     let onRepRangeChanged: () -> Void
     let onSelect: (OneRMCalculator.Suggestion) -> Void
+    var onSwitchMode: ((CheckInView.EffortMode) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var columnHighlighted = false
@@ -4601,21 +4418,45 @@ struct ExpandedProgressOptionsSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Title header
+            // Title header with mode navigation
             VStack(spacing: 8) {
-                Text("Progress Options")
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(.white)
-                HStack(spacing: 3) {
-                    Text("Sets to")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.7))
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 8))
-                        .foregroundStyle(.white.opacity(0.7))
-                    Text("Estimated 1RM")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.7))
+                HStack {
+                    // Left chevron (Hard is previous mode)
+                    Button {
+                        hapticFeedback.impactOccurred()
+                        onSwitchMode?(.hard)
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.4))
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer()
+
+                    VStack(spacing: 4) {
+                        Text("Progress Options")
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(.white)
+                        HStack(spacing: 3) {
+                            Text("Sets to")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.7))
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 8))
+                                .foregroundStyle(.white.opacity(0.7))
+                            Text("Estimated 1RM")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
+                    }
+
+                    Spacer()
+
+                    // No right chevron (Progress is last)
+                    Spacer().frame(width: 44)
                 }
 
                 // Δ LB increment controls
@@ -4831,6 +4672,7 @@ struct ExpandedEffortOptionsSheet: View {
     @Binding var repRangeMax: Int
     let onRepRangeChanged: () -> Void
     let onSelect: (OneRMCalculator.EffortSuggestion) -> Void
+    var onSwitchMode: ((CheckInView.EffortMode) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedSuggestion: OneRMCalculator.EffortSuggestion?
@@ -4852,24 +4694,66 @@ struct ExpandedEffortOptionsSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Title header
+            // Title header with mode navigation
             VStack(spacing: 8) {
-                HStack(alignment: .top, spacing: 10) {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(effortMode.tileColor.opacity(0.3))
-                        .frame(width: 22, height: 22)
-                        .overlay(
+                HStack {
+                    // Left chevron
+                    if let prev = previousMode {
+                        Button {
+                            hapticFeedback.impactOccurred()
+                            onSwitchMode?(prev)
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.4))
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Spacer().frame(width: 44)
+                    }
+
+                    Spacer()
+
+                    // Title
+                    VStack(spacing: 4) {
+                        HStack(spacing: 10) {
                             RoundedRectangle(cornerRadius: 4)
-                                .stroke(effortMode.tileColor, lineWidth: 1.5)
-                        )
-                        .offset(y: 3)
-                    Text(effortMode.title)
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(.white)
+                                .fill(effortMode.tileColor.opacity(0.3))
+                                .frame(width: 22, height: 22)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .stroke(effortMode.tileColor, lineWidth: 1.5)
+                                )
+                            Text(effortMode.title)
+                                .font(.title2.weight(.bold))
+                                .foregroundStyle(.white)
+                        }
+                        Text(effortMode.subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
+
+                    Spacer()
+
+                    // Right chevron
+                    if let next = nextMode {
+                        Button {
+                            hapticFeedback.impactOccurred()
+                            onSwitchMode?(next)
+                        } label: {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.4))
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Spacer().frame(width: 44)
+                    }
                 }
-                Text(effortMode.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.7))
 
                 // Rep range slider
                 HStack {
@@ -4964,6 +4848,18 @@ struct ExpandedEffortOptionsSheet: View {
             )
             .ignoresSafeArea()
         )
+    }
+
+    private var previousMode: CheckInView.EffortMode? {
+        let cases = CheckInView.EffortMode.allCases
+        guard let idx = cases.firstIndex(of: effortMode), idx > 0 else { return nil }
+        return cases[idx - 1]
+    }
+
+    private var nextMode: CheckInView.EffortMode? {
+        let cases = CheckInView.EffortMode.allCases
+        guard let idx = cases.firstIndex(of: effortMode), idx < cases.count - 1 else { return nil }
+        return cases[idx + 1]
     }
 
     private func sheetColumnButton(title: String, column: CheckInView.EffortSortColumn) -> some View {

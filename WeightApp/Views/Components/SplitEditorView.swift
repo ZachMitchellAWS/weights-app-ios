@@ -12,9 +12,6 @@ struct SplitEditorView: View {
     @Query(filter: #Predicate<WorkoutSequence> { !$0.deleted })
     private var allSequences: [WorkoutSequence]
 
-    @Query(filter: #Predicate<SetPlanTemplate> { !$0.deleted })
-    private var allTemplates: [SetPlanTemplate]
-
     @State private var activeId: UUID?
     @State private var showNewSplitAlert = false
     @State private var newSplitName = ""
@@ -90,24 +87,11 @@ struct SplitEditorView: View {
                                 }
                             }
                             .padding(.horizontal, 20)
+                            .padding(.top, 4)
                             .padding(.bottom, 20)
                         }
                     }
 
-                    // Bottom Done button
-                    Button { dismiss() } label: {
-                        Text("Done")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.black)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(Color.appAccent)
-                            .cornerRadius(10)
-                    }
-                    .padding(.horizontal, 40)
-                    .padding(.top, 24)
-                    .padding(.bottom, 16)
-                    .background(Color(white: 0.10))
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
@@ -148,9 +132,7 @@ struct SplitEditorView: View {
     private func splitCard(for split: WorkoutSplit) -> some View {
         let isActive = activeId == split.id
         let names = dayNames(for: split)
-        let templateName = split.setPlanTemplateId.flatMap { tid in allTemplates.first(where: { $0.id == tid })?.name }
-        let templateSuffix = templateName.map { " · \($0)" } ?? ""
-        let subtitle = "\(split.dayIds.count) days" + (names.isEmpty ? "" : " · \(names)") + templateSuffix
+        let subtitle = "\(split.dayIds.count) days" + (names.isEmpty ? "" : " · \(names)")
 
         HStack(spacing: 14) {
             // Checkmark toggle
@@ -235,9 +217,6 @@ struct SplitDetailView: View {
     @Query(filter: #Predicate<WorkoutSequence> { !$0.deleted })
     private var allSequences: [WorkoutSequence]
 
-    @Query(filter: #Predicate<SetPlanTemplate> { !$0.deleted })
-    private var allTemplates: [SetPlanTemplate]
-
     @State private var showAddDay = false
     @State private var showNewDayAlert = false
     @State private var newDayName = ""
@@ -267,77 +246,6 @@ struct SplitDetailView: View {
             .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // MARK: — Set Plan Section
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 0) {
-                        Text("SET PLAN")
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(.white.opacity(0.35))
-                            .kerning(1)
-                        Text(" — Overrides exercise plans when active")
-                            .font(.caption2.italic())
-                            .foregroundStyle(.white.opacity(0.2))
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 12)
-
-                    HStack(spacing: 12) {
-                        Image(systemName: "list.bullet.rectangle")
-                            .font(.system(size: 16))
-                            .foregroundStyle(Color.appAccent)
-
-                        Menu {
-                            Button {
-                                split.setPlanTemplateId = nil
-                                saveAndSync()
-                            } label: {
-                                HStack {
-                                    Text("Use Exercise Defaults")
-                                    if split.setPlanTemplateId == nil {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-
-                            Divider()
-
-                            ForEach(allTemplates.sorted(by: { $0.isBuiltIn && !$1.isBuiltIn })) { template in
-                                Button {
-                                    split.setPlanTemplateId = template.id
-                                    saveAndSync()
-                                } label: {
-                                    HStack {
-                                        Text(template.name)
-                                        if split.setPlanTemplateId == template.id {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 6) {
-                                let overrideName = split.setPlanTemplateId.flatMap { tid in allTemplates.first(where: { $0.id == tid })?.name } ?? "Exercise Defaults"
-                                Text(overrideName)
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(.white)
-                                Image(systemName: "chevron.up.chevron.down")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.white.opacity(0.4))
-                            }
-                        }
-
-                        Spacer()
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 12)
-                }
-                .background(Color(white: 0.12))
-
-                // Section divider
-                Rectangle()
-                    .fill(Color.white.opacity(0.06))
-                    .frame(height: 1)
-
                 // MARK: — Days Section
                 HStack {
                     Text("DAYS")

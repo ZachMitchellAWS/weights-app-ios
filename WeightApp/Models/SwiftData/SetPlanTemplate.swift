@@ -87,32 +87,13 @@ final class SetPlanTemplate {
             context.insert(template)
         }
 
-        // Auto-match: for existing exercises with no template, try to match to a built-in
-        let exerciseDescriptor = FetchDescriptor<Exercises>(
-            predicate: #Predicate { !$0.deleted }
-        )
-        let exercises = (try? context.fetch(exerciseDescriptor)) ?? []
-        for exercise in exercises {
-            if exercise.setPlanTemplateId == nil {
-                if let matchId = matchBuiltIn(setPlan: exercise.setPlan) {
-                    exercise.setPlanTemplateId = matchId
-                }
-            }
+        // Default activeSetPlanTemplateId to Standard on upgrade
+        if let userProps = try? context.fetch(FetchDescriptor<UserProperties>()).first,
+           userProps.activeSetPlanTemplateId == nil {
+            userProps.activeSetPlanTemplateId = SetPlanTemplate.standardId
         }
 
         try? context.save()
     }
 
-    // MARK: - Migration Helper
-
-    /// Attempts to match an exercise's inline setPlan to a built-in template.
-    /// Returns the matching template ID, or nil if no match.
-    static func matchBuiltIn(setPlan: [String]) -> UUID? {
-        for def in builtInTemplates {
-            if def.sequence == setPlan {
-                return def.id
-            }
-        }
-        return nil
-    }
 }

@@ -240,6 +240,9 @@ class SyncService: ObservableObject {
             if let hardMaxReps = response.hardMaxReps {
                 userProperties.hardMaxReps = hardMaxReps
             }
+            if let activeSetPlanId = response.activeSetPlanTemplateId {
+                userProperties.activeSetPlanTemplateId = UUID(uuidString: activeSetPlanId)
+            }
 
             try? context.save()
 
@@ -298,6 +301,22 @@ class SyncService: ObservableObject {
         }
     }
 
+    func updateActiveSetPlanTemplate(_ templateId: UUID?) async {
+        do {
+            var request = UserPropertiesRequest()
+            if let templateId = templateId {
+                request.activeSetPlanTemplateId = templateId.uuidString
+            } else {
+                request.clearActiveSetPlanTemplate = true
+            }
+            _ = try await APIService.shared.updateUserProperties(request)
+            retryQueue.removePendingUserPropertiesSync()
+        } catch {
+            SyncLogger.sync.error("Failed to update active set plan template: \(error.localizedDescription)")
+            retryQueue.addPendingUserPropertiesSync()
+        }
+    }
+
     func processUserPropertiesRetryQueue() async {
         guard let context = modelContext else { return }
         guard retryQueue.hasUserPropertiesPending() else { return }
@@ -305,7 +324,7 @@ class SyncService: ObservableObject {
         let userProperties = fetchOrCreateUserProperties(context: context)
 
         do {
-            let request = UserPropertiesRequest(
+            var request = UserPropertiesRequest(
                 bodyweight: userProperties.bodyweight,
                 availableChangePlates: userProperties.availableChangePlates,
                 minReps: userProperties.minReps,
@@ -317,6 +336,11 @@ class SyncService: ObservableObject {
                 hardMinReps: userProperties.hardMinReps,
                 hardMaxReps: userProperties.hardMaxReps
             )
+            if let templateId = userProperties.activeSetPlanTemplateId {
+                request.activeSetPlanTemplateId = templateId.uuidString
+            } else {
+                request.clearActiveSetPlanTemplate = true
+            }
             _ = try await APIService.shared.updateUserProperties(request)
             retryQueue.removePendingUserPropertiesSync()
         } catch {
@@ -1106,13 +1130,11 @@ class SyncService: ObservableObject {
                     existing.name = dto.name
                     existing.dayIds = dto.dayIds
                     existing.deleted = dto.deleted ?? false
-                    existing.setPlanTemplateId = dto.setPlanTemplateId
                 } else if let localDup = existingByName[dto.name] {
                     // A local split with the same name exists (different ID) — adopt the backend's data
                     localDup.name = dto.name
                     localDup.dayIds = dto.dayIds
                     localDup.deleted = dto.deleted ?? false
-                    localDup.setPlanTemplateId = dto.setPlanTemplateId
                 } else {
                     let split = WorkoutSplit(
                         id: dto.splitId,
@@ -1120,8 +1142,7 @@ class SyncService: ObservableObject {
                         dayIds: dto.dayIds,
                         createdAt: dto.createdDatetime ?? Date(),
                         createdTimezone: dto.createdTimezone,
-                        deleted: dto.deleted ?? false,
-                        setPlanTemplateId: dto.setPlanTemplateId
+                        deleted: dto.deleted ?? false
                     )
                     context.insert(split)
                 }
@@ -1408,10 +1429,6 @@ class SyncService: ObservableObject {
                     if let mt = dto.movementType {
                         existing.movementType = mt
                     }
-                    if let seq = dto.setPlan {
-                        existing.setPlan = seq
-                    }
-                    existing.setPlanTemplateId = dto.setPlanTemplateId
                 } else {
                     let loadType = ExerciseLoadType(rawValue: dto.loadType) ?? .barbell
                     let movementType = ExerciseMovementType(rawValue: dto.movementType ?? "") ?? .other
@@ -1425,12 +1442,8 @@ class SyncService: ObservableObject {
                         createdTimezone: dto.createdTimezone,
                         notes: dto.notes,
                         deleted: dto.deleted ?? false,
-                        icon: dto.icon ?? "LiftTheBullIcon",
-                        setPlanTemplateId: dto.setPlanTemplateId
+                        icon: dto.icon ?? "LiftTheBullIcon"
                     )
-                    if let seq = dto.setPlan {
-                        exercise.setPlan = seq
-                    }
                     context.insert(exercise)
                 }
             }
