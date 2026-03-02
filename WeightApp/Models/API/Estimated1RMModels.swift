@@ -18,7 +18,7 @@ struct Estimated1RMDTO: Codable {
     let createdDatetime: Date
     let lastModifiedDatetime: Date?
 
-    init(from estimated1RM: Estimated1RMs) {
+    init(from estimated1RM: Estimated1RM) {
         self.estimated1RMId = estimated1RM.id
         self.liftSetId = estimated1RM.setId
         self.exerciseId = estimated1RM.exercise?.id ?? UUID()
@@ -41,37 +41,37 @@ struct Estimated1RMDTO: Codable {
 
 // MARK: - Request Models
 
-struct CreateEstimated1RMsRequest: Codable {
+struct CreateEstimated1RMRequest: Codable {
     let estimated1RMs: [Estimated1RMDTO]
 }
 
-struct DeleteEstimated1RMsRequest: Codable {
+struct DeleteEstimated1RMRequest: Codable {
     let liftSetIds: [UUID]
 }
 
 // MARK: - Response Models
 
-struct GetEstimated1RMsResponse: Codable {
+struct GetEstimated1RMResponse: Codable {
     let estimated1RMs: [Estimated1RMDTO]
     let count: Int
     let hasMore: Bool
     let nextPageToken: String?
 }
 
-struct CreateEstimated1RMsResponse: Codable {
+struct CreateEstimated1RMResponse: Codable {
     let estimated1RMs: [Estimated1RMDTO]
     let created: Int
 }
 
-struct DeleteEstimated1RMsResponse: Codable {
+struct DeleteEstimated1RMResponse: Codable {
     let message: String
-    let deletedEstimated1RMs: [Estimated1RMDTO]
+    let deletedEstimated1RM: [Estimated1RMDTO]
     let notFoundIds: [UUID]?
 }
 
-// MARK: - Estimated1RMs Extension
+// MARK: - Estimated1RM Extension
 
-extension Estimated1RMs {
+extension Estimated1RM {
     func toDTO() -> Estimated1RMDTO {
         return Estimated1RMDTO(from: self)
     }

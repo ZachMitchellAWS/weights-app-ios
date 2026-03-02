@@ -264,9 +264,8 @@ struct UpsellView: View {
             )
 
             // Update local premium status
-            await EntitlementsService.shared.updateLocalEntitlement(
+            await EntitlementsService.shared.updateLocalEntitlements(
                 from: response,
-                transactionId: originalId,
                 context: modelContext
             )
 

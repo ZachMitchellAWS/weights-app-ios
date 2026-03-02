@@ -14,12 +14,12 @@ struct HistoryView: View {
     @Binding var selectedTab: Int
     var isVisible: Bool = true
     @State private var isDeleteModeActive = false
-    @State private var setToDelete: LiftSets? = nil
+    @State private var setToDelete: LiftSet? = nil
     @State private var showDeleteConfirmation = false
 
     @State private var displayMonths: Int = 2
-    @State private var sets: [LiftSets] = []
-    @State private var estimated1RMs: [Estimated1RMs] = []
+    @State private var sets: [LiftSet] = []
+    @State private var estimated1RMs: [Estimated1RM] = []
     @State private var hasMoreHistory = true
     @State private var groupedSets: [(date: Date, exerciseGroups: [ExerciseGroup])] = []
     @State private var effortCache: [UUID: EffortResult] = [:]
@@ -27,7 +27,7 @@ struct HistoryView: View {
     struct ExerciseGroup: Identifiable {
         let id = UUID()
         let exerciseName: String
-        let sets: [LiftSets]
+        let sets: [LiftSet]
     }
 
     struct EffortResult {
@@ -125,7 +125,7 @@ struct HistoryView: View {
                     let setId = set.id
                     set.deleted = true
 
-                    // Also mark the associated Estimated1RMs as deleted
+                    // Also mark the associated Estimated1RM as deleted
                     var estimated1RMId: UUID? = nil
                     if let associated1RM = estimated1RMs.first(where: { $0.setId == setId }) {
                         associated1RM.deleted = true
@@ -172,13 +172,13 @@ struct HistoryView: View {
     private func loadData() {
         let cutoff = Calendar.current.date(byAdding: .month, value: -displayMonths, to: Date())!
 
-        var setsDescriptor = FetchDescriptor<LiftSets>(
+        var setsDescriptor = FetchDescriptor<LiftSet>(
             predicate: #Predicate { !$0.deleted && $0.createdAt >= cutoff },
             sortBy: [SortDescriptor(\.createdAt)]
         )
         setsDescriptor.fetchLimit = nil
 
-        var e1rmDescriptor = FetchDescriptor<Estimated1RMs>(
+        var e1rmDescriptor = FetchDescriptor<Estimated1RM>(
             predicate: #Predicate { !$0.deleted && $0.createdAt >= cutoff }
         )
         e1rmDescriptor.fetchLimit = nil
@@ -195,14 +195,14 @@ struct HistoryView: View {
 
         // Check if there's older data beyond the current window
         let olderCutoff = Calendar.current.date(byAdding: .month, value: -(displayMonths + 1), to: Date())!
-        var olderDescriptor = FetchDescriptor<LiftSets>(
+        var olderDescriptor = FetchDescriptor<LiftSet>(
             predicate: #Predicate { !$0.deleted && $0.createdAt >= olderCutoff && $0.createdAt < cutoff }
         )
         olderDescriptor.fetchLimit = 1
         hasMoreHistory = ((try? modelContext.fetch(olderDescriptor)) ?? []).count > 0
     }
 
-    private static func buildEffortCache(sets: [LiftSets], estimated1RMs: [Estimated1RMs]) -> [UUID: EffortResult] {
+    private static func buildEffortCache(sets: [LiftSet], estimated1RMs: [Estimated1RM]) -> [UUID: EffortResult] {
         let e1rmBySetId = Dictionary(uniqueKeysWithValues: estimated1RMs.compactMap { e1rm -> (UUID, Double)? in
             return (e1rm.setId, e1rm.value)
         })
@@ -216,9 +216,11 @@ struct HistoryView: View {
 
             for set in sorted {
                 if set.isBaselineSet {
-                    cache[set.id] = EffortResult(percent1RM: nil, isPR: false)
                     let baselineEstimate = e1rmBySetId[set.id]
                         ?? OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
+                    let rawEstimate = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
+                    let pct = baselineEstimate > 0 ? rawEstimate / baselineEstimate : nil
+                    cache[set.id] = EffortResult(percent1RM: pct, isPR: false)
                     runningMax = max(runningMax, baselineEstimate)
                 } else {
                     let estimated = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
@@ -233,7 +235,7 @@ struct HistoryView: View {
         return cache
     }
 
-    private static func buildGroupedSets(from sets: [LiftSets]) -> [(date: Date, exerciseGroups: [ExerciseGroup])] {
+    private static func buildGroupedSets(from sets: [LiftSet]) -> [(date: Date, exerciseGroups: [ExerciseGroup])] {
         let calendar = Calendar.current
         let grouped = Dictionary(grouping: sets) { set in
             calendar.startOfDay(for: set.createdAt)
@@ -243,7 +245,7 @@ struct HistoryView: View {
             let sortedSets = sets.sorted { $0.createdAt < $1.createdAt }
             var exerciseGroups: [ExerciseGroup] = []
             var currentExerciseName: String? = nil
-            var currentSets: [LiftSets] = []
+            var currentSets: [LiftSet] = []
 
             for set in sortedSets {
                 let exerciseName = set.exercise?.name ?? "Unknown"
@@ -299,18 +301,24 @@ struct HistoryView: View {
 struct ExerciseGroupRow: View {
     let exerciseGroup: HistoryView.ExerciseGroup
     let isDeleteModeActive: Bool
-    let onDelete: (LiftSets) -> Void
-    let onSelect: (LiftSets) -> Void
+    let onDelete: (LiftSet) -> Void
+    let onSelect: (LiftSet) -> Void
     let effortCache: [UUID: HistoryView.EffortResult]
 
-    private func colorForEffort(percent1RM: Double?, isPR: Bool, set: LiftSets) -> Color {
+    private func colorForEffort(percent1RM: Double?, isPR: Bool, set: LiftSet) -> Color {
         if isPR {
             return .setPR
         }
 
-        // Baseline sets → white
+        // Baseline sets — color by reported effort via percent1RM
         if set.isBaselineSet {
-            return .white
+            let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: percent1RM ?? 0)
+            switch bucket {
+            case .pr, .redline: return .setNearMax
+            case .hard: return .setHard
+            case .moderate: return .setModerate
+            case .easy: return .setEasy
+            }
         }
 
         // For 0-weight sets, use rep-based coloring

@@ -131,20 +131,20 @@ struct AccountDetailView: View {
     }
 
     private func hardDeleteAllData() {
-        // Hard delete all LiftSets
-        let allLiftSets = (try? modelContext.fetch(FetchDescriptor<LiftSets>())) ?? []
-        for liftSet in allLiftSets {
+        // Hard delete all LiftSet
+        let allLiftSet = (try? modelContext.fetch(FetchDescriptor<LiftSet>())) ?? []
+        for liftSet in allLiftSet {
             modelContext.delete(liftSet)
         }
 
-        // Hard delete all Estimated1RMs
-        let allEstimated1RMs = (try? modelContext.fetch(FetchDescriptor<Estimated1RMs>())) ?? []
-        for estimated in allEstimated1RMs {
+        // Hard delete all Estimated1RM
+        let allEstimated1RM = (try? modelContext.fetch(FetchDescriptor<Estimated1RM>())) ?? []
+        for estimated in allEstimated1RM {
             modelContext.delete(estimated)
         }
 
-        // Hard delete all Exercises (both custom and built-in since they're synced)
-        let allExercises = (try? modelContext.fetch(FetchDescriptor<Exercises>())) ?? []
+        // Hard delete all Exercise (both custom and built-in since they're synced)
+        let allExercises = (try? modelContext.fetch(FetchDescriptor<Exercise>())) ?? []
         for exercise in allExercises {
             modelContext.delete(exercise)
         }
@@ -155,29 +155,22 @@ struct AccountDetailView: View {
             modelContext.delete(properties)
         }
 
-        // Hard delete all WorkoutSequences
-        let allSequences = (try? modelContext.fetch(FetchDescriptor<WorkoutSequence>())) ?? []
-        for sequence in allSequences {
-            modelContext.delete(sequence)
-        }
-
         // Hard delete all WorkoutSplits
         let allSplits = (try? modelContext.fetch(FetchDescriptor<WorkoutSplit>())) ?? []
         for split in allSplits {
             modelContext.delete(split)
         }
 
-        // Hard delete Entitlements
-        let allEntitlements = (try? modelContext.fetch(FetchDescriptor<Entitlements>())) ?? []
-        for entitlement in allEntitlements {
-            modelContext.delete(entitlement)
+        // Hard delete EntitlementGrants
+        let allEntitlements = (try? modelContext.fetch(FetchDescriptor<EntitlementGrant>())) ?? []
+        for grant in allEntitlements {
+            modelContext.delete(grant)
         }
 
-        // Clear active sequence/split preferences and migration flags
-        WorkoutSequenceStore.setActiveSequenceId(nil)
-        WorkoutSequenceStore.setActiveSplitId(nil)
-        UserDefaults.standard.removeObject(forKey: "workoutSequencesMigratedToSplits")
-        UserDefaults.standard.removeObject(forKey: "workoutSequencesMigratedToSwiftData")
+        // Clear active day/split preferences and seed flags
+        WorkoutSplitStore.setActiveDayId(nil)
+        WorkoutSplitStore.setActiveSplitId(nil)
+        UserDefaults.standard.removeObject(forKey: "workoutSplitsSeeded")
 
         try? modelContext.save()
     }

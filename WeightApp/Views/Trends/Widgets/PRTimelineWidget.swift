@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct PRTimelineWidget: View {
-    let allSets: [LiftSets]
+    let allSets: [LiftSet]
 
     private var prEvents: [TrendsCalculator.PREvent] {
         Array(TrendsCalculator.prTimeline(from: allSets).prefix(10))

@@ -12,8 +12,8 @@ struct MoreView: View {
     @ObservedObject var authViewModel: AuthViewModel
     @Environment(\.modelContext) private var modelContext
     @Query private var userPropertiesItems: [UserProperties]
-    @Query private var entitlementItems: [Entitlements]
-    @Query(filter: #Predicate<Exercises> { !$0.deleted }) private var exercises: [Exercises]
+    @Query private var entitlementRecords: [EntitlementGrant]
+    @Query(filter: #Predicate<Exercise> { !$0.deleted }) private var exercises: [Exercise]
 
     @State private var showAccount = false
     @State private var showSettings = false
@@ -31,6 +31,8 @@ struct MoreView: View {
     @State private var isUpdatingProperties = false
     @State private var isPopulating28Days = false
     @State private var isPopulatingToday = false
+    @State private var isPopulatingYesterday = false
+    @State private var showYesterdayDataPopulatedAlert = false
     @State private var showExerciseIds = false
     @State private var showMemberSince = false
     @State private var showTokenExpiry = false
@@ -68,24 +70,11 @@ struct MoreView: View {
         return props
     }
 
-    private var entitlement: Entitlements {
-        if let entitlement = entitlementItems.first { return entitlement }
-        let entitlement = Entitlements()
-        modelContext.insert(entitlement)
-        return entitlement
-    }
+    private var isPremium: Bool { PremiumOverride.isEnabled || EntitlementGrant.isPremium(entitlementRecords) }
 
     private var isPremiumEnabled: Bool {
-        get { entitlement.isPremium }
-        nonmutating set {
-            entitlement.isPremium = newValue
-            if !newValue {
-                entitlement.subscriptionType = nil
-                entitlement.expiresAt = nil
-                entitlement.transactionId = nil
-            }
-            try? modelContext.save()
-        }
+        get { PremiumOverride.isEnabled }
+        nonmutating set { PremiumOverride.set(newValue) }
     }
 
     private var email: String {
@@ -154,7 +143,7 @@ struct MoreView: View {
                                 .foregroundStyle(Color.appLogoColor)
 
                             VStack(alignment: .leading, spacing: 4) {
-                                if entitlement.isActive {
+                                if isPremium {
                                     Text("Premium")
                                         .font(.system(size: 12, weight: .semibold))
                                         .textCase(.uppercase)
@@ -185,7 +174,7 @@ struct MoreView: View {
                                         }
                                     }
 
-                                if !entitlement.isActive {
+                                if !isPremium {
                                     Button {
                                         showUpsellPreview = true
                                     } label: {
@@ -214,7 +203,7 @@ struct MoreView: View {
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
                             .strokeBorder(
-                                entitlement.isActive
+                                isPremium
                                     ? Color.appLogoColor.opacity(0.5)
                                     : Color.appAccent.opacity(0.3),
                                 lineWidth: 1.5
@@ -337,12 +326,11 @@ struct MoreView: View {
                                 isSyncingPurchases = true
                                 do {
                                     let response = try await EntitlementsService.shared.processTransactions(originalTransactionIds: [])
-                                    await EntitlementsService.shared.updateLocalEntitlement(
+                                    await EntitlementsService.shared.updateLocalEntitlements(
                                         from: response,
-                                        transactionId: entitlement.transactionId ?? "",
                                         context: modelContext
                                     )
-                                    syncResultIsPremium = entitlement.isActive
+                                    syncResultIsPremium = isPremium
                                     syncFailed = false
                                 } catch {
                                     print("Sync purchases failed: \(error)")
@@ -539,6 +527,25 @@ struct MoreView: View {
 
                         Button {
                             Task {
+                                await populateYesterdayData()
+                            }
+                        } label: {
+                            HStack {
+                                Text("Populate Yesterday (Last Set Test)")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if isPopulatingYesterday {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "arrow.counterclockwise")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+                        }
+                        .disabled(isPopulatingYesterday)
+
+                        Button {
+                            Task {
                                 await updateUserProperties()
                             }
                         } label: {
@@ -641,7 +648,7 @@ struct MoreView: View {
                             .foregroundStyle(.white.opacity(0.5))
 
                         HStack {
-                            Text("Premium Status")
+                            Text("Override Premium")
                                 .foregroundStyle(.primary)
                             Spacer()
                             Toggle("", isOn: Binding(
@@ -667,7 +674,7 @@ struct MoreView: View {
                         }
 
                         if showEntitlementDetails {
-                            EntitlementDetailsView(entitlement: entitlement)
+                            EntitlementDetailsView(grants: entitlementRecords)
                         }
 
                         Button {
@@ -678,9 +685,8 @@ struct MoreView: View {
                                     let response = try await EntitlementsService.shared.processTransactions(
                                         originalTransactionIds: ["2000001123058480"]
                                     )
-                                    await EntitlementsService.shared.updateLocalEntitlement(
+                                    await EntitlementsService.shared.updateLocalEntitlements(
                                         from: response,
-                                        transactionId: "2000001123058480",
                                         context: modelContext
                                     )
                                     replayTransactionResult = "Success"
@@ -903,10 +909,8 @@ struct MoreView: View {
                                     .foregroundStyle(state.syncComplete ? .green : .red.opacity(0.7))
                                 Label("User Properties", systemImage: state.userPropertiesComplete ? "checkmark.circle.fill" : "xmark.circle")
                                     .foregroundStyle(state.userPropertiesComplete ? .green : .red.opacity(0.7))
-                                Label("Exercises", systemImage: state.exercisesComplete ? "checkmark.circle.fill" : "xmark.circle")
+                                Label("Exercise", systemImage: state.exercisesComplete ? "checkmark.circle.fill" : "xmark.circle")
                                     .foregroundStyle(state.exercisesComplete ? .green : .red.opacity(0.7))
-                                Label("Sequences", systemImage: state.sequencesComplete ? "checkmark.circle.fill" : "xmark.circle")
-                                    .foregroundStyle(state.sequencesComplete ? .green : .red.opacity(0.7))
                                 Label("Lift Sets", systemImage: state.liftSetsComplete ? "checkmark.circle.fill" : "xmark.circle")
                                     .foregroundStyle(state.liftSetsComplete ? .green : .red.opacity(0.7))
                                 Label("Estimated 1RMs", systemImage: state.estimated1RMsComplete ? "checkmark.circle.fill" : "xmark.circle")
@@ -975,7 +979,7 @@ struct MoreView: View {
                     }
                 } footer: {
                     if showDeveloper {
-                        Text("Generates realistic training data for the past 28 days. Update user properties sends a test API call. Replay onboarding/welcome back shows the post-auth flows. Premium Status toggles premium features on/off for testing. Show Exercise IDs displays UUIDs for debugging. Delete all workout data removes all LiftSets and Estimated1RMs entries.")
+                        Text("Generate      `s realistic training data for the past 28 days. Update user properties sends a test API call. Replay onboarding/welcome back shows the post-auth flows. Override Premium overrides entitlements to unlock premium features (staging only). Show Exercise IDs displays UUIDs for debugging. Delete all workout data removes all LiftSet and Estimated1RM entries.")
                     }
                 }
                 #endif
@@ -1014,6 +1018,11 @@ struct MoreView: View {
             } message: {
                 Text("Successfully generated today's training data for all exercises.")
             }
+            .alert("Yesterday's Data Populated", isPresented: $showYesterdayDataPopulatedAlert) {
+                Button("OK") { }
+            } message: {
+                Text("Created yesterday's sets at Easy/Moderate/Hard effort levels for all exercises. Switch effort modes in CheckIn to see the repeat-arrow indicator on matching tiles.")
+            }
             .alert("User Properties", isPresented: $showUserPropertiesAlert) {
                 Button("OK") { }
             } message: {
@@ -1025,7 +1034,7 @@ struct MoreView: View {
                     deleteAllWorkoutData()
                 }
             } message: {
-                Text("This will permanently delete all LiftSets and Estimated1RMs entries. This action cannot be undone.")
+                Text("This will permanently delete all LiftSet and Estimated1RM entries. This action cannot be undone.")
             }
             .alert("Data Deleted", isPresented: $showDataDeletedAlert) {
                 Button("OK") { }
@@ -1314,13 +1323,13 @@ struct MoreView: View {
     private func populateSimulatedData() async {
         isPopulating28Days = true
 
-        // Clear all existing LiftSets and Estimated1RMs data first
-        let allLiftSets = (try? modelContext.fetch(FetchDescriptor<LiftSets>())) ?? []
-        for liftSet in allLiftSets {
+        // Clear all existing LiftSet and Estimated1RM data first
+        let allLiftSet = (try? modelContext.fetch(FetchDescriptor<LiftSet>())) ?? []
+        for liftSet in allLiftSet {
             modelContext.delete(liftSet)
         }
-        let allEstimated1RMs = (try? modelContext.fetch(FetchDescriptor<Estimated1RMs>())) ?? []
-        for estimated1RM in allEstimated1RMs {
+        let allEstimated1RM = (try? modelContext.fetch(FetchDescriptor<Estimated1RM>())) ?? []
+        for estimated1RM in allEstimated1RM {
             modelContext.delete(estimated1RM)
         }
 
@@ -1347,8 +1356,8 @@ struct MoreView: View {
 
         // Track max 1RM per exercise for progression
         var exerciseMaxes: [String: Double] = [:]
-        var createdSets: [LiftSets] = []
-        var createdEstimated1RMs: [Estimated1RMs] = []
+        var createdSets: [LiftSet] = []
+        var createdEstimated1RM: [Estimated1RM] = []
         // Running best estimated 1RM per exercise (mirrors real logSet behavior)
         var runningBest1RM: [String: Double] = [:]
 
@@ -1411,7 +1420,7 @@ struct MoreView: View {
                     // Using Brzycki formula: 1RM = weight * (36 / (37 - reps))
                     let calculatedWeight = roundToAttainable(target1RM * (37.0 - Double(reps)) / 36.0)
 
-                    let set = LiftSets(exercise: exercise, reps: reps, weight: calculatedWeight)
+                    let set = LiftSet(exercise: exercise, reps: reps, weight: calculatedWeight)
                     set.createdAt = currentTime
                     set.createdTimezone = TimeZone.current.identifier
                     modelContext.insert(set)
@@ -1423,11 +1432,11 @@ struct MoreView: View {
                     let newBest = max(bestSoFar, setEstimated1RM)
                     runningBest1RM[exerciseName] = newBest
 
-                    let estimated = Estimated1RMs(exercise: exercise, value: newBest, setId: set.id)
+                    let estimated = Estimated1RM(exercise: exercise, value: newBest, setId: set.id)
                     estimated.createdAt = currentTime
                     estimated.createdTimezone = TimeZone.current.identifier
                     modelContext.insert(estimated)
-                    createdEstimated1RMs.append(estimated)
+                    createdEstimated1RM.append(estimated)
 
                     // Update max if this is a PR (last set)
                     if setNum == 7 {
@@ -1448,9 +1457,9 @@ struct MoreView: View {
         // Sync to backend
         do {
             let setDtos = createdSets.map { LiftSetDTO(from: $0) }
-            _ = try await APIService.shared.createLiftSets(setDtos)
-            let e1rmDtos = createdEstimated1RMs.map { Estimated1RMDTO(from: $0) }
-            _ = try await APIService.shared.createEstimated1RMs(e1rmDtos)
+            _ = try await APIService.shared.createLiftSet(setDtos)
+            let e1rmDtos = createdEstimated1RM.map { Estimated1RMDTO(from: $0) }
+            _ = try await APIService.shared.createEstimated1RM(e1rmDtos)
             showDataPopulatedAlert = true
         } catch {
             userPropertiesAlertMessage = "Data created locally but failed to sync: \(error.localizedDescription)"
@@ -1494,15 +1503,15 @@ struct MoreView: View {
 
         // Start workout at a reasonable time today
         var currentTime = calendar.date(bySettingHour: 10, minute: 0, second: 0, of: now) ?? now
-        var createdSets: [LiftSets] = []
-        var createdEstimated1RMs: [Estimated1RMs] = []
+        var createdSets: [LiftSet] = []
+        var createdEstimated1RM: [Estimated1RM] = []
 
         for exercise in exercises {
             let currentMax = getBase1RM(for: exercise.name)
 
             // Get the existing best 1RM for this exercise from prior data
-            let allLiftSets = (try? modelContext.fetch(FetchDescriptor<LiftSets>())) ?? []
-            let existingSets = allLiftSets.filter { $0.exercise?.id == exercise.id }
+            let allLiftSet = (try? modelContext.fetch(FetchDescriptor<LiftSet>())) ?? []
+            let existingSets = allLiftSet.filter { $0.exercise?.id == exercise.id }
             var runningBest = OneRMCalculator.current1RM(from: existingSets)
 
             // Pattern: 2 Easy, 2 Moderate, 2 Hard, 1 Redline, 1 PR
@@ -1527,7 +1536,7 @@ struct MoreView: View {
                 // Using Brzycki formula: 1RM = weight * (36 / (37 - reps))
                 let calculatedWeight = roundToAttainable(target1RM * (37.0 - Double(reps)) / 36.0)
 
-                let set = LiftSets(exercise: exercise, reps: reps, weight: calculatedWeight)
+                let set = LiftSet(exercise: exercise, reps: reps, weight: calculatedWeight)
                 set.createdAt = currentTime
                 set.createdTimezone = TimeZone.current.identifier
                 modelContext.insert(set)
@@ -1537,11 +1546,11 @@ struct MoreView: View {
                 let setEstimated1RM = OneRMCalculator.estimate1RM(weight: calculatedWeight, reps: reps)
                 runningBest = max(runningBest, setEstimated1RM)
 
-                let estimated = Estimated1RMs(exercise: exercise, value: runningBest, setId: set.id)
+                let estimated = Estimated1RM(exercise: exercise, value: runningBest, setId: set.id)
                 estimated.createdAt = currentTime
                 estimated.createdTimezone = TimeZone.current.identifier
                 modelContext.insert(estimated)
-                createdEstimated1RMs.append(estimated)
+                createdEstimated1RM.append(estimated)
 
                 // Add some time between sets (2-4 minutes)
                 currentTime = calendar.date(byAdding: .minute, value: Int.random(in: 2...4), to: currentTime) ?? currentTime
@@ -1556,9 +1565,9 @@ struct MoreView: View {
         // Sync to backend
         do {
             let setDtos = createdSets.map { LiftSetDTO(from: $0) }
-            _ = try await APIService.shared.createLiftSets(setDtos)
-            let e1rmDtos = createdEstimated1RMs.map { Estimated1RMDTO(from: $0) }
-            _ = try await APIService.shared.createEstimated1RMs(e1rmDtos)
+            _ = try await APIService.shared.createLiftSet(setDtos)
+            let e1rmDtos = createdEstimated1RM.map { Estimated1RMDTO(from: $0) }
+            _ = try await APIService.shared.createEstimated1RM(e1rmDtos)
             showTodayDataPopulatedAlert = true
         } catch {
             userPropertiesAlertMessage = "Data created locally but failed to sync: \(error.localizedDescription)"
@@ -1566,6 +1575,106 @@ struct MoreView: View {
         }
 
         isPopulatingToday = false
+    }
+
+    /// Populates yesterday with one set per effort level (Easy, Moderate, Hard) for every exercise,
+    /// using weights/reps that exactly match effort suggestion tiles so the "last set" indicator appears.
+    private func populateYesterdayData() async {
+        isPopulatingYesterday = true
+
+        let calendar = Calendar.current
+        let now = Date()
+        guard let yesterday = calendar.date(byAdding: .day, value: -1, to: now) else {
+            isPopulatingYesterday = false
+            return
+        }
+
+        if exercises.isEmpty {
+            isPopulatingYesterday = false
+            return
+        }
+
+        func roundToIncrement(_ weight: Double, increment: Double) -> Double {
+            return max(increment, (weight / increment).rounded() * increment)
+        }
+
+        var currentTime = calendar.date(bySettingHour: 18, minute: 0, second: 0, of: yesterday) ?? yesterday
+        var createdSets: [LiftSet] = []
+        var createdEstimated1RM: [Estimated1RM] = []
+
+        for exercise in exercises {
+            let loadType = exercise.exerciseLoadType
+            let increment: Double = loadType == .barbell ? 5.0 : 2.5
+
+            // Get this exercise's existing best 1RM
+            let exerciseId = exercise.id
+            let allEstimated = (try? modelContext.fetch(FetchDescriptor<Estimated1RM>())) ?? []
+            let exerciseEstimated = allEstimated
+                .filter { $0.exercise?.id == exerciseId }
+                .sorted { $0.createdAt > $1.createdAt }
+            let e1rm: Double = {
+                if let latest = exerciseEstimated.first {
+                    return latest.value
+                }
+                let allSets = (try? modelContext.fetch(FetchDescriptor<LiftSet>())) ?? []
+                let exerciseSets = allSets.filter { !$0.deleted && $0.exercise?.id == exerciseId }
+                return OneRMCalculator.current1RM(from: exerciseSets)
+            }()
+
+            guard e1rm > 0 else { continue }
+
+            // For each effort level, pick one target percent and a rep count in the middle of the range,
+            // then compute the weight the same way effortSuggestions does so we get an exact tile match.
+            let effortConfigs: [(pct: Double, reps: Int)] = [
+                (0.60, 6),  // Easy — 60% of e1RM, 6 reps → lands in 0...70% bounds
+                (0.76, 6),  // Moderate — 76% of e1RM, 6 reps → lands in 70...82% bounds
+                (0.87, 4),  // Hard — 87% of e1RM, 4 reps → lands in 82...92% bounds
+            ]
+
+            var runningBest = e1rm
+
+            for config in effortConfigs {
+                let targetE1RM = config.pct * e1rm
+                // Mirror the exact weight formula from OneRMCalculator.effortSuggestions:
+                // rawWeight = targetE1RM * 30 / (30 + reps), then round to increment
+                let rawWeight = targetE1RM * 30.0 / (30.0 + Double(config.reps))
+                let weight = roundToIncrement(rawWeight, increment: increment)
+
+                let set = LiftSet(exercise: exercise, reps: config.reps, weight: weight)
+                set.createdAt = currentTime
+                set.createdTimezone = TimeZone.current.identifier
+                modelContext.insert(set)
+                createdSets.append(set)
+
+                let setEstimated1RM = OneRMCalculator.estimate1RM(weight: weight, reps: config.reps)
+                runningBest = max(runningBest, setEstimated1RM)
+
+                let estimated = Estimated1RM(exercise: exercise, value: runningBest, setId: set.id)
+                estimated.createdAt = currentTime
+                estimated.createdTimezone = TimeZone.current.identifier
+                modelContext.insert(estimated)
+                createdEstimated1RM.append(estimated)
+
+                currentTime = calendar.date(byAdding: .minute, value: 3, to: currentTime) ?? currentTime
+            }
+
+            currentTime = calendar.date(byAdding: .minute, value: 5, to: currentTime) ?? currentTime
+        }
+
+        try? modelContext.save()
+
+        do {
+            let setDtos = createdSets.map { LiftSetDTO(from: $0) }
+            _ = try await APIService.shared.createLiftSet(setDtos)
+            let e1rmDtos = createdEstimated1RM.map { Estimated1RMDTO(from: $0) }
+            _ = try await APIService.shared.createEstimated1RM(e1rmDtos)
+            showYesterdayDataPopulatedAlert = true
+        } catch {
+            userPropertiesAlertMessage = "Data created locally but failed to sync: \(error.localizedDescription)"
+            showUserPropertiesAlert = true
+        }
+
+        isPopulatingYesterday = false
     }
 
     private func updateUserProperties() async {
@@ -1596,15 +1705,15 @@ struct MoreView: View {
     }
 
     private func deleteAllWorkoutData() {
-        // Delete all LiftSets items
-        let allLiftSets = (try? modelContext.fetch(FetchDescriptor<LiftSets>())) ?? []
-        for liftSet in allLiftSets {
+        // Delete all LiftSet items
+        let allLiftSet = (try? modelContext.fetch(FetchDescriptor<LiftSet>())) ?? []
+        for liftSet in allLiftSet {
             modelContext.delete(liftSet)
         }
 
-        // Delete all Estimated1RMs items
-        let allEstimated1RMs = (try? modelContext.fetch(FetchDescriptor<Estimated1RMs>())) ?? []
-        for estimated1RM in allEstimated1RMs {
+        // Delete all Estimated1RM items
+        let allEstimated1RM = (try? modelContext.fetch(FetchDescriptor<Estimated1RM>())) ?? []
+        for estimated1RM in allEstimated1RM {
             modelContext.delete(estimated1RM)
         }
 
@@ -1615,19 +1724,19 @@ struct MoreView: View {
     }
 
     private func hardDeleteAllData() {
-        // Hard delete all LiftSets
-        let allLiftSets = (try? modelContext.fetch(FetchDescriptor<LiftSets>())) ?? []
-        for liftSet in allLiftSets {
+        // Hard delete all LiftSet
+        let allLiftSet = (try? modelContext.fetch(FetchDescriptor<LiftSet>())) ?? []
+        for liftSet in allLiftSet {
             modelContext.delete(liftSet)
         }
 
-        // Hard delete all Estimated1RMs
-        let allEstimated1RMs = (try? modelContext.fetch(FetchDescriptor<Estimated1RMs>())) ?? []
-        for estimated1RM in allEstimated1RMs {
+        // Hard delete all Estimated1RM
+        let allEstimated1RM = (try? modelContext.fetch(FetchDescriptor<Estimated1RM>())) ?? []
+        for estimated1RM in allEstimated1RM {
             modelContext.delete(estimated1RM)
         }
 
-        // Hard delete all Exercises (both custom and built-in since they're synced)
+        // Hard delete all Exercise (both custom and built-in since they're synced)
         for exercise in exercises {
             modelContext.delete(exercise)
         }
@@ -1637,29 +1746,22 @@ struct MoreView: View {
             modelContext.delete(properties)
         }
 
-        // Hard delete all WorkoutSequences
-        let allSequences = (try? modelContext.fetch(FetchDescriptor<WorkoutSequence>())) ?? []
-        for sequence in allSequences {
-            modelContext.delete(sequence)
-        }
-
         // Hard delete all WorkoutSplits
         let allSplits = (try? modelContext.fetch(FetchDescriptor<WorkoutSplit>())) ?? []
         for split in allSplits {
             modelContext.delete(split)
         }
 
-        // Hard delete Entitlements
-        let allEntitlements = (try? modelContext.fetch(FetchDescriptor<Entitlements>())) ?? []
-        for entitlement in allEntitlements {
-            modelContext.delete(entitlement)
+        // Hard delete EntitlementGrants
+        let allEntitlements = (try? modelContext.fetch(FetchDescriptor<EntitlementGrant>())) ?? []
+        for grant in allEntitlements {
+            modelContext.delete(grant)
         }
 
-        // Clear active sequence/split preferences and migration flags
-        WorkoutSequenceStore.setActiveSequenceId(nil)
-        WorkoutSequenceStore.setActiveSplitId(nil)
-        UserDefaults.standard.removeObject(forKey: "workoutSequencesMigratedToSplits")
-        UserDefaults.standard.removeObject(forKey: "workoutSequencesMigratedToSwiftData")
+        // Clear active day/split preferences and seed flags
+        WorkoutSplitStore.setActiveDayId(nil)
+        WorkoutSplitStore.setActiveSplitId(nil)
+        UserDefaults.standard.removeObject(forKey: "workoutSplitsSeeded")
 
         try? modelContext.save()
     }
@@ -1903,7 +2005,7 @@ struct RangeSliderView: View {
 // MARK: - Exercise Icons Preview Sheet
 
 struct ExerciseIconsPreviewSheet: View {
-    let exercises: [Exercises]
+    let exercises: [Exercise]
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -2037,21 +2139,23 @@ struct AlertPreviewsSheet: View {
 // MARK: - Entitlement Details Subview
 
 private struct EntitlementDetailsView: View {
-    let entitlement: Entitlements
+    let grants: [EntitlementGrant]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            row("isPremium", value: "\(entitlement.isPremium)")
-            row("isActive", value: "\(entitlement.isActive)")
-            row("subscriptionType", value: entitlement.subscriptionType ?? "nil")
-            row("expiresAt", value: entitlement.expiresAt?.formatted(.dateTime) ?? "nil")
-            if let expiresAt = entitlement.expiresAt {
+            row("isPremium", value: "\(PremiumOverride.isEnabled || EntitlementGrant.isPremium(grants))")
+            row("count", value: "\(grants.count)")
+
+            ForEach(Array(grants.enumerated()), id: \.offset) { index, grant in
+                Divider().overlay(Color.white.opacity(0.1))
+                row("[\(index)] name", value: grant.entitlementName)
+                row("[\(index)] isActive", value: "\(grant.isActive)")
+                row("[\(index)] startUtc", value: grant.startUtc.formatted(.dateTime))
+                row("[\(index)] endUtc", value: grant.endUtc.formatted(.dateTime))
                 TimelineView(.periodic(from: .now, by: 1.0)) { context in
-                    row("expiresIn", value: countdownString(from: context.date, to: expiresAt))
+                    row("[\(index)] expiresIn", value: countdownString(from: context.date, to: grant.endUtc))
                 }
             }
-            row("transactionId", value: entitlement.transactionId ?? "nil")
-            row("id", value: entitlement.id.uuidString)
         }
         .padding(.leading, 48)
         .padding(.vertical, 4)

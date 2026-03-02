@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct TrainingRecencyWidget: View {
-    let allSets: [LiftSets]
+    let allSets: [LiftSet]
     var isPremium: Bool = true
     @Binding var showUpsell: Bool
 

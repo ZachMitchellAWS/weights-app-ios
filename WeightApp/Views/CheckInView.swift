@@ -8,14 +8,13 @@ struct CheckInView: View {
 
     @State private var today = Calendar.current.startOfDay(for: Date())
 
-    @Query(filter: #Predicate<Exercises> { !$0.deleted }, sort: \Exercises.createdAt) private var exercises: [Exercises]
+    @Query(filter: #Predicate<Exercise> { !$0.deleted }, sort: \Exercise.createdAt) private var exercises: [Exercise]
     @Query private var userPropertiesItems: [UserProperties]
-    @Query(filter: #Predicate<WorkoutSequence> { !$0.deleted }) private var allSequences: [WorkoutSequence]
     @Query(filter: #Predicate<WorkoutSplit> { !$0.deleted }) private var allSplits: [WorkoutSplit]
-    @Query(filter: #Predicate<SetPlanTemplate> { !$0.deleted }) private var allTemplates: [SetPlanTemplate]
+    @Query(filter: #Predicate<SetPlan> { !$0.deleted }) private var allTemplates: [SetPlan]
 
-    @State private var setsForExercise: [LiftSets] = []
-    @State private var estimated1RMsForExercise: [Estimated1RMs] = []
+    @State private var setsForExercise: [LiftSet] = []
+    @State private var estimated1RMsForExercise: [Estimated1RM] = []
     @State private var todaySetCounts: [UUID: Int] = [:]
 
     @ObservedObject var selectedSetData: SelectedSetData
@@ -30,6 +29,7 @@ struct CheckInView: View {
     @State private var hasSetWeight = false
     @State private var hasSetReps = false
     @State private var hasSelectedOption = false
+    @State private var logSetFlash = false
 
 
     @State private var showSubmitOverlay = false
@@ -58,10 +58,13 @@ struct CheckInView: View {
     @State private var showExpandedProgressOptions = false
     @State private var showExerciseSelectedOverlay = false
     @State private var exerciseOverlayDismissTask: Task<Void, Never>?
-    @State private var activeSplitId: UUID? = WorkoutSequenceStore.activeSplitId()
-    @State private var activeSequenceId: UUID? = WorkoutSequenceStore.activeSequenceId()
+    @State private var activeSplitId: UUID? = WorkoutSplitStore.activeSplitId()
+    @State private var activeDayId: UUID? = WorkoutSplitStore.activeDayId()
     @State private var repRangeDebounceTask: Task<Void, Never>?
     @State private var showE1RMPopup = false
+    @State private var showCalibrationAlert = false
+    @State private var pendingCalibrationSet: LiftSet? = nil
+    @State private var pendingCalibrationEstimated: Estimated1RM? = nil
 
     enum EffortMode: Int, CaseIterable {
         case easy = 0, moderate = 1, hard = 2, progress = 3
@@ -122,6 +125,15 @@ struct CheckInView: View {
             }
         }
 
+        var calibrationMidpoint: Double? {
+            switch self {
+            case .easy: return 0.60
+            case .moderate: return 0.76
+            case .hard: return 0.87
+            case .progress: return 0.96
+            }
+        }
+
         var tileColor: Color {
             switch self {
             case .easy: return .setEasy
@@ -168,19 +180,21 @@ struct CheckInView: View {
     @State private var effortSortColumn: EffortSortColumn = .weight
     @State private var effortSortAscending: Bool = true
     @State private var effortColumnHighlighted = false
+    @State private var effortSortUserModified: Bool = false
     @State private var weightColumnHighlighted = false
     @State private var cachedSetsWithPRInfo: [SetWithPR] = []
 
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
     private let lastSelectedExerciseKey = "lastSelectedExerciseId"
 
-    private var sequencedExercises: [Exercises] {
-        guard let activeId = activeSequenceId,
-              let seq = allSequences.first(where: { $0.id == activeId }) else {
+    private var sequencedExercises: [Exercise] {
+        guard let activeId = activeDayId,
+              let split = activeSplit,
+              let day = split.days.first(where: { $0.id == activeId }) else {
             return exercises
         }
         let exerciseMap = Dictionary(uniqueKeysWithValues: exercises.map { ($0.id, $0) })
-        let resolved = seq.exerciseIds.compactMap { exerciseMap[$0] }
+        let resolved = day.exerciseIds.compactMap { exerciseMap[$0] }
         return resolved.isEmpty ? exercises : resolved
     }
 
@@ -189,11 +203,9 @@ struct CheckInView: View {
         return allSplits.first(where: { $0.id == id })
     }
 
-    private var daysForActiveSplit: [WorkoutSequence] {
+    private var daysForActiveSplit: [WorkoutDay] {
         guard let split = activeSplit else { return [] }
-        let seqMap = Dictionary(uniqueKeysWithValues: allSequences.map { ($0.id, $0) })
-        let resolved = split.dayIds.compactMap { seqMap[$0] }
-        return resolved.isEmpty ? allSequences : resolved
+        return split.days
     }
 
     private var userProperties: UserProperties {
@@ -207,30 +219,30 @@ struct CheckInView: View {
         userProperties.availableChangePlates.sorted { $0 > $1 }
     }
 
-    private var selectedExercises: Exercises? {
+    private var selectedExercises: Exercise? {
         guard let id = selectedExercisesId else { return nil }
         return exercises.first(where: { $0.id == id })
     }
 
-    private var setsForSelected: [LiftSets] {
+    private var setsForSelected: [LiftSet] {
         setsForExercise
     }
 
-    private func todaySetCount(for exercise: Exercises) -> Int {
+    private func todaySetCount(for exercise: Exercise) -> Int {
         todaySetCounts[exercise.id] ?? 0
     }
 
-    private var estimated1RMsForSelected: [Estimated1RMs] {
+    private var estimated1RMsForSelected: [Estimated1RM] {
         estimated1RMsForExercise
     }
 
-    private var activeSetPlanTemplate: SetPlanTemplate? {
-        guard let templateId = userProperties.activeSetPlanTemplateId else { return nil }
+    private var activeSetPlan: SetPlan? {
+        guard let templateId = userProperties.activeSetPlanId else { return nil }
         return allTemplates.first(where: { $0.id == templateId })
     }
 
     private var displaySetPlan: [String] {
-        activeSetPlanTemplate?.effortSequence ?? []
+        activeSetPlan?.effortSequence ?? []
     }
 
     private var nextPlannedEffortMode: EffortMode? {
@@ -241,14 +253,14 @@ struct CheckInView: View {
     }
 
     struct SetWithPR {
-        let set: LiftSets
+        let set: LiftSet
         let estimated1RM: Double
         let increases1RM: Bool
         let percent1RM: Double  // estimate1RM / currentMax ratio (0-1+), 0 for baselines
         let percentageOfCurrent: Double  // kept for chart bar heights
     }
 
-    static func computeSetsWithPRInfo(for exercise: Exercises, from allSets: [LiftSets], estimated1RMs: [Estimated1RMs]) -> [SetWithPR] {
+    static func computeSetsWithPRInfo(for exercise: Exercise, from allSets: [LiftSet], estimated1RMs: [Estimated1RM]) -> [SetWithPR] {
         // Get all sets for this exercise in chronological order (oldest first)
         // Filter for valid sets (weight >= 0, reps >= 1)
         let sets = allSets
@@ -262,11 +274,12 @@ struct CheckInView: View {
         for set in sets {
             let estimated = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
 
-            // Baseline sets: never flag as increases1RM, percent1RM = 0 (always white)
+            // Baseline sets: never flag as increases1RM, color by reported effort
             if set.isBaselineSet {
                 let baselineEstimate = estimated1RMs.first(where: { $0.setId == set.id })?.value ?? estimated
                 let percentage = baselineEstimate > 0 ? (estimated / baselineEstimate) * 100 : 100.0
-                result.append(SetWithPR(set: set, estimated1RM: estimated, increases1RM: false, percent1RM: 0, percentageOfCurrent: percentage))
+                let pct1RM = baselineEstimate > 0 ? (estimated / baselineEstimate) * 100 : 0
+                result.append(SetWithPR(set: set, estimated1RM: estimated, increases1RM: false, percent1RM: pct1RM, percentageOfCurrent: percentage))
                 currentMax = max(currentMax, baselineEstimate)
                 continue
             }
@@ -307,13 +320,13 @@ struct CheckInView: View {
     }
 
     private func fetchDataForExercise(_ exerciseId: UUID) {
-        let setDescriptor = FetchDescriptor<LiftSets>(
+        let setDescriptor = FetchDescriptor<LiftSet>(
             predicate: #Predicate { !$0.deleted && $0.exercise?.id == exerciseId },
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
         )
         setsForExercise = (try? modelContext.fetch(setDescriptor)) ?? []
 
-        let e1rmDescriptor = FetchDescriptor<Estimated1RMs>(
+        let e1rmDescriptor = FetchDescriptor<Estimated1RM>(
             predicate: #Predicate { !$0.deleted && $0.exercise?.id == exerciseId },
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
         )
@@ -325,7 +338,7 @@ struct CheckInView: View {
         let todayStart = calendar.startOfDay(for: today)
         let tomorrowStart = calendar.date(byAdding: .day, value: 1, to: todayStart)!
 
-        let descriptor = FetchDescriptor<LiftSets>(
+        let descriptor = FetchDescriptor<LiftSet>(
             predicate: #Predicate { !$0.deleted && $0.createdAt >= todayStart && $0.createdAt < tomorrowStart }
         )
         let todaySets = (try? modelContext.fetch(descriptor)) ?? []
@@ -339,8 +352,18 @@ struct CheckInView: View {
         todaySetCounts = counts
     }
 
+    private var todayHasWeightedE1RMPR: Bool {
+        let calendar = Calendar.current
+        let today = self.today
+        return cachedSetsWithPRInfo.contains { info in
+            info.increases1RM &&
+            info.set.weight > 0 &&
+            calendar.isDate(info.set.createdAt, inSameDayAs: today)
+        }
+    }
+
     private var current1RM: Double {
-        // Latest Estimated1RMs value is the running max (each record stores the max at time of creation)
+        // Latest Estimated1RM value is the running max (each record stores the max at time of creation)
         if let latest = estimated1RMsForSelected.first {
             return latest.value
         }
@@ -440,14 +463,50 @@ struct CheckInView: View {
         if let bounds = mode.percent1RMBounds {
             results = results.filter { bounds.contains($0.percent1RM) }
         }
+        if let match = lastSetMatchForEffort {
+            let repRange = mode.repRange(from: userProperties)
+            if repRange.contains(match.reps),
+               !results.contains(where: { $0.weight == match.weight && $0.reps == match.reps }) {
+                let estimated = OneRMCalculator.estimate1RM(weight: match.weight, reps: match.reps)
+                let pct = (estimated / current1RM) * 100.0
+                results.append(OneRMCalculator.EffortSuggestion(reps: match.reps, weight: match.weight, percent1RM: pct))
+            }
+        }
+        var sorted: [OneRMCalculator.EffortSuggestion]
         switch effortSortColumn {
         case .weight:
-            return results.sorted { effortSortAscending ? $0.weight < $1.weight : $0.weight > $1.weight }
+            sorted = results.sorted { effortSortAscending ? $0.weight < $1.weight : $0.weight > $1.weight }
         case .reps:
-            return results.sorted { effortSortAscending ? $0.reps < $1.reps : $0.reps > $1.reps }
+            sorted = results.sorted { effortSortAscending ? $0.reps < $1.reps : $0.reps > $1.reps }
         case .percent1RM:
-            return results.sorted { effortSortAscending ? $0.percent1RM < $1.percent1RM : $0.percent1RM > $1.percent1RM }
+            sorted = results.sorted { effortSortAscending ? $0.percent1RM < $1.percent1RM : $0.percent1RM > $1.percent1RM }
         }
+        if !effortSortUserModified, let match = lastSetMatchForEffort {
+            if let idx = sorted.firstIndex(where: { $0.weight == match.weight && $0.reps == match.reps }), idx > 0 {
+                let item = sorted.remove(at: idx)
+                sorted.insert(item, at: 0)
+            }
+        }
+        return sorted
+    }
+
+    private var lastSetMatchForEffort: (weight: Double, reps: Int)? {
+        guard let mode = effortMode,
+              let bounds = mode.percent1RMBounds else { return nil }
+        let e1rm = current1RM
+        guard e1rm > 0 else { return nil }
+
+        // Find the most recent set whose percent1RM falls in this mode's bounds
+        // setsForExercise is already sorted newest-first
+        for set in setsForExercise {
+            guard set.weight > 0 else { continue }
+            let estimated = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
+            let pct = (estimated / e1rm) * 100.0
+            if bounds.contains(pct) {
+                return (weight: set.weight, reps: set.reps)
+            }
+        }
+        return nil
     }
 
     private var weightOptions: [Double] {
@@ -516,8 +575,11 @@ struct CheckInView: View {
                             .foregroundStyle(.white)
                             .multilineTextAlignment(.center)
                             .lineLimit(2)
+                            .minimumScaleFactor(0.5)
+                            .padding(.horizontal, 12)
                     }
-                    .frame(width: 160, height: 160)
+                    .frame(minWidth: 160, maxWidth: 220)
+                    .frame(height: 160)
                     .background(
                         RoundedRectangle(cornerRadius: 20)
                             .fill(Color(white: 0.12))
@@ -645,10 +707,10 @@ struct CheckInView: View {
                     fetchDataForExercise(newId)
                     // Auto-select the day that contains this exercise
                     if let matchingDay = daysForActiveSplit.first(where: { $0.exerciseIds.contains(newId) }) {
-                        activeSequenceId = matchingDay.id
-                        WorkoutSequenceStore.setActiveSequenceId(matchingDay.id)
+                        activeDayId = matchingDay.id
+                        WorkoutSplitStore.setActiveDayId(matchingDay.id)
                     } else {
-                        activeSequenceId = nil
+                        activeDayId = nil
                     }
                 }
                 resetToDefaults()
@@ -728,7 +790,7 @@ struct CheckInView: View {
                     .presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showHub, onDismiss: {
-                activeSplitId = WorkoutSequenceStore.activeSplitId()
+                activeSplitId = WorkoutSplitStore.activeSplitId()
                 hubDeepLinkExerciseId = nil
                 hubSection = .exercises  // Reset so next open detects the change
             }) {
@@ -758,7 +820,7 @@ struct CheckInView: View {
                         .presentationContentInteraction(.scrolls)
                         .presentationDragIndicator(.visible)
                 }
-                .alert("No Exercises Found", isPresented: $showNoExercisesAlert) {
+                .alert("No Exercise Found", isPresented: $showNoExercisesAlert) {
                     Button("Try Again") {
                         retryFetchExercises()
                     }
@@ -769,6 +831,14 @@ struct CheckInView: View {
                     Button("Dismiss", role: .cancel) { }
                 } message: {
                     Text("Unable to load your exercises. You can retry or start with default exercises.")
+                }
+                .alert("How did that feel?", isPresented: $showCalibrationAlert) {
+                    Button("Easy") { applyCalibration(effort: .easy) }
+                    Button("Moderate") { applyCalibration(effort: .moderate) }
+                    Button("Hard") { applyCalibration(effort: .hard) }
+                    Button("Redline") { applyCalibration(effort: .progress) }
+                } message: {
+                    Text("This helps estimate your 1RM for better suggestions.")
                 }
             .navigationBarHidden(true)
         }
@@ -1273,16 +1343,16 @@ struct CheckInView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
                         ForEach(daysForActiveSplit) { day in
-                            let isSelected = activeSequenceId == day.id
+                            let isSelected = activeDayId == day.id
                             Button {
                                 hapticFeedback.impactOccurred()
                                 if isSelected {
-                                    activeSequenceId = nil
-                                    WorkoutSequenceStore.setActiveSequenceId(nil)
+                                    activeDayId = nil
+                                    WorkoutSplitStore.setActiveDayId(nil)
                                     selectedExercisesId = nil
                                 } else {
-                                    activeSequenceId = day.id
-                                    WorkoutSequenceStore.setActiveSequenceId(day.id)
+                                    activeDayId = day.id
+                                    WorkoutSplitStore.setActiveDayId(day.id)
                                 }
                             } label: {
                                 Text("\(day.name) Day")
@@ -1303,7 +1373,7 @@ struct CheckInView: View {
                                     )
                             }
                             .buttonStyle(.plain)
-                            .animation(.easeInOut(duration: 0.15), value: activeSequenceId)
+                            .animation(.easeInOut(duration: 0.15), value: activeDayId)
                         }
                         }
                         .padding(.leading, 4)
@@ -1412,7 +1482,7 @@ struct CheckInView: View {
                     .padding(.vertical, 5)
                 }
                 .scrollTargetBehavior(.viewAligned)
-                .id(activeSequenceId)
+                .id(activeDayId)
                 .onChange(of: selectedExercisesId) { _, newId in
                     guard let newId else { return }
                     withAnimation {
@@ -1444,15 +1514,15 @@ struct CheckInView: View {
         )
         .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
         .onChange(of: activeSplitId) { _, _ in
-            WorkoutSequenceStore.setActiveSplitId(activeSplitId)
+            WorkoutSplitStore.setActiveSplitId(activeSplitId)
             if let firstDay = daysForActiveSplit.first {
                 // When split changes, auto-select first day
-                activeSequenceId = firstDay.id
-                WorkoutSequenceStore.setActiveSequenceId(firstDay.id)
+                activeDayId = firstDay.id
+                WorkoutSplitStore.setActiveDayId(firstDay.id)
             } else {
                 // No split selected — clear day selection, show all exercises
-                activeSequenceId = nil
-                WorkoutSequenceStore.setActiveSequenceId(nil)
+                activeDayId = nil
+                WorkoutSplitStore.setActiveDayId(nil)
                 selectedExercisesId = nil
             }
         }
@@ -1705,6 +1775,7 @@ struct CheckInView: View {
                     }
                 ),
                 onRepRangeChanged: { scheduleRepRangeSync() },
+                lastSetMatch: lastSetMatchForEffort,
                 onSelect: { suggestion in
                     selectEffortOption(suggestion)
                 },
@@ -1808,9 +1879,17 @@ struct CheckInView: View {
         }
 
         private func colorForSet(_ setInfo: SetWithPR) -> [Color] {
-            // Baseline sets → white
+            // Baseline sets — color by reported effort (percent1RM is now set from calibration)
             if setInfo.set.isBaselineSet {
-                return [.white, .white.opacity(0.8)]
+                let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: setInfo.percent1RM / 100.0)
+                let c: Color
+                switch bucket {
+                case .pr, .redline: c = .setNearMax
+                case .hard: c = .setHard
+                case .moderate: c = .setModerate
+                case .easy: c = .setEasy
+                }
+                return [c, c.opacity(0.8)]
             }
 
             // If it increases 1RM, use special PR color
@@ -1903,7 +1982,7 @@ struct CheckInView: View {
         }
     }
 
-    private var todaysSets: [LiftSets] {
+    private var todaysSets: [LiftSet] {
         guard selectedExercises != nil else { return [] }
         let calendar = Calendar.current
         let today = self.today
@@ -1913,7 +1992,7 @@ struct CheckInView: View {
     }
 
     private var setComparisonView: some View {
-        let standardSequence = SetPlanTemplate.builtInTemplates.first(where: { $0.id == SetPlanTemplate.standardId })?.sequence ?? ["easy", "moderate", "moderate", "hard", "pr"]
+        let standardSequence = SetPlan.builtInTemplates.first(where: { $0.id == SetPlan.standardId })?.sequence ?? ["easy", "easy", "moderate", "moderate", "hard", "pr"]
 
         return Group {
             if selectedExercises == nil {
@@ -1949,31 +2028,31 @@ struct CheckInView: View {
                         // Active template label with Menu to switch (includes "None" option)
                         Menu {
                             let sorted = allTemplates.sorted {
-                                if $0.isBuiltIn != $1.isBuiltIn { return $0.isBuiltIn }
+                                if $0.isCustom != $1.isCustom { return !$0.isCustom }
                                 return $0.createdAt < $1.createdAt
                             }
                             ForEach(sorted) { t in
                                 Button {
                                     hapticFeedback.impactOccurred()
-                                    userProperties.activeSetPlanTemplateId = t.id
+                                    userProperties.activeSetPlanId = t.id
                                     try? modelContext.save()
-                                    Task { await SyncService.shared.updateActiveSetPlanTemplate(t.id) }
+                                    Task { await SyncService.shared.updateActiveSetPlan(t.id) }
                                 } label: {
-                                    Label(t.name, systemImage: userProperties.activeSetPlanTemplateId == t.id ? "checkmark" : "")
+                                    Label(t.name, systemImage: userProperties.activeSetPlanId == t.id ? "checkmark" : "")
                                 }
                             }
                             Divider()
                             Button {
                                 hapticFeedback.impactOccurred()
-                                userProperties.activeSetPlanTemplateId = nil
+                                userProperties.activeSetPlanId = nil
                                 try? modelContext.save()
-                                Task { await SyncService.shared.updateActiveSetPlanTemplate(nil) }
+                                Task { await SyncService.shared.updateActiveSetPlan(nil) }
                             } label: {
-                                Label("None", systemImage: activeSetPlanTemplate == nil ? "checkmark" : "")
+                                Label("None", systemImage: activeSetPlan == nil ? "checkmark" : "")
                             }
                         } label: {
                             HStack(spacing: 4) {
-                                Text(activeSetPlanTemplate != nil ? "\(activeSetPlanTemplate!.name) Session" : "– –")
+                                Text(activeSetPlan != nil ? "\(activeSetPlan!.name) Session" : "– –")
                                     .font(.inter(size: 11))
                                     .lineLimit(1)
                                 Image(systemName: "chevron.right")
@@ -1983,19 +2062,6 @@ struct CheckInView: View {
                             .padding(.horizontal, 8)
                             .frame(height: 22)
                             .background(RoundedRectangle(cornerRadius: 6).fill(Color(white: 0.12)))
-                        }
-
-                        // Mini sequence preview squares
-                        if !displaySetPlan.isEmpty {
-                            let currentIndex = todaysSets.count
-                            let pastPlan = currentIndex >= displaySetPlan.count
-                            HStack(spacing: 3) {
-                                ForEach(Array(displaySetPlan.enumerated()), id: \.offset) { index, effort in
-                                    RoundedRectangle(cornerRadius: 2.5)
-                                        .fill(SequenceSquareView.color(for: effort).opacity(pastPlan || index == currentIndex ? 0.6 : 0.25))
-                                        .frame(width: 9, height: 9)
-                                }
-                            }
                         }
 
                         Spacer()
@@ -2027,7 +2093,7 @@ struct CheckInView: View {
                                             currentReps: reps,
                                             hasSetValues: hasSetInitialValues,
                                             selectedSquareId: selectedSquareId,
-                                            allEstimated1RMs: estimated1RMsForExercise,
+                                            allEstimated1RM: estimated1RMsForExercise,
                                             onDelete: {
                                                 if let id = selectedExercisesId {
                                                     fetchDataForExercise(id)
@@ -2042,9 +2108,17 @@ struct CheckInView: View {
                                             hasSetInitialValues = true
                                             hasSetWeight = true
                                             hasSetReps = true
+                                            hasSelectedOption = true
                                             selectedSquareId = set.id
 
+                                            // Update effort mode from plan if this set's index maps to a plan entry
+                                            if index < displaySetPlan.count {
+                                                let effortKey = displaySetPlan[index]
+                                                withAnimation { effortMode = EffortMode.from(effort: effortKey) }
+                                            }
+
                                             hapticFeedback.impactOccurred()
+                                            flashLogSetHighlight()
                                             Task {
                                                 try? await Task.sleep(nanoseconds: 300_000_000)
                                                 await MainActor.run {
@@ -2071,7 +2145,7 @@ struct CheckInView: View {
                                                 .frame(width: 42, height: 42)
                                                 .overlay(
                                                     RoundedRectangle(cornerRadius: 6)
-                                                        .stroke(isHighlighted ? color : (isNext ? color.opacity(0.7) : Color.white.opacity(0.2)), lineWidth: isHighlighted ? 2.5 : (isNext ? 2 : 1.5))
+                                                        .stroke(isHighlighted ? color : color, lineWidth: isHighlighted ? 2.5 : (isNext ? 2 : 1.5))
                                                 )
                                                 .shadow(color: isHighlighted ? color.opacity(0.5) : .clear, radius: 4)
                                                 .onTapGesture {
@@ -2203,7 +2277,7 @@ struct CheckInView: View {
                 ProgressOptionsEmptyState(message: "Log your first set")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ProgressOptionsEmptyState(message: nil)
+                ProgressOptionsEmptyState(message: nil, showPRIndicator: todayHasWeightedE1RMPR)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -2408,7 +2482,7 @@ struct CheckInView: View {
                 // Starter suggestion when e1RM is too low
                 starterSuggestionCard
             } else {
-                // 3-column sortable header
+                // Sortable header
                 HStack(spacing: 0) {
                     effortColumnButton(title: "WEIGHT", column: .weight)
                     effortColumnButton(title: "REPS", column: .reps)
@@ -2427,7 +2501,8 @@ struct CheckInView: View {
                                         isSelected: isEffortOptionSelected(suggestion),
                                         sortColumn: effortSortColumn,
                                         columnHighlighted: effortColumnHighlighted,
-                                        accentColor: (effortMode ?? .easy).tileColor
+                                        accentColor: (effortMode ?? .easy).tileColor,
+                                        isLastSet: lastSetMatchForEffort.map { $0.weight == suggestion.weight && $0.reps == suggestion.reps } ?? false
                                     )
                                     .onTapGesture {
                                         hapticFeedback.impactOccurred()
@@ -2458,6 +2533,17 @@ struct CheckInView: View {
                     )
                     .frame(height: 8)
                     .allowsHitTesting(false)
+                }
+
+                if lastSetMatchForEffort != nil {
+                    HStack(spacing: 6) {
+                        Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Last set with this effort")
+                            .font(.caption2)
+                    }
+                    .foregroundStyle(.white.opacity(0.4))
+                    .padding(.top, 2)
                 }
             }
         }
@@ -2682,6 +2768,12 @@ struct CheckInView: View {
                 .stroke((effortMode ?? .progress).tileColor, lineWidth: logSetMatchesOption ? 3 : 0)
                 .animation(.easeInOut(duration: 0.3), value: logSetMatchesOption)
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke((effortMode ?? .progress).tileColor, lineWidth: 6)
+                .opacity(logSetFlash ? 0.7 : 0)
+                .animation(.easeInOut(duration: 0.3), value: logSetFlash)
+        )
         .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
     }
 
@@ -2778,7 +2870,7 @@ struct CheckInView: View {
     }
 
     private struct ConfirmationOverlayView: View {
-        let exercise: Exercises?
+        let exercise: Exercise?
         let reps: Int
         let weight: Double
         let onConfirm: () -> Void
@@ -2901,7 +2993,7 @@ struct CheckInView: View {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        let ex = Exercises(name: trimmed, isCustom: true, loadType: loadType, movementType: movementType, icon: icon)
+        let ex = Exercise(name: trimmed, isCustom: true, loadType: loadType, movementType: movementType, icon: icon)
         modelContext.insert(ex)
         selectedExercisesId = ex.id
 
@@ -2909,7 +3001,7 @@ struct CheckInView: View {
         Task { await SyncService.shared.syncExercise(ex) }
     }
 
-    private func saveExercise(_ exercise: Exercises, name: String, movementType: ExerciseMovementType, icon: String, notes: String?) {
+    private func saveExercise(_ exercise: Exercise, name: String, movementType: ExerciseMovementType, icon: String, notes: String?) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
@@ -2923,11 +3015,11 @@ struct CheckInView: View {
         Task { await SyncService.shared.syncExercise(exercise) }
     }
 
-    private func deleteExercise(_ exercise: Exercises) {
+    private func deleteExercise(_ exercise: Exercise) {
         let exerciseId = exercise.id
 
         // Delete associated sets
-        let setsDescriptor = FetchDescriptor<LiftSets>(
+        let setsDescriptor = FetchDescriptor<LiftSet>(
             predicate: #Predicate { $0.exercise?.id == exerciseId }
         )
         let setsToDelete = (try? modelContext.fetch(setsDescriptor)) ?? []
@@ -2936,7 +3028,7 @@ struct CheckInView: View {
         }
 
         // Delete associated 1RM records
-        let e1rmDescriptor = FetchDescriptor<Estimated1RMs>(
+        let e1rmDescriptor = FetchDescriptor<Estimated1RM>(
             predicate: #Predicate { $0.exercise?.id == exerciseId }
         )
         let estimatesToDelete = (try? modelContext.fetch(e1rmDescriptor)) ?? []
@@ -3039,6 +3131,7 @@ struct CheckInView: View {
 
     private func handleEffortColumnTap(_ column: EffortSortColumn) {
         hapticFeedback.impactOccurred()
+        effortSortUserModified = true
 
         if effortSortColumn == column {
             effortSortAscending.toggle()
@@ -3123,6 +3216,7 @@ struct CheckInView: View {
         hasSetWeight = true
         hasSetReps = true
         hasSelectedOption = true
+        flashLogSetHighlight()
     }
 
     private func selectEffortOption(_ suggestion: OneRMCalculator.EffortSuggestion) {
@@ -3132,6 +3226,16 @@ struct CheckInView: View {
         hasSetWeight = true
         hasSetReps = true
         hasSelectedOption = true
+        flashLogSetHighlight()
+    }
+
+    private func flashLogSetHighlight() {
+        DispatchQueue.main.async {
+            logSetFlash = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                logSetFlash = false
+            }
+        }
     }
 
     private func isEffortOptionSelected(_ suggestion: OneRMCalculator.EffortSuggestion) -> Bool {
@@ -3155,9 +3259,14 @@ struct CheckInView: View {
     private func logSet() {
         guard let ex = selectedExercises else { return }
 
+        let isFirstWeightedSet = setsForExercise.isEmpty && weight > 0
+
         let before = current1RM
 
-        let set = LiftSets(exercise: ex, reps: reps, weight: weight)
+        let set = LiftSet(exercise: ex, reps: reps, weight: weight)
+        if isFirstWeightedSet {
+            set.isBaselineSet = true
+        }
         modelContext.insert(set)
 
         let newEstimate = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
@@ -3166,14 +3275,22 @@ struct CheckInView: View {
         let d = after - before
         let increased = d > 0.0001
 
-        // Create a new Estimated1RMs record for every set, storing the running max
-        let estimated = Estimated1RMs(exercise: ex, value: after, setId: set.id)
+        // Create a new Estimated1RM record for every set, storing the running max
+        let estimated = Estimated1RM(exercise: ex, value: after, setId: set.id)
         modelContext.insert(estimated)
 
         // Sync lift set and estimated 1RM to backend
         Task {
             await SyncService.shared.syncLiftSet(set)
             await SyncService.shared.syncEstimated1RM(estimated)
+        }
+
+        // First weighted set: defer data refresh until calibration is applied
+        if isFirstWeightedSet {
+            pendingCalibrationSet = set
+            pendingCalibrationEstimated = estimated
+            showCalibrationAlert = true
+            return
         }
 
         // Refresh local data after logging
@@ -3259,6 +3376,69 @@ struct CheckInView: View {
         }
     }
 
+    private func applyCalibration(effort: EffortMode) {
+        guard let set = pendingCalibrationSet,
+              let estimated = pendingCalibrationEstimated,
+              let fraction = effort.calibrationMidpoint else {
+            pendingCalibrationSet = nil
+            pendingCalibrationEstimated = nil
+            return
+        }
+
+        let calibratedValue = OneRMCalculator.calibrated1RM(
+            weight: set.weight, reps: set.reps, effortFraction: fraction
+        )
+        estimated.value = calibratedValue
+
+        // Re-sync the updated e1RM to backend
+        Task {
+            await SyncService.shared.syncEstimated1RM(estimated)
+        }
+
+        // Now refresh data (deferred from logSet to avoid stale color flash)
+        if let exId = set.exercise?.id {
+            fetchDataForExercise(exId)
+        }
+        refreshTodaySetCounts()
+        sessionScrollTarget = set.id
+
+        // Show overlay with calibration result
+        overlayDidIncrease = false
+        overlayDelta = 0
+        overlayNew1RM = calibratedValue
+        overlayIntensityColor = effort.tileColor
+        overlayIntensityLabel = "Calibrated"
+
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            showSubmitOverlay = true
+        }
+
+        DispatchQueue.main.async {
+            selectedPlanTileIndex = nil
+            highlightPlanTile(nil)
+            hasSelectedOption = false
+            withAnimation { effortMode = nil }
+
+            DispatchQueue.main.async {
+                if let next = nextPlannedEffortMode {
+                    withAnimation { effortMode = next }
+                }
+            }
+        }
+
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            await MainActor.run {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    showSubmitOverlay = false
+                }
+            }
+        }
+
+        pendingCalibrationSet = nil
+        pendingCalibrationEstimated = nil
+    }
+
     private func highlightPlanTile(_ index: Int?) {
         highlightDismissTask?.cancel()
         withAnimation(.easeInOut(duration: 0.15)) {
@@ -3296,7 +3476,7 @@ struct CheckInView: View {
                 try? modelContext.save()
             }
             // Assign default exercises to days now that exercises exist
-            WorkoutSequenceStore.assignDefaultExercisesToDays(context: modelContext)
+            WorkoutSplitStore.assignDefaultExercisesToDays(context: modelContext)
         }
     }
 }
@@ -3473,9 +3653,9 @@ struct NewExerciseFormView: View {
 }
 
 struct EditExerciseFormView: View {
-    let exercise: Exercises
-    let onSave: (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void
-    let onDelete: ((_ exercise: Exercises) -> Void)?
+    let exercise: Exercise
+    let onSave: (_ exercise: Exercise, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void
+    let onDelete: ((_ exercise: Exercise) -> Void)?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
@@ -3495,10 +3675,10 @@ struct EditExerciseFormView: View {
     /// Whether this view is shown inside a NavigationStack (push) or standalone sheet
     let showBackChevron: Bool
 
-    init(exercise: Exercises,
+    init(exercise: Exercise,
          showBackChevron: Bool = true,
-         onSave: @escaping (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void,
-         onDelete: ((_ exercise: Exercises) -> Void)? = nil) {
+         onSave: @escaping (_ exercise: Exercise, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void,
+         onDelete: ((_ exercise: Exercise) -> Void)? = nil) {
         self.exercise = exercise
         self.showBackChevron = showBackChevron
         self.onSave = onSave
@@ -3834,12 +4014,12 @@ struct EditExerciseFormView: View {
 }
 
 struct ExercisesSelectionView: View {
-    let exercises: [Exercises]
+    let exercises: [Exercise]
     @Binding var selectedExercisesId: UUID?
     var initialDeepLinkExerciseId: UUID? = nil
     let onExerciseCreated: (_ name: String, _ loadType: ExerciseLoadType, _ movementType: ExerciseMovementType, _ icon: String) -> Void
-    let onExerciseSaved: (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void
-    let onExerciseDeleted: (_ exercise: Exercises) -> Void
+    let onExerciseSaved: (_ exercise: Exercise, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void
+    let onExerciseDeleted: (_ exercise: Exercise) -> Void
 
     @State private var navigationPath = NavigationPath()
     @State private var hasAppliedDeepLink = false
@@ -3847,7 +4027,7 @@ struct ExercisesSelectionView: View {
     @State private var collapsedSections: Set<ExerciseMovementType> = []
     @FocusState private var isSearchFocused: Bool
 
-    private var filteredExercises: [Exercises] {
+    private var filteredExercises: [Exercise] {
         if searchText.isEmpty {
             return exercises.sorted { $0.name < $1.name }
         }
@@ -3856,7 +4036,7 @@ struct ExercisesSelectionView: View {
             .sorted { $0.name < $1.name }
     }
 
-    private var groupedExercises: [(ExerciseMovementType, [Exercises])] {
+    private var groupedExercises: [(ExerciseMovementType, [Exercise])] {
         let grouped = Dictionary(grouping: filteredExercises) { $0.exerciseMovementType }
         return ExerciseMovementType.allCases.compactMap { type in
             guard let exercises = grouped[type], !exercises.isEmpty else { return nil }
@@ -4057,7 +4237,7 @@ struct ExercisesSelectionView: View {
 }
 
 struct ExerciseRowView: View {
-    let exercise: Exercises
+    let exercise: Exercise
     let isSelected: Bool
     let onSelect: () -> Void
     let onEdit: () -> Void
@@ -4114,13 +4294,13 @@ struct ExerciseRowView: View {
 
 struct SetSquareView: View {
     @Environment(\.modelContext) private var modelContext
-    let set: LiftSets
-    let allSets: [LiftSets]
+    let set: LiftSet
+    let allSets: [LiftSet]
     let currentWeight: Double
     let currentReps: Int
     let hasSetValues: Bool
     let selectedSquareId: UUID?
-    let allEstimated1RMs: [Estimated1RMs]
+    let allEstimated1RM: [Estimated1RM]
     var onDelete: (() -> Void)? = nil
 
     private var isMatching: Bool {
@@ -4133,13 +4313,24 @@ struct SetSquareView: View {
     }
 
     private var colorAndPR: (color: Color, isPR: Bool) {
-        // Baseline sets → white, never PR
+        // Baseline sets — color by reported effort, never PR
         if set.isBaselineSet {
-            return (color: .white, isPR: false)
+            let baselineE1RM = allEstimated1RM.first(where: { $0.setId == set.id })?.value ?? 0
+            let rawEstimate = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
+            let pct = baselineE1RM > 0 ? rawEstimate / baselineE1RM : 0
+            let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: pct)
+            let c: Color
+            switch bucket {
+            case .pr, .redline: c = .setNearMax
+            case .hard: c = .setHard
+            case .moderate: c = .setModerate
+            case .easy: c = .setEasy
+            }
+            return (color: c, isPR: false)
         }
 
-        // Use the latest Estimated1RMs record before this set as the reference max
-        let priorE1RM = allEstimated1RMs
+        // Use the latest Estimated1RM record before this set as the reference max
+        let priorE1RM = allEstimated1RM
             .filter { $0.createdAt < set.createdAt }
             .sorted { $0.createdAt > $1.createdAt }
             .first
@@ -4224,9 +4415,9 @@ struct SetSquareView: View {
         // Soft delete the set
         set.deleted = true
 
-        // Find and soft delete associated Estimated1RMs if it exists
+        // Find and soft delete associated Estimated1RM if it exists
         var estimated1RMId: UUID? = nil
-        if let associated1RM = allEstimated1RMs.first(where: { $0.setId == setId }) {
+        if let associated1RM = allEstimated1RM.first(where: { $0.setId == setId }) {
             associated1RM.deleted = true
             estimated1RMId = associated1RM.id
         }
@@ -4305,13 +4496,25 @@ struct SequenceSquareView: View {
 
 struct ProgressOptionsEmptyState: View {
     var message: String? = "Log your first set below"
+    var showPRIndicator: Bool = false
+
+    @State private var appeared = false
+    @State private var pulsing = false
+
+    private var isPR: Bool {
+        showPRIndicator && message == nil
+    }
+
+    private var accentColor: Color {
+        isPR ? .setPR : .appLogoColor
+    }
 
     var body: some View {
         ZStack {
             // Subtle radial gradient background
             RadialGradient(
                 colors: [
-                    Color.appLogoColor.opacity(0.08),
+                    accentColor.opacity(isPR ? 0.12 : 0.08),
                     Color.clear
                 ],
                 center: .center,
@@ -4326,8 +4529,12 @@ struct ProgressOptionsEmptyState: View {
                     .resizable()
                     .scaledToFit()
                     .frame(width: 72, height: 72)
-                    .foregroundStyle(Color.appLogoColor)
-                    .shadow(color: Color.appLogoColor.opacity(0.3), radius: 14, x: 0, y: 0)
+                    .foregroundStyle(accentColor)
+                    .shadow(color: accentColor.opacity(isPR ? 0.5 : 0.3), radius: isPR ? 20 : 14, x: 0, y: 0)
+                    .scaleEffect(isPR ? (appeared ? 1.0 : 0.6) : 1.0)
+                    .scaleEffect(pulsing ? 1.05 : 1.0)
+                    .animation(isPR ? .spring(response: 0.4, dampingFraction: 0.6) : nil, value: appeared)
+                    .animation(isPR ? .easeInOut(duration: 0.3).repeatCount(5, autoreverses: true) : nil, value: pulsing)
 
                 if let message {
                     Text(message)
@@ -4335,11 +4542,33 @@ struct ProgressOptionsEmptyState: View {
                         .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
                         .padding(.top, 6)
+                } else if showPRIndicator {
+                    VStack(spacing: 4) {
+                        Text("e1RM PR")
+                            .font(.bebasNeue(size: 22))
+                            .foregroundStyle(Color.setPR)
+                            .opacity(appeared ? 1 : 0)
+                            .animation(.easeOut(duration: 0.4).delay(0.3), value: appeared)
+                        Text("New Estimated 1RM Today")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.5))
+                            .opacity(appeared ? 1 : 0)
+                            .animation(.easeOut(duration: 0.4).delay(0.5), value: appeared)
+                    }
+                    .padding(.top, 6)
                 }
             }
             .offset(y: 10)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            if isPR {
+                appeared = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    pulsing = true
+                }
+            }
+        }
     }
 }
 
@@ -4568,9 +4797,7 @@ struct ExpandedProgressOptionsSheet: View {
                         )
                         .onTapGesture {
                             hapticFeedback.impactOccurred()
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedSuggestion = suggestion
-                            }
+                            selectedSuggestion = suggestion
                         }
                     }
                 }
@@ -4671,6 +4898,7 @@ struct ExpandedEffortOptionsSheet: View {
     @Binding var repRangeMin: Int
     @Binding var repRangeMax: Int
     let onRepRangeChanged: () -> Void
+    var lastSetMatch: (weight: Double, reps: Int)? = nil
     let onSelect: (OneRMCalculator.EffortSuggestion) -> Void
     var onSwitchMode: ((CheckInView.EffortMode) -> Void)? = nil
 
@@ -4679,17 +4907,26 @@ struct ExpandedEffortOptionsSheet: View {
     @State private var sortColumn: CheckInView.EffortSortColumn = .weight
     @State private var sortAscending: Bool = true
     @State private var columnHighlighted = false
+    @State private var sheetSortUserModified: Bool = false
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
 
     private var sortedSuggestions: [OneRMCalculator.EffortSuggestion] {
+        var sorted: [OneRMCalculator.EffortSuggestion]
         switch sortColumn {
         case .weight:
-            return suggestions.sorted { sortAscending ? $0.weight < $1.weight : $0.weight > $1.weight }
+            sorted = suggestions.sorted { sortAscending ? $0.weight < $1.weight : $0.weight > $1.weight }
         case .reps:
-            return suggestions.sorted { sortAscending ? $0.reps < $1.reps : $0.reps > $1.reps }
+            sorted = suggestions.sorted { sortAscending ? $0.reps < $1.reps : $0.reps > $1.reps }
         case .percent1RM:
-            return suggestions.sorted { sortAscending ? $0.percent1RM < $1.percent1RM : $0.percent1RM > $1.percent1RM }
+            sorted = suggestions.sorted { sortAscending ? $0.percent1RM < $1.percent1RM : $0.percent1RM > $1.percent1RM }
         }
+        if !sheetSortUserModified, let match = lastSetMatch {
+            if let idx = sorted.firstIndex(where: { $0.weight == match.weight && $0.reps == match.reps }), idx > 0 {
+                let item = sorted.remove(at: idx)
+                sorted.insert(item, at: 0)
+            }
+        }
+        return sorted
     }
 
     var body: some View {
@@ -4807,13 +5044,12 @@ struct ExpandedEffortOptionsSheet: View {
                             isSelected: selectedSuggestion?.id == suggestion.id,
                             sortColumn: sortColumn,
                             columnHighlighted: columnHighlighted,
-                            accentColor: effortMode.tileColor
+                            accentColor: effortMode.tileColor,
+                            isLastSet: lastSetMatch.map { $0.weight == suggestion.weight && $0.reps == suggestion.reps } ?? false
                         )
                         .onTapGesture {
                             hapticFeedback.impactOccurred()
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedSuggestion = suggestion
-                            }
+                            selectedSuggestion = suggestion
                         }
                     }
                 }
@@ -4837,8 +5073,19 @@ struct ExpandedEffortOptionsSheet: View {
                     .cornerRadius(10)
             }
             .padding(.horizontal, 40)
-            .padding(.top, 24)
+            .padding(.top, lastSetMatch != nil ? 12 : 24)
             .padding(.bottom, 16)
+
+            if lastSetMatch != nil {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("Last set with this effort")
+                        .font(.caption2)
+                }
+                .foregroundStyle(.white.opacity(0.4))
+                .padding(.bottom, 8)
+            }
         }
         .background(
             LinearGradient(
@@ -4865,6 +5112,7 @@ struct ExpandedEffortOptionsSheet: View {
     private func sheetColumnButton(title: String, column: CheckInView.EffortSortColumn) -> some View {
         Button {
             hapticFeedback.impactOccurred()
+            sheetSortUserModified = true
             if sortColumn == column {
                 sortAscending.toggle()
             } else {

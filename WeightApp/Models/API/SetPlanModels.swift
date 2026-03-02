@@ -2,34 +2,34 @@ import Foundation
 
 // MARK: - Data Transfer Object
 
-struct SetPlanTemplateDTO: Codable {
+struct SetPlanDTO: Codable {
     let templateId: UUID
     let name: String
     let effortSequence: [String]
-    let isBuiltIn: Bool
+    let isCustom: Bool
     let createdTimezone: String
     let templateDescription: String?
     let createdDatetime: Date?
     let deleted: Bool?
 
-    init(from template: SetPlanTemplate) {
+    init(from template: SetPlan) {
         self.templateId = template.id
         self.name = template.name
         self.effortSequence = template.effortSequence
-        self.isBuiltIn = template.isBuiltIn
+        self.isCustom = template.isCustom
         self.createdTimezone = template.createdTimezone
         self.templateDescription = template.templateDescription
         self.createdDatetime = template.createdAt
         self.deleted = template.deleted
     }
 
-    init(templateId: UUID, name: String, effortSequence: [String], isBuiltIn: Bool,
+    init(templateId: UUID, name: String, effortSequence: [String], isCustom: Bool,
          createdTimezone: String, templateDescription: String? = nil,
          createdDatetime: Date? = nil, deleted: Bool? = nil) {
         self.templateId = templateId
         self.name = name
         self.effortSequence = effortSequence
-        self.isBuiltIn = isBuiltIn
+        self.isCustom = isCustom
         self.createdTimezone = createdTimezone
         self.templateDescription = templateDescription
         self.createdDatetime = createdDatetime
@@ -39,34 +39,34 @@ struct SetPlanTemplateDTO: Codable {
 
 // MARK: - Request Models
 
-struct UpsertSetPlanTemplatesRequest: Codable {
-    let templates: [SetPlanTemplateDTO]
+struct UpsertSetPlansRequest: Codable {
+    let templates: [SetPlanDTO]
 }
 
-struct DeleteSetPlanTemplatesRequest: Codable {
+struct DeleteSetPlansRequest: Codable {
     let templateIds: [UUID]
 }
 
 // MARK: - Response Models
 
-struct GetSetPlanTemplatesResponse: Codable {
-    let templates: [SetPlanTemplateDTO]
+struct GetSetPlansResponse: Codable {
+    let templates: [SetPlanDTO]
 }
 
-struct UpsertSetPlanTemplatesResponse: Codable {
-    let templates: [SetPlanTemplateDTO]?
+struct UpsertSetPlansResponse: Codable {
+    let templates: [SetPlanDTO]?
     let created: Int?
     let updated: Int?
 }
 
-struct DeleteSetPlanTemplatesResponse: Codable {
+struct DeleteSetPlansResponse: Codable {
     let message: String
 }
 
-// MARK: - SetPlanTemplate Extension
+// MARK: - SetPlan Extension
 
-extension SetPlanTemplate {
-    func toDTO() -> SetPlanTemplateDTO {
-        return SetPlanTemplateDTO(from: self)
+extension SetPlan {
+    func toDTO() -> SetPlanDTO {
+        return SetPlanDTO(from: self)
     }
 }

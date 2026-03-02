@@ -1,5 +1,5 @@
 //
-//  Exercises.swift
+//  Exercise.swift
 //  WeightApp
 //
 //  Created by Zach Mitchell on 1/13/26.
@@ -23,8 +23,8 @@ enum ExerciseMovementType: String, Codable, CaseIterable {
 }
 
 @Model
-final class Exercises {
-    #Index<Exercises>([\.deleted])
+final class Exercise {
+    #Index<Exercise>([\.deleted])
 
     @Attribute(.unique) var id: UUID
     var createdAt: Date

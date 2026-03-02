@@ -312,7 +312,7 @@ class APIService {
 
     // MARK: - Lift Set Sync Endpoints
 
-    func getLiftSets(limit: Int = 100, pageToken: String? = nil) async throws -> GetLiftSetsResponse {
+    func getLiftSet(limit: Int = 100, pageToken: String? = nil) async throws -> GetLiftSetsResponse {
         var endpoint = "/checkin/lift-sets?limit=\(limit)"
         if let pageToken = pageToken {
             endpoint += "&pageToken=\(pageToken)"
@@ -324,7 +324,7 @@ class APIService {
         )
     }
 
-    func createLiftSets(_ liftSets: [LiftSetDTO]) async throws -> CreateLiftSetsResponse {
+    func createLiftSet(_ liftSets: [LiftSetDTO]) async throws -> CreateLiftSetsResponse {
         let body = CreateLiftSetsRequest(liftSets: liftSets)
         return try await requestWithDateDecoding(
             endpoint: "/checkin/lift-sets",
@@ -334,7 +334,7 @@ class APIService {
         )
     }
 
-    func deleteLiftSets(_ liftSetIds: [UUID]) async throws -> DeleteLiftSetsResponse {
+    func deleteLiftSet(_ liftSetIds: [UUID]) async throws -> DeleteLiftSetsResponse {
         let body = DeleteLiftSetsRequest(liftSetIds: liftSetIds)
         return try await requestWithDateDecoding(
             endpoint: "/checkin/lift-sets",
@@ -346,7 +346,7 @@ class APIService {
 
     // MARK: - Estimated 1RM Sync Endpoints
 
-    func getEstimated1RMs(limit: Int = 100, pageToken: String? = nil) async throws -> GetEstimated1RMsResponse {
+    func getEstimated1RM(limit: Int = 100, pageToken: String? = nil) async throws -> GetEstimated1RMResponse {
         var endpoint = "/checkin/estimated-1rm?limit=\(limit)"
         if let pageToken = pageToken {
             endpoint += "&pageToken=\(pageToken)"
@@ -358,8 +358,8 @@ class APIService {
         )
     }
 
-    func createEstimated1RMs(_ estimated1RMs: [Estimated1RMDTO]) async throws -> CreateEstimated1RMsResponse {
-        let body = CreateEstimated1RMsRequest(estimated1RMs: estimated1RMs)
+    func createEstimated1RM(_ estimated1RMs: [Estimated1RMDTO]) async throws -> CreateEstimated1RMResponse {
+        let body = CreateEstimated1RMRequest(estimated1RMs: estimated1RMs)
         return try await requestWithDateDecoding(
             endpoint: "/checkin/estimated-1rm",
             method: "POST",
@@ -368,40 +368,10 @@ class APIService {
         )
     }
 
-    func deleteEstimated1RMs(liftSetIds: [UUID]) async throws -> DeleteEstimated1RMsResponse {
-        let body = DeleteEstimated1RMsRequest(liftSetIds: liftSetIds)
+    func deleteEstimated1RM(liftSetIds: [UUID]) async throws -> DeleteEstimated1RMResponse {
+        let body = DeleteEstimated1RMRequest(liftSetIds: liftSetIds)
         return try await requestWithDateDecoding(
             endpoint: "/checkin/estimated-1rm",
-            method: "DELETE",
-            body: body,
-            requiresAuth: true
-        )
-    }
-
-    // MARK: - Sequence Sync Endpoints
-
-    func getSequences() async throws -> GetSequencesResponse {
-        return try await requestWithDateDecoding(
-            endpoint: "/checkin/sequences",
-            method: "GET",
-            requiresAuth: true
-        )
-    }
-
-    func upsertSequences(_ sequences: [SequenceDTO]) async throws -> UpsertSequencesResponse {
-        let body = UpsertSequencesRequest(sequences: sequences)
-        return try await requestWithDateDecoding(
-            endpoint: "/checkin/sequences",
-            method: "POST",
-            body: body,
-            requiresAuth: true
-        )
-    }
-
-    func deleteSequences(_ sequenceIds: [UUID]) async throws -> DeleteSequencesResponse {
-        let body = DeleteSequencesRequest(sequenceIds: sequenceIds)
-        return try await requestWithDateDecoding(
-            endpoint: "/checkin/sequences",
             method: "DELETE",
             body: body,
             requiresAuth: true
@@ -440,7 +410,7 @@ class APIService {
 
     // MARK: - Set Plan Templates
 
-    func getSetPlanTemplates() async throws -> GetSetPlanTemplatesResponse {
+    func getSetPlans() async throws -> GetSetPlansResponse {
         return try await requestWithDateDecoding(
             endpoint: "/checkin/set-plan-templates",
             method: "GET",
@@ -448,8 +418,8 @@ class APIService {
         )
     }
 
-    func upsertSetPlanTemplates(_ templates: [SetPlanTemplateDTO]) async throws -> UpsertSetPlanTemplatesResponse {
-        let body = UpsertSetPlanTemplatesRequest(templates: templates)
+    func upsertSetPlans(_ templates: [SetPlanDTO]) async throws -> UpsertSetPlansResponse {
+        let body = UpsertSetPlansRequest(templates: templates)
         return try await requestWithDateDecoding(
             endpoint: "/checkin/set-plan-templates",
             method: "POST",
@@ -458,8 +428,8 @@ class APIService {
         )
     }
 
-    func deleteSetPlanTemplates(_ templateIds: [UUID]) async throws -> DeleteSetPlanTemplatesResponse {
-        let body = DeleteSetPlanTemplatesRequest(templateIds: templateIds)
+    func deleteSetPlans(_ templateIds: [UUID]) async throws -> DeleteSetPlansResponse {
+        let body = DeleteSetPlansRequest(templateIds: templateIds)
         return try await requestWithDateDecoding(
             endpoint: "/checkin/set-plan-templates",
             method: "DELETE",

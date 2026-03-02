@@ -9,20 +9,20 @@ enum HubSection: Int, CaseIterable {
     var label: String {
         switch self {
         case .splits: return "Splits"
-        case .exercises: return "Exercises"
+        case .exercises: return "Exercise"
         case .setPlans: return "Set Plans"
         }
     }
 }
 
 struct HubView: View {
-    let exercises: [Exercises]
+    let exercises: [Exercise]
     @Binding var selectedExercisesId: UUID?
     @Binding var selectedSection: HubSection
     let deepLinkExerciseId: UUID?
     let onExerciseCreated: (_ name: String, _ loadType: ExerciseLoadType, _ movementType: ExerciseMovementType, _ icon: String) -> Void
-    let onExerciseSaved: (_ exercise: Exercises, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void
-    let onExerciseDeleted: (_ exercise: Exercises) -> Void
+    let onExerciseSaved: (_ exercise: Exercise, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void
+    let onExerciseDeleted: (_ exercise: Exercise) -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {

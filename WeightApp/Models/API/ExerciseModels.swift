@@ -21,7 +21,7 @@ struct ExerciseDTO: Codable {
     let icon: String?
     let movementType: String?
 
-    init(from exercise: Exercises) {
+    init(from exercise: Exercise) {
         self.exerciseItemId = exercise.id
         self.name = exercise.name
         self.isCustom = exercise.isCustom
@@ -76,9 +76,9 @@ struct DeleteExercisesResponse: Codable {
     let notFoundIds: [UUID]?
 }
 
-// MARK: - Exercises Extension
+// MARK: - Exercise Extension
 
-extension Exercises {
+extension Exercise {
     func toDTO() -> ExerciseDTO {
         return ExerciseDTO(from: self)
     }

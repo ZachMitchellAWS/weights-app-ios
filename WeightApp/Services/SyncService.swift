@@ -19,9 +19,9 @@ class SyncService: ObservableObject {
     private let retryQueue = SyncRetryQueue.shared
 
     // Sync state for UI indicators
-    @Published var isSyncingLiftSets = false
+    @Published var isSyncingLiftSet = false
     @Published var liftSetSyncProgress: String?
-    @Published var isSyncingEstimated1RMs = false
+    @Published var isSyncingEstimated1RM = false
     @Published var estimated1RMSyncProgress: String?
 
     // MARK: - Persisted Sync State
@@ -32,7 +32,6 @@ class SyncService: ObservableObject {
         // Per-step completion
         var userPropertiesComplete: Bool = false
         var exercisesComplete: Bool = false
-        var sequencesComplete: Bool = false
         var splitsComplete: Bool = false
         var templatesComplete: Bool = false
         var liftSetsComplete: Bool = false
@@ -127,40 +126,34 @@ class SyncService: ObservableObject {
                 SyncLogger.sync.error("Initial exercise sync failed: \(error.localizedDescription)")
             }
         } else {
-            SyncLogger.sync.debug("Step 2: Exercises already synced, skipping")
+            SyncLogger.sync.debug("Step 2: Exercise already synced, skipping")
         }
 
-        // Assign default exercises to days now that exercises exist
-        if let ctx = modelContext {
-            WorkoutSequenceStore.assignDefaultExercisesToDays(context: ctx)
-        }
-
-        // Step 2.5: Sync sequences (references exerciseIds, so must run after exercises)
-        if !state.sequencesComplete {
-            SyncLogger.sync.info("Step 2.5: Syncing sequences")
-            await syncSequencesFromBackend()
-            await processSequenceRetryQueue()
-            state.sequencesComplete = true
-            syncState = state
-        } else {
-            SyncLogger.sync.debug("Step 2.5: Sequences already synced, skipping")
-        }
-
-        // Step 2.6: Sync splits (references dayIds which are sequence IDs, so must run after sequences)
+        // Step 2.5: Sync splits (references exerciseIds via embedded days, so must run after exercises)
         if !state.splitsComplete {
-            SyncLogger.sync.info("Step 2.6: Syncing splits")
+            SyncLogger.sync.info("Step 2.5: Syncing splits")
             await syncSplitsFromBackend()
             await processSplitRetryQueue()
             state.splitsComplete = true
             syncState = state
         } else {
-            SyncLogger.sync.debug("Step 2.6: Splits already synced, skipping")
+            SyncLogger.sync.debug("Step 2.5: Splits already synced, skipping")
+        }
+
+        // Seed default splits if none exist (handles logout → login as new user)
+        if let ctx = modelContext {
+            SeedService.seedSplits(context: ctx)
+        }
+
+        // Assign default exercises to days now that exercises exist
+        if let ctx = modelContext {
+            WorkoutSplitStore.assignDefaultExercisesToDays(context: ctx)
         }
 
         // Step 2.7: Sync set plan templates
         if !state.templatesComplete {
             SyncLogger.sync.info("Step 2.7: Syncing set plan templates")
-            await syncSetPlanTemplatesFromBackend()
+            await syncSetPlansFromBackend()
             await processTemplateRetryQueue()
             state.templatesComplete = true
             syncState = state
@@ -168,10 +161,15 @@ class SyncService: ObservableObject {
             SyncLogger.sync.debug("Step 2.7: Templates already synced, skipping")
         }
 
+        // Seed built-in set plan templates if needed (handles logout → login)
+        if let ctx = modelContext {
+            SeedService.seedSetPlans(context: ctx)
+        }
+
         // Step 3: Sync lift sets and estimated 1RMs (interleaved, resumable)
         if !state.liftSetsComplete || !state.estimated1RMsComplete {
             SyncLogger.sync.info("Step 3: Syncing lift sets and estimated 1RMs")
-            await syncLiftSetsAndEstimated1RMs(resumeState: &state)
+            await syncLiftSetsAndEstimated1RM(resumeState: &state)
         } else {
             SyncLogger.sync.debug("Step 3: Lift sets and E1RMs already synced, skipping")
         }
@@ -240,8 +238,8 @@ class SyncService: ObservableObject {
             if let hardMaxReps = response.hardMaxReps {
                 userProperties.hardMaxReps = hardMaxReps
             }
-            if let activeSetPlanId = response.activeSetPlanTemplateId {
-                userProperties.activeSetPlanTemplateId = UUID(uuidString: activeSetPlanId)
+            if let activeSetPlanId = response.activeSetPlanId {
+                userProperties.activeSetPlanId = UUID(uuidString: activeSetPlanId)
             }
 
             try? context.save()
@@ -301,13 +299,13 @@ class SyncService: ObservableObject {
         }
     }
 
-    func updateActiveSetPlanTemplate(_ templateId: UUID?) async {
+    func updateActiveSetPlan(_ templateId: UUID?) async {
         do {
             var request = UserPropertiesRequest()
             if let templateId = templateId {
-                request.activeSetPlanTemplateId = templateId.uuidString
+                request.activeSetPlanId = templateId.uuidString
             } else {
-                request.clearActiveSetPlanTemplate = true
+                request.clearActiveSetPlan = true
             }
             _ = try await APIService.shared.updateUserProperties(request)
             retryQueue.removePendingUserPropertiesSync()
@@ -336,10 +334,10 @@ class SyncService: ObservableObject {
                 hardMinReps: userProperties.hardMinReps,
                 hardMaxReps: userProperties.hardMaxReps
             )
-            if let templateId = userProperties.activeSetPlanTemplateId {
-                request.activeSetPlanTemplateId = templateId.uuidString
+            if let templateId = userProperties.activeSetPlanId {
+                request.activeSetPlanId = templateId.uuidString
             } else {
-                request.clearActiveSetPlanTemplate = true
+                request.clearActiveSetPlan = true
             }
             _ = try await APIService.shared.updateUserProperties(request)
             retryQueue.removePendingUserPropertiesSync()
@@ -360,7 +358,7 @@ class SyncService: ObservableObject {
 
     // MARK: - Exercise CRUD Sync
 
-    func syncExercise(_ exercise: Exercises) async {
+    func syncExercise(_ exercise: Exercise) async {
         let dto = exercise.toDTO()
 
         do {
@@ -387,7 +385,7 @@ class SyncService: ObservableObject {
     // MARK: - Interleaved Lift Set & Estimated 1RM Sync
 
     /// Fetches lift sets and estimated 1RMs in interleaved pages for more even progress
-    func syncLiftSetsAndEstimated1RMs() async {
+    func syncLiftSetsAndEstimated1RM() async {
         var state = syncState
         // Reset lift set / E1RM state for a fresh full sync
         state.liftSetsComplete = false
@@ -396,7 +394,7 @@ class SyncService: ObservableObject {
         state.estimated1RMPageToken = nil
         state.liftSetsFetched = 0
         state.estimated1RMsFetched = 0
-        await syncLiftSetsAndEstimated1RMs(resumeState: &state)
+        await syncLiftSetsAndEstimated1RM(resumeState: &state)
         state.syncComplete = true
         syncState = state
     }
@@ -404,13 +402,13 @@ class SyncService: ObservableObject {
     /// Resumable version that persists pagination state after each page.
     /// Runs all SwiftData work in a single background context to avoid repeated full-table scans
     /// and minimizes saves to reduce @Query-triggered UI refreshes.
-    private func syncLiftSetsAndEstimated1RMs(resumeState state: inout SyncState) async {
+    private func syncLiftSetsAndEstimated1RM(resumeState state: inout SyncState) async {
         guard let container = modelContainer else { return }
 
-        isSyncingLiftSets = true
+        isSyncingLiftSet = true
         liftSetSyncProgress = "Syncing..."
 
-        var totalLiftSets = state.liftSetsFetched
+        var totalLiftSet = state.liftSetsFetched
         var totalE1RMs = state.estimated1RMsFetched
         var liftSetsDone = state.liftSetsComplete
         var e1rmsDone = state.estimated1RMsComplete
@@ -419,22 +417,22 @@ class SyncService: ObservableObject {
 
         do {
             // Run the entire paginated sync in a single background context
-            let (finalLiftSets, finalE1RMs, finalLSDone, finalE1RMDone, finalLSToken, finalE1RMToken) = try await Task.detached {
+            let (finalLiftSet, finalE1RMs, finalLSDone, finalE1RMDone, finalLSToken, finalE1RMToken) = try await Task.detached {
                 let context = ModelContext(container)
                 context.autosaveEnabled = false
 
                 // Build dedup dictionaries once upfront
-                let existingLiftSets = (try? context.fetch(FetchDescriptor<LiftSets>())) ?? []
-                var liftSetById = Dictionary(uniqueKeysWithValues: existingLiftSets.map { ($0.id, $0) })
+                let existingLiftSet = (try? context.fetch(FetchDescriptor<LiftSet>())) ?? []
+                var liftSetById = Dictionary(uniqueKeysWithValues: existingLiftSet.map { ($0.id, $0) })
 
-                let existingE1RMs = (try? context.fetch(FetchDescriptor<Estimated1RMs>())) ?? []
+                let existingE1RMs = (try? context.fetch(FetchDescriptor<Estimated1RM>())) ?? []
                 var e1rmById = Dictionary(uniqueKeysWithValues: existingE1RMs.map { ($0.id, $0) })
 
                 // Cache exercise lookup
-                let allExercises = (try? context.fetch(FetchDescriptor<Exercises>())) ?? []
+                let allExercises = (try? context.fetch(FetchDescriptor<Exercise>())) ?? []
                 let exerciseById = Dictionary(uniqueKeysWithValues: allExercises.map { ($0.id, $0) })
 
-                var tLS = totalLiftSets
+                var tLS = totalLiftSet
                 var tE1RM = totalE1RMs
                 var lsDone = liftSetsDone
                 var e1rmDone = e1rmsDone
@@ -445,7 +443,7 @@ class SyncService: ObservableObject {
                 while !lsDone || !e1rmDone {
                     // Fetch one page of lift sets
                     if !lsDone {
-                        let response = try await APIService.shared.getLiftSets(limit: 500, pageToken: lsToken)
+                        let response = try await APIService.shared.getLiftSet(limit: 500, pageToken: lsToken)
                         tLS += response.count
 
                         for dto in response.liftSets {
@@ -455,14 +453,12 @@ class SyncService: ObservableObject {
                                 existing.createdTimezone = dto.createdTimezone
                                 existing.createdAt = dto.createdDatetime
                                 existing.isBaselineSet = dto.isBaselineSet ?? false
-                                existing.rir = dto.rir
                             } else if let exercise = exerciseById[dto.exerciseId] {
-                                let liftSet = LiftSets(exercise: exercise, reps: dto.reps, weight: dto.weight)
+                                let liftSet = LiftSet(exercise: exercise, reps: dto.reps, weight: dto.weight)
                                 liftSet.id = dto.liftSetId
                                 liftSet.createdTimezone = dto.createdTimezone
                                 liftSet.createdAt = dto.createdDatetime
                                 liftSet.isBaselineSet = dto.isBaselineSet ?? false
-                                liftSet.rir = dto.rir
                                 context.insert(liftSet)
                                 liftSetById[dto.liftSetId] = liftSet
                             }
@@ -474,7 +470,7 @@ class SyncService: ObservableObject {
 
                     // Fetch one page of estimated 1RMs
                     if !e1rmDone {
-                        let response = try await APIService.shared.getEstimated1RMs(limit: 500, pageToken: e1rmToken)
+                        let response = try await APIService.shared.getEstimated1RM(limit: 500, pageToken: e1rmToken)
                         tE1RM += response.count
 
                         for dto in response.estimated1RMs {
@@ -484,7 +480,7 @@ class SyncService: ObservableObject {
                                 existing.createdTimezone = dto.createdTimezone
                                 existing.createdAt = dto.createdDatetime
                             } else if let exercise = exerciseById[dto.exerciseId] {
-                                let estimated1RM = Estimated1RMs(exercise: exercise, value: dto.value, setId: dto.liftSetId)
+                                let estimated1RM = Estimated1RM(exercise: exercise, value: dto.value, setId: dto.liftSetId)
                                 estimated1RM.id = dto.estimated1RMId
                                 estimated1RM.createdTimezone = dto.createdTimezone
                                 estimated1RM.createdAt = dto.createdDatetime
@@ -529,14 +525,14 @@ class SyncService: ObservableObject {
                 return (tLS, tE1RM, lsDone, e1rmDone, lsToken, e1rmToken)
             }.value
 
-            totalLiftSets = finalLiftSets
+            totalLiftSet = finalLiftSet
             totalE1RMs = finalE1RMs
             liftSetsDone = finalLSDone
             e1rmsDone = finalE1RMDone
             liftSetPageToken = finalLSToken
             e1rmPageToken = finalE1RMToken
 
-            SyncLogger.sync.info("Completed interleaved sync: \(totalLiftSets) lift sets + \(totalE1RMs) estimated 1RMs")
+            SyncLogger.sync.info("Completed interleaved sync: \(totalLiftSet) lift sets + \(totalE1RMs) estimated 1RMs")
         } catch {
             SyncLogger.sync.error("Failed during interleaved sync: \(error.localizedDescription)")
         }
@@ -544,13 +540,13 @@ class SyncService: ObservableObject {
         // Persist final state
         state.liftSetPageToken = liftSetPageToken
         state.estimated1RMPageToken = e1rmPageToken
-        state.liftSetsFetched = totalLiftSets
+        state.liftSetsFetched = totalLiftSet
         state.estimated1RMsFetched = totalE1RMs
         state.liftSetsComplete = liftSetsDone
         state.estimated1RMsComplete = e1rmsDone
         syncState = state
 
-        isSyncingLiftSets = false
+        isSyncingLiftSet = false
         liftSetSyncProgress = nil
     }
 
@@ -558,7 +554,7 @@ class SyncService: ObservableObject {
 
     /// Fetches all lift sets from backend using pagination and imports them locally
     func syncLiftSetsFromBackend() async {
-        isSyncingLiftSets = true
+        isSyncingLiftSet = true
         liftSetSyncProgress = "Syncing..."
 
         var pageToken: String? = nil
@@ -566,7 +562,7 @@ class SyncService: ObservableObject {
 
         do {
             repeat {
-                let response = try await APIService.shared.getLiftSets(limit: 500, pageToken: pageToken)
+                let response = try await APIService.shared.getLiftSet(limit: 500, pageToken: pageToken)
                 totalFetched += response.count
 
                 await importLiftSetsFromBackend(response.liftSets)
@@ -581,16 +577,16 @@ class SyncService: ObservableObject {
             SyncLogger.sync.error("Failed to sync lift sets: \(error.localizedDescription)")
         }
 
-        isSyncingLiftSets = false
+        isSyncingLiftSet = false
         liftSetSyncProgress = nil
     }
 
     /// Syncs a single lift set to the backend (for new creations)
-    func syncLiftSet(_ liftSet: LiftSets) async {
+    func syncLiftSet(_ liftSet: LiftSet) async {
         let dto = liftSet.toDTO()
 
         do {
-            _ = try await APIService.shared.createLiftSets([dto])
+            _ = try await APIService.shared.createLiftSet([dto])
             retryQueue.removePendingLiftSetOperation(liftSetId: liftSet.id)
             SyncLogger.sync.debug("Synced lift set \(liftSet.id)")
         } catch {
@@ -600,13 +596,13 @@ class SyncService: ObservableObject {
     }
 
     /// Syncs multiple lift sets to the backend (batch create)
-    func syncLiftSets(_ liftSets: [LiftSets]) async {
+    func syncLiftSet(_ liftSets: [LiftSet]) async {
         guard !liftSets.isEmpty else { return }
 
         let dtos = liftSets.map { $0.toDTO() }
 
         do {
-            _ = try await APIService.shared.createLiftSets(dtos)
+            _ = try await APIService.shared.createLiftSet(dtos)
             for liftSet in liftSets {
                 retryQueue.removePendingLiftSetOperation(liftSetId: liftSet.id)
             }
@@ -621,7 +617,7 @@ class SyncService: ObservableObject {
     /// Deletes a lift set from the backend
     func deleteLiftSet(_ liftSetId: UUID) async {
         do {
-            _ = try await APIService.shared.deleteLiftSets([liftSetId])
+            _ = try await APIService.shared.deleteLiftSet([liftSetId])
             retryQueue.removePendingLiftSetOperation(liftSetId: liftSetId)
             SyncLogger.sync.debug("Deleted lift set \(liftSetId)")
         } catch {
@@ -631,11 +627,11 @@ class SyncService: ObservableObject {
     }
 
     /// Deletes multiple lift sets from the backend (batch delete)
-    func deleteLiftSets(_ liftSetIds: [UUID]) async {
+    func deleteLiftSet(_ liftSetIds: [UUID]) async {
         guard !liftSetIds.isEmpty else { return }
 
         do {
-            _ = try await APIService.shared.deleteLiftSets(liftSetIds)
+            _ = try await APIService.shared.deleteLiftSet(liftSetIds)
             for id in liftSetIds {
                 retryQueue.removePendingLiftSetOperation(liftSetId: id)
             }
@@ -658,7 +654,7 @@ class SyncService: ObservableObject {
             case .upsert:
                 if let liftSet = fetchLiftSet(by: operation.liftSetId, context: context) {
                     do {
-                        _ = try await APIService.shared.createLiftSets([liftSet.toDTO()])
+                        _ = try await APIService.shared.createLiftSet([liftSet.toDTO()])
                         retryQueue.removePendingLiftSetOperation(liftSetId: operation.liftSetId)
                     } catch {
                         retryQueue.incrementLiftSetRetryCount(for: operation.liftSetId)
@@ -670,7 +666,7 @@ class SyncService: ObservableObject {
 
             case .delete:
                 do {
-                    _ = try await APIService.shared.deleteLiftSets([operation.liftSetId])
+                    _ = try await APIService.shared.deleteLiftSet([operation.liftSetId])
                     retryQueue.removePendingLiftSetOperation(liftSetId: operation.liftSetId)
                 } catch {
                     retryQueue.incrementLiftSetRetryCount(for: operation.liftSetId)
@@ -686,8 +682,8 @@ class SyncService: ObservableObject {
             let context = ModelContext(container)
             context.autosaveEnabled = false
 
-            let existingLiftSets = (try? context.fetch(FetchDescriptor<LiftSets>())) ?? []
-            let existingById = Dictionary(uniqueKeysWithValues: existingLiftSets.map { ($0.id, $0) })
+            let existingLiftSet = (try? context.fetch(FetchDescriptor<LiftSet>())) ?? []
+            let existingById = Dictionary(uniqueKeysWithValues: existingLiftSet.map { ($0.id, $0) })
 
             for dto in sendableDtos {
                 if let existing = existingById[dto.liftSetId] {
@@ -696,16 +692,14 @@ class SyncService: ObservableObject {
                     existing.createdTimezone = dto.createdTimezone
                     existing.createdAt = dto.createdDatetime
                     existing.isBaselineSet = dto.isBaselineSet ?? false
-                    existing.rir = dto.rir
                 } else {
-                    let descriptor = FetchDescriptor<Exercises>(predicate: #Predicate { $0.id == dto.exerciseId })
+                    let descriptor = FetchDescriptor<Exercise>(predicate: #Predicate { $0.id == dto.exerciseId })
                     if let exercise = try? context.fetch(descriptor).first {
-                        let liftSet = LiftSets(exercise: exercise, reps: dto.reps, weight: dto.weight)
+                        let liftSet = LiftSet(exercise: exercise, reps: dto.reps, weight: dto.weight)
                         liftSet.id = dto.liftSetId
                         liftSet.createdTimezone = dto.createdTimezone
                         liftSet.createdAt = dto.createdDatetime
                         liftSet.isBaselineSet = dto.isBaselineSet ?? false
-                        liftSet.rir = dto.rir
                         context.insert(liftSet)
                     } else {
                         SyncLogger.sync.debug("Skipping lift set \(dto.liftSetId) — exercise \(dto.exerciseId) not found")
@@ -717,16 +711,16 @@ class SyncService: ObservableObject {
         }.value
     }
 
-    private func fetchLiftSet(by id: UUID, context: ModelContext) -> LiftSets? {
-        let descriptor = FetchDescriptor<LiftSets>(predicate: #Predicate { $0.id == id })
+    private func fetchLiftSet(by id: UUID, context: ModelContext) -> LiftSet? {
+        let descriptor = FetchDescriptor<LiftSet>(predicate: #Predicate { $0.id == id })
         return try? context.fetch(descriptor).first
     }
 
     // MARK: - Estimated 1RM Sync
 
     /// Fetches all estimated 1RMs from backend using pagination and imports them locally
-    func syncEstimated1RMsFromBackend() async {
-        isSyncingEstimated1RMs = true
+    func syncEstimated1RMFromBackend() async {
+        isSyncingEstimated1RM = true
         estimated1RMSyncProgress = "Syncing..."
 
         var pageToken: String? = nil
@@ -734,10 +728,10 @@ class SyncService: ObservableObject {
 
         do {
             repeat {
-                let response = try await APIService.shared.getEstimated1RMs(limit: 500, pageToken: pageToken)
+                let response = try await APIService.shared.getEstimated1RM(limit: 500, pageToken: pageToken)
                 totalFetched += response.count
 
-                await importEstimated1RMsFromBackend(response.estimated1RMs)
+                await importEstimated1RMFromBackend(response.estimated1RMs)
 
                 estimated1RMSyncProgress = "Synced \(totalFetched) estimated 1RMs..."
                 pageToken = response.hasMore ? response.nextPageToken : nil
@@ -749,16 +743,16 @@ class SyncService: ObservableObject {
             SyncLogger.sync.error("Failed to sync estimated 1RMs: \(error.localizedDescription)")
         }
 
-        isSyncingEstimated1RMs = false
+        isSyncingEstimated1RM = false
         estimated1RMSyncProgress = nil
     }
 
     /// Syncs a single estimated 1RM to the backend (for new creations)
-    func syncEstimated1RM(_ estimated1RM: Estimated1RMs) async {
+    func syncEstimated1RM(_ estimated1RM: Estimated1RM) async {
         let dto = estimated1RM.toDTO()
 
         do {
-            _ = try await APIService.shared.createEstimated1RMs([dto])
+            _ = try await APIService.shared.createEstimated1RM([dto])
             retryQueue.removePendingEstimated1RMOperation(estimated1RMId: estimated1RM.id)
             SyncLogger.sync.debug("Synced estimated 1RM \(estimated1RM.id)")
         } catch {
@@ -768,13 +762,13 @@ class SyncService: ObservableObject {
     }
 
     /// Syncs multiple estimated 1RMs to the backend (batch create)
-    func syncEstimated1RMs(_ estimated1RMs: [Estimated1RMs]) async {
+    func syncEstimated1RM(_ estimated1RMs: [Estimated1RM]) async {
         guard !estimated1RMs.isEmpty else { return }
 
         let dtos = estimated1RMs.map { $0.toDTO() }
 
         do {
-            _ = try await APIService.shared.createEstimated1RMs(dtos)
+            _ = try await APIService.shared.createEstimated1RM(dtos)
             for estimated1RM in estimated1RMs {
                 retryQueue.removePendingEstimated1RMOperation(estimated1RMId: estimated1RM.id)
             }
@@ -789,7 +783,7 @@ class SyncService: ObservableObject {
     /// Deletes an estimated 1RM from the backend (API uses liftSetId)
     func deleteEstimated1RM(estimated1RMId: UUID, liftSetId: UUID) async {
         do {
-            _ = try await APIService.shared.deleteEstimated1RMs(liftSetIds: [liftSetId])
+            _ = try await APIService.shared.deleteEstimated1RM(liftSetIds: [liftSetId])
             retryQueue.removePendingEstimated1RMOperation(estimated1RMId: estimated1RMId)
             SyncLogger.sync.debug("Deleted estimated 1RM \(estimated1RMId)")
         } catch {
@@ -799,11 +793,11 @@ class SyncService: ObservableObject {
     }
 
     /// Deletes multiple estimated 1RMs from the backend (batch delete using liftSetIds)
-    func deleteEstimated1RMs(liftSetIds: [UUID]) async {
+    func deleteEstimated1RM(liftSetIds: [UUID]) async {
         guard !liftSetIds.isEmpty else { return }
 
         do {
-            _ = try await APIService.shared.deleteEstimated1RMs(liftSetIds: liftSetIds)
+            _ = try await APIService.shared.deleteEstimated1RM(liftSetIds: liftSetIds)
         } catch {
             SyncLogger.sync.error("Failed to batch delete estimated 1RMs: \(error.localizedDescription)")
             // Note: For batch deletes, we don't have the estimated1RMIds, so we can't add to retry queue
@@ -822,7 +816,7 @@ class SyncService: ObservableObject {
             case .upsert:
                 if let estimated1RM = fetchEstimated1RM(by: operation.estimated1RMId, context: context) {
                     do {
-                        _ = try await APIService.shared.createEstimated1RMs([estimated1RM.toDTO()])
+                        _ = try await APIService.shared.createEstimated1RM([estimated1RM.toDTO()])
                         retryQueue.removePendingEstimated1RMOperation(estimated1RMId: operation.estimated1RMId)
                     } catch {
                         retryQueue.incrementEstimated1RMRetryCount(for: operation.estimated1RMId)
@@ -834,7 +828,7 @@ class SyncService: ObservableObject {
 
             case .delete:
                 do {
-                    _ = try await APIService.shared.deleteEstimated1RMs(liftSetIds: [operation.liftSetId])
+                    _ = try await APIService.shared.deleteEstimated1RM(liftSetIds: [operation.liftSetId])
                     retryQueue.removePendingEstimated1RMOperation(estimated1RMId: operation.estimated1RMId)
                 } catch {
                     retryQueue.incrementEstimated1RMRetryCount(for: operation.estimated1RMId)
@@ -843,15 +837,15 @@ class SyncService: ObservableObject {
         }
     }
 
-    private func importEstimated1RMsFromBackend(_ dtos: [Estimated1RMDTO]) async {
+    private func importEstimated1RMFromBackend(_ dtos: [Estimated1RMDTO]) async {
         guard let container = modelContainer else { return }
         let sendableDtos = dtos
         await Task.detached {
             let context = ModelContext(container)
             context.autosaveEnabled = false
 
-            let existingEstimated1RMs = (try? context.fetch(FetchDescriptor<Estimated1RMs>())) ?? []
-            let existingById = Dictionary(uniqueKeysWithValues: existingEstimated1RMs.map { ($0.id, $0) })
+            let existingEstimated1RM = (try? context.fetch(FetchDescriptor<Estimated1RM>())) ?? []
+            let existingById = Dictionary(uniqueKeysWithValues: existingEstimated1RM.map { ($0.id, $0) })
 
             for dto in sendableDtos {
                 if let existing = existingById[dto.estimated1RMId] {
@@ -860,9 +854,9 @@ class SyncService: ObservableObject {
                     existing.createdTimezone = dto.createdTimezone
                     existing.createdAt = dto.createdDatetime
                 } else {
-                    let descriptor = FetchDescriptor<Exercises>(predicate: #Predicate { $0.id == dto.exerciseId })
+                    let descriptor = FetchDescriptor<Exercise>(predicate: #Predicate { $0.id == dto.exerciseId })
                     if let exercise = try? context.fetch(descriptor).first {
-                        let estimated1RM = Estimated1RMs(exercise: exercise, value: dto.value, setId: dto.liftSetId)
+                        let estimated1RM = Estimated1RM(exercise: exercise, value: dto.value, setId: dto.liftSetId)
                         estimated1RM.id = dto.estimated1RMId
                         estimated1RM.createdTimezone = dto.createdTimezone
                         estimated1RM.createdAt = dto.createdDatetime
@@ -877,148 +871,9 @@ class SyncService: ObservableObject {
         }.value
     }
 
-    private func fetchEstimated1RM(by id: UUID, context: ModelContext) -> Estimated1RMs? {
-        let descriptor = FetchDescriptor<Estimated1RMs>(predicate: #Predicate { $0.id == id })
+    private func fetchEstimated1RM(by id: UUID, context: ModelContext) -> Estimated1RM? {
+        let descriptor = FetchDescriptor<Estimated1RM>(predicate: #Predicate { $0.id == id })
         return try? context.fetch(descriptor).first
-    }
-
-    // MARK: - Sequence Sync
-
-    /// Fetches all sequences from backend and imports them locally, then pushes any local-only sequences
-    func syncSequencesFromBackend() async {
-        guard let context = modelContext else { return }
-
-        do {
-            let response = try await APIService.shared.getSequences()
-            await importSequencesFromBackend(response.sequences)
-
-            // Push any local-only sequences (e.g. from UserDefaults migration)
-            let allLocal = fetchAllSequences(context: context)
-            let backendIds = Set(response.sequences.map { $0.sequenceId })
-            let localOnly = allLocal.filter { !$0.deleted && !backendIds.contains($0.id) }
-
-            if !localOnly.isEmpty {
-                let dtos = localOnly.map { $0.toDTO() }
-                do {
-                    _ = try await APIService.shared.upsertSequences(dtos)
-                } catch {
-                    SyncLogger.sync.error("Failed to push local sequences: \(error.localizedDescription)")
-                    for seq in localOnly {
-                        retryQueue.addPendingSequenceUpsert(sequenceId: seq.id)
-                    }
-                }
-            }
-
-            SyncLogger.sync.info("Completed sequence sync, fetched \(response.sequences.count) from backend")
-        } catch {
-            SyncLogger.sync.error("Failed to sync sequences: \(error.localizedDescription)")
-        }
-    }
-
-    /// Syncs a single sequence to the backend
-    func syncSequence(_ sequence: WorkoutSequence) async {
-        let dto = sequence.toDTO()
-
-        do {
-            _ = try await APIService.shared.upsertSequences([dto])
-            retryQueue.removePendingSequenceOperation(sequenceId: sequence.id)
-            SyncLogger.sync.debug("Synced sequence \(sequence.id)")
-        } catch {
-            SyncLogger.sync.error("Failed to sync sequence \(sequence.id): \(error.localizedDescription)")
-            retryQueue.addPendingSequenceUpsert(sequenceId: sequence.id)
-        }
-    }
-
-    /// Deletes a sequence from the backend (soft delete)
-    func deleteSequence(_ sequenceId: UUID) async {
-        do {
-            _ = try await APIService.shared.deleteSequences([sequenceId])
-            retryQueue.removePendingSequenceOperation(sequenceId: sequenceId)
-            SyncLogger.sync.debug("Deleted sequence \(sequenceId)")
-        } catch {
-            SyncLogger.sync.error("Failed to delete sequence \(sequenceId): \(error.localizedDescription)")
-            retryQueue.addPendingSequenceDelete(sequenceId: sequenceId)
-        }
-    }
-
-    /// Process pending sequence operations from retry queue
-    func processSequenceRetryQueue() async {
-        guard let context = modelContext else { return }
-
-        let pendingOperations = retryQueue.getPendingSequenceOperations()
-
-        for operation in pendingOperations {
-            switch operation.operationType {
-            case .upsert:
-                if let sequence = fetchSequence(by: operation.sequenceId, context: context) {
-                    do {
-                        _ = try await APIService.shared.upsertSequences([sequence.toDTO()])
-                        retryQueue.removePendingSequenceOperation(sequenceId: operation.sequenceId)
-                    } catch {
-                        retryQueue.incrementSequenceRetryCount(for: operation.sequenceId)
-                    }
-                } else {
-                    retryQueue.removePendingSequenceOperation(sequenceId: operation.sequenceId)
-                }
-
-            case .delete:
-                do {
-                    _ = try await APIService.shared.deleteSequences([operation.sequenceId])
-                    retryQueue.removePendingSequenceOperation(sequenceId: operation.sequenceId)
-                } catch {
-                    retryQueue.incrementSequenceRetryCount(for: operation.sequenceId)
-                }
-            }
-        }
-    }
-
-    private func importSequencesFromBackend(_ dtos: [SequenceDTO]) async {
-        guard let container = modelContainer else { return }
-        let sendableDtos = dtos
-        await Task.detached {
-            let context = ModelContext(container)
-            context.autosaveEnabled = false
-
-            let existingSequences = (try? context.fetch(FetchDescriptor<WorkoutSequence>())) ?? []
-            let existingById = Dictionary(uniqueKeysWithValues: existingSequences.map { ($0.id, $0) })
-
-            for dto in sendableDtos {
-                if dto.deleted == true {
-                    if let existing = existingById[dto.sequenceId] {
-                        existing.deleted = true
-                    }
-                    continue
-                }
-
-                if let existing = existingById[dto.sequenceId] {
-                    existing.name = dto.name
-                    existing.exerciseIds = dto.exerciseIds
-                    existing.deleted = dto.deleted ?? false
-                } else {
-                    let sequence = WorkoutSequence(
-                        id: dto.sequenceId,
-                        name: dto.name,
-                        exerciseIds: dto.exerciseIds,
-                        createdAt: dto.createdDatetime ?? Date(),
-                        createdTimezone: dto.createdTimezone,
-                        deleted: dto.deleted ?? false
-                    )
-                    context.insert(sequence)
-                }
-            }
-
-            try? context.save()
-        }.value
-    }
-
-    private func fetchSequence(by id: UUID, context: ModelContext) -> WorkoutSequence? {
-        let descriptor = FetchDescriptor<WorkoutSequence>(predicate: #Predicate { $0.id == id })
-        return try? context.fetch(descriptor).first
-    }
-
-    private func fetchAllSequences(context: ModelContext) -> [WorkoutSequence] {
-        let descriptor = FetchDescriptor<WorkoutSequence>()
-        return (try? context.fetch(descriptor)) ?? []
     }
 
     // MARK: - Split Sync
@@ -1119,6 +974,8 @@ class SyncService: ObservableObject {
             let existingByName = Dictionary(existingSplits.filter { !$0.deleted }.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
 
             for dto in sendableDtos {
+                let days = dto.days.map { WorkoutDay(id: $0.dayId, name: $0.name, exerciseIds: $0.exerciseIds) }
+
                 if dto.deleted == true {
                     if let existing = existingById[dto.splitId] {
                         existing.deleted = true
@@ -1128,18 +985,18 @@ class SyncService: ObservableObject {
 
                 if let existing = existingById[dto.splitId] {
                     existing.name = dto.name
-                    existing.dayIds = dto.dayIds
+                    existing.days = days
                     existing.deleted = dto.deleted ?? false
                 } else if let localDup = existingByName[dto.name] {
                     // A local split with the same name exists (different ID) — adopt the backend's data
                     localDup.name = dto.name
-                    localDup.dayIds = dto.dayIds
+                    localDup.days = days
                     localDup.deleted = dto.deleted ?? false
                 } else {
                     let split = WorkoutSplit(
                         id: dto.splitId,
                         name: dto.name,
-                        dayIds: dto.dayIds,
+                        days: days,
                         createdAt: dto.createdDatetime ?? Date(),
                         createdTimezone: dto.createdTimezone,
                         deleted: dto.deleted ?? false
@@ -1164,12 +1021,12 @@ class SyncService: ObservableObject {
 
     // MARK: - Set Plan Template Sync
 
-    func syncSetPlanTemplatesFromBackend() async {
+    func syncSetPlansFromBackend() async {
         guard let context = modelContext else { return }
 
         do {
-            let response = try await APIService.shared.getSetPlanTemplates()
-            await importSetPlanTemplatesFromBackend(response.templates)
+            let response = try await APIService.shared.getSetPlans()
+            await importSetPlansFromBackend(response.templates)
 
             // Push any local-only templates (including built-ins) to backend
             let allLocal = fetchAllTemplates(context: context)
@@ -1179,7 +1036,7 @@ class SyncService: ObservableObject {
             if !localOnly.isEmpty {
                 let dtos = localOnly.map { $0.toDTO() }
                 do {
-                    _ = try await APIService.shared.upsertSetPlanTemplates(dtos)
+                    _ = try await APIService.shared.upsertSetPlans(dtos)
                 } catch {
                     SyncLogger.sync.error("Failed to push local templates: \(error.localizedDescription)")
                     for template in localOnly {
@@ -1194,11 +1051,11 @@ class SyncService: ObservableObject {
         }
     }
 
-    func syncSetPlanTemplate(_ template: SetPlanTemplate) async {
+    func syncSetPlan(_ template: SetPlan) async {
         let dto = template.toDTO()
 
         do {
-            _ = try await APIService.shared.upsertSetPlanTemplates([dto])
+            _ = try await APIService.shared.upsertSetPlans([dto])
             retryQueue.removePendingTemplateOperation(templateId: template.id)
             SyncLogger.sync.debug("Synced template \(template.id)")
         } catch {
@@ -1207,9 +1064,9 @@ class SyncService: ObservableObject {
         }
     }
 
-    func deleteSetPlanTemplate(_ templateId: UUID) async {
+    func deleteSetPlan(_ templateId: UUID) async {
         do {
-            _ = try await APIService.shared.deleteSetPlanTemplates([templateId])
+            _ = try await APIService.shared.deleteSetPlans([templateId])
             retryQueue.removePendingTemplateOperation(templateId: templateId)
             SyncLogger.sync.debug("Deleted template \(templateId)")
         } catch {
@@ -1228,7 +1085,7 @@ class SyncService: ObservableObject {
             case .upsert:
                 if let template = fetchTemplate(by: operation.templateId, context: context) {
                     do {
-                        _ = try await APIService.shared.upsertSetPlanTemplates([template.toDTO()])
+                        _ = try await APIService.shared.upsertSetPlans([template.toDTO()])
                         retryQueue.removePendingTemplateOperation(templateId: operation.templateId)
                     } catch {
                         retryQueue.incrementTemplateRetryCount(for: operation.templateId)
@@ -1239,7 +1096,7 @@ class SyncService: ObservableObject {
 
             case .delete:
                 do {
-                    _ = try await APIService.shared.deleteSetPlanTemplates([operation.templateId])
+                    _ = try await APIService.shared.deleteSetPlans([operation.templateId])
                     retryQueue.removePendingTemplateOperation(templateId: operation.templateId)
                 } catch {
                     retryQueue.incrementTemplateRetryCount(for: operation.templateId)
@@ -1248,14 +1105,14 @@ class SyncService: ObservableObject {
         }
     }
 
-    private func importSetPlanTemplatesFromBackend(_ dtos: [SetPlanTemplateDTO]) async {
+    private func importSetPlansFromBackend(_ dtos: [SetPlanDTO]) async {
         guard let container = modelContainer else { return }
         let sendableDtos = dtos
         await Task.detached {
             let context = ModelContext(container)
             context.autosaveEnabled = false
 
-            let existingTemplates = (try? context.fetch(FetchDescriptor<SetPlanTemplate>())) ?? []
+            let existingTemplates = (try? context.fetch(FetchDescriptor<SetPlan>())) ?? []
             let existingById = Dictionary(uniqueKeysWithValues: existingTemplates.map { ($0.id, $0) })
 
             for dto in sendableDtos {
@@ -1269,15 +1126,15 @@ class SyncService: ObservableObject {
                 if let existing = existingById[dto.templateId] {
                     existing.name = dto.name
                     existing.effortSequence = dto.effortSequence
-                    existing.isBuiltIn = dto.isBuiltIn
+                    existing.isCustom = dto.isCustom
                     existing.templateDescription = dto.templateDescription
                     existing.deleted = dto.deleted ?? false
                 } else {
-                    let template = SetPlanTemplate(
+                    let template = SetPlan(
                         id: dto.templateId,
                         name: dto.name,
                         effortSequence: dto.effortSequence,
-                        isBuiltIn: dto.isBuiltIn,
+                        isCustom: dto.isCustom,
                         templateDescription: dto.templateDescription,
                         createdAt: dto.createdDatetime ?? Date(),
                         createdTimezone: dto.createdTimezone,
@@ -1291,13 +1148,13 @@ class SyncService: ObservableObject {
         }.value
     }
 
-    private func fetchTemplate(by id: UUID, context: ModelContext) -> SetPlanTemplate? {
-        let descriptor = FetchDescriptor<SetPlanTemplate>(predicate: #Predicate { $0.id == id })
+    private func fetchTemplate(by id: UUID, context: ModelContext) -> SetPlan? {
+        let descriptor = FetchDescriptor<SetPlan>(predicate: #Predicate { $0.id == id })
         return try? context.fetch(descriptor).first
     }
 
-    private func fetchAllTemplates(context: ModelContext) -> [SetPlanTemplate] {
-        let descriptor = FetchDescriptor<SetPlanTemplate>()
+    private func fetchAllTemplates(context: ModelContext) -> [SetPlan] {
+        let descriptor = FetchDescriptor<SetPlan>()
         return (try? context.fetch(descriptor)) ?? []
     }
 
@@ -1333,22 +1190,11 @@ class SyncService: ObservableObject {
         }
     }
 
-    // MARK: - Fallback: Create Default Exercises
+    // MARK: - Fallback: Create Default Exercise
 
     func createDefaultExercisesLocally() async {
         guard let context = modelContext else { return }
-
-        let existingExercises = fetchAllExercises(context: context)
-        guard existingExercises.isEmpty else { return }
-
-        let defaults = getDefaultExercises()
-        for (name, loadType, movementType) in defaults {
-            let icon = IconCarouselPicker.suggestedIcon(for: name)
-            let exercise = Exercises(name: name, isCustom: false, loadType: loadType, movementType: movementType, icon: icon)
-            context.insert(exercise)
-        }
-
-        try? context.save()
+        SeedService.seedExercises(context: context)
     }
 
     func createDefaultExercisesAndSync() async {
@@ -1379,12 +1225,11 @@ class SyncService: ObservableObject {
     // MARK: - Private Helpers
 
     private func createAndSyncDefaultExercises(context: ModelContext) async {
-        let defaults = getDefaultExercises()
         var exerciseDTOs: [ExerciseDTO] = []
 
-        for (name, loadType, movementType) in defaults {
+        for (name, loadType, movementType) in SeedService.defaultExercises {
             let icon = IconCarouselPicker.suggestedIcon(for: name)
-            let exercise = Exercises(name: name, isCustom: false, loadType: loadType, movementType: movementType, icon: icon)
+            let exercise = Exercise(name: name, isCustom: false, loadType: loadType, movementType: movementType, icon: icon)
             context.insert(exercise)
             exerciseDTOs.append(exercise.toDTO())
         }
@@ -1408,7 +1253,7 @@ class SyncService: ObservableObject {
             let context = ModelContext(container)
             context.autosaveEnabled = false
 
-            let existingExercises = (try? context.fetch(FetchDescriptor<Exercises>())) ?? []
+            let existingExercises = (try? context.fetch(FetchDescriptor<Exercise>())) ?? []
             let existingById = Dictionary(uniqueKeysWithValues: existingExercises.map { ($0.id, $0) })
 
             for dto in sendableDtos {
@@ -1432,7 +1277,7 @@ class SyncService: ObservableObject {
                 } else {
                     let loadType = ExerciseLoadType(rawValue: dto.loadType) ?? .barbell
                     let movementType = ExerciseMovementType(rawValue: dto.movementType ?? "") ?? .other
-                    let exercise = Exercises(
+                    let exercise = Exercise(
                         id: dto.exerciseItemId,
                         name: dto.name,
                         isCustom: dto.isCustom,
@@ -1452,27 +1297,14 @@ class SyncService: ObservableObject {
         }.value
     }
 
-    private func getDefaultExercises() -> [(String, ExerciseLoadType, ExerciseMovementType)] {
-        return [
-            ("Deadlifts", .barbell, .hinge),
-            ("Squats", .barbell, .squat),
-            ("Bench Press", .barbell, .push),
-            ("Overhead Press", .barbell, .push),
-            ("Barbell Row", .barbell, .pull),
-            ("Pull Ups", .singleLoad, .pull),
-            ("Dips", .singleLoad, .push),
-            ("Barbell Curls", .barbell, .pull),
-            ("Romanian Deadlifts", .barbell, .hinge)
-        ]
-    }
 
-    private func fetchExercise(by id: UUID, context: ModelContext) -> Exercises? {
-        let descriptor = FetchDescriptor<Exercises>(predicate: #Predicate { $0.id == id })
+    private func fetchExercise(by id: UUID, context: ModelContext) -> Exercise? {
+        let descriptor = FetchDescriptor<Exercise>(predicate: #Predicate { $0.id == id })
         return try? context.fetch(descriptor).first
     }
 
-    private func fetchAllExercises(context: ModelContext) -> [Exercises] {
-        let descriptor = FetchDescriptor<Exercises>()
+    private func fetchAllExercises(context: ModelContext) -> [Exercise] {
+        let descriptor = FetchDescriptor<Exercise>()
         return (try? context.fetch(descriptor)) ?? []
     }
 

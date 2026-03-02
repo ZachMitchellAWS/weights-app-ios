@@ -9,7 +9,7 @@ import SwiftUI
 import Charts
 
 struct WeeklyVolumeWidget: View {
-    let allSets: [LiftSets]
+    let allSets: [LiftSet]
 
     private var weeklyData: [TrendsCalculator.WeeklyVolume] {
         TrendsCalculator.weeklyVolume(from: allSets, weeks: 8)

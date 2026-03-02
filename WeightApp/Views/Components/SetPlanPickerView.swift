@@ -4,15 +4,15 @@ import SwiftData
 struct SetPlanCatalogView: View {
     @Environment(\.modelContext) private var modelContext
 
-    @Query(filter: #Predicate<SetPlanTemplate> { !$0.deleted })
-    private var allTemplates: [SetPlanTemplate]
+    @Query(filter: #Predicate<SetPlan> { !$0.deleted })
+    private var allTemplates: [SetPlan]
 
     @Query private var userPropertiesItems: [UserProperties]
 
     @State private var showNewTemplateAlert = false
     @State private var newTemplateName = ""
     @State private var showDeleteConfirmation = false
-    @State private var templateToDelete: SetPlanTemplate?
+    @State private var templateToDelete: SetPlan?
 
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
     private static let effortLevels = ["easy", "moderate", "hard", "redline", "pr"]
@@ -24,12 +24,12 @@ struct SetPlanCatalogView: View {
         return props
     }
 
-    private var builtInTemplates: [SetPlanTemplate] {
-        allTemplates.filter { $0.isBuiltIn }.sorted { $0.createdAt < $1.createdAt }
+    private var builtInTemplates: [SetPlan] {
+        allTemplates.filter { !$0.isCustom }.sorted { $0.createdAt < $1.createdAt }
     }
 
-    private var customTemplates: [SetPlanTemplate] {
-        allTemplates.filter { !$0.isBuiltIn }.sorted { $0.createdAt < $1.createdAt }
+    private var customTemplates: [SetPlan] {
+        allTemplates.filter { $0.isCustom }.sorted { $0.createdAt < $1.createdAt }
     }
 
     var body: some View {
@@ -108,6 +108,9 @@ struct SetPlanCatalogView: View {
                                 templateCard(template: template, isEditable: true)
                             }
                         }
+
+                        // None option
+                        noneCard()
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
@@ -121,18 +124,18 @@ struct SetPlanCatalogView: View {
             Button("Create") {
                 let trimmed = newTemplateName.trimmingCharacters(in: .whitespaces)
                 guard !trimmed.isEmpty else { return }
-                let defaultSequence = SetPlanTemplate.builtInTemplates.first(where: { $0.id == SetPlanTemplate.standardId })?.sequence ?? ["easy", "moderate", "moderate", "hard", "pr"]
-                let template = SetPlanTemplate(
+                let defaultSequence = SetPlan.builtInTemplates.first(where: { $0.id == SetPlan.standardId })?.sequence ?? ["easy", "easy", "moderate", "moderate", "hard", "pr"]
+                let template = SetPlan(
                     name: trimmed,
                     effortSequence: defaultSequence,
-                    isBuiltIn: false
+                    isCustom: true
                 )
                 modelContext.insert(template)
-                userProperties.activeSetPlanTemplateId = template.id
+                userProperties.activeSetPlanId = template.id
                 try? modelContext.save()
                 Task {
-                    await SyncService.shared.syncSetPlanTemplate(template)
-                    await SyncService.shared.updateActiveSetPlanTemplate(template.id)
+                    await SyncService.shared.syncSetPlan(template)
+                    await SyncService.shared.updateActiveSetPlan(template.id)
                 }
             }
         } message: {
@@ -168,17 +171,17 @@ struct SetPlanCatalogView: View {
     }
 
     @ViewBuilder
-    private func templateCard(template: SetPlanTemplate, isEditable: Bool) -> some View {
-        let isActive = userProperties.activeSetPlanTemplateId == template.id
+    private func templateCard(template: SetPlan, isEditable: Bool) -> some View {
+        let isActive = userProperties.activeSetPlanId == template.id
 
         VStack(alignment: .leading, spacing: 10) {
             // Title row with selection
             HStack(spacing: 12) {
                 Button {
                     hapticFeedback.impactOccurred()
-                    userProperties.activeSetPlanTemplateId = template.id
+                    userProperties.activeSetPlanId = template.id
                     try? modelContext.save()
-                    Task { await SyncService.shared.updateActiveSetPlanTemplate(template.id) }
+                    Task { await SyncService.shared.updateActiveSetPlan(template.id) }
                 } label: {
                     Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 20))
@@ -192,7 +195,7 @@ struct SetPlanCatalogView: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.white)
 
-                        if template.isBuiltIn {
+                        if !template.isCustom {
                             Text("PRESET")
                                 .font(.system(size: 9, weight: .bold))
                                 .foregroundStyle(.white.opacity(0.4))
@@ -300,21 +303,65 @@ struct SetPlanCatalogView: View {
         )
     }
 
-    private func saveAndSyncTemplate(_ template: SetPlanTemplate) {
-        try? modelContext.save()
-        Task { await SyncService.shared.syncSetPlanTemplate(template) }
+    @ViewBuilder
+    private func noneCard() -> some View {
+        let isActive = userProperties.activeSetPlanId == nil
+
+        HStack(spacing: 12) {
+            Button {
+                hapticFeedback.impactOccurred()
+                userProperties.activeSetPlanId = nil
+                try? modelContext.save()
+                Task { await SyncService.shared.updateActiveSetPlan(nil) }
+            } label: {
+                Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 20))
+                    .foregroundStyle(isActive ? Color.appAccent : .white.opacity(0.3))
+            }
+            .buttonStyle(.plain)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("None")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+
+                Text("No set plan — freestyle your sets")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+
+            Spacer()
+        }
+        .padding(14)
+        .background(
+            LinearGradient(
+                colors: [Color(white: 0.18), Color(white: 0.14)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+        .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(isActive ? Color.appAccent : Color.white.opacity(0.1), lineWidth: isActive ? 2 : 1)
+        )
     }
 
-    private func deleteTemplate(_ template: SetPlanTemplate) {
+    private func saveAndSyncTemplate(_ template: SetPlan) {
+        try? modelContext.save()
+        Task { await SyncService.shared.syncSetPlan(template) }
+    }
+
+    private func deleteTemplate(_ template: SetPlan) {
         template.deleted = true
-        if userProperties.activeSetPlanTemplateId == template.id {
-            userProperties.activeSetPlanTemplateId = SetPlanTemplate.standardId
+        if userProperties.activeSetPlanId == template.id {
+            userProperties.activeSetPlanId = SetPlan.standardId
         }
         try? modelContext.save()
         Task {
-            await SyncService.shared.deleteSetPlanTemplate(template.id)
-            if userProperties.activeSetPlanTemplateId == SetPlanTemplate.standardId {
-                await SyncService.shared.updateActiveSetPlanTemplate(SetPlanTemplate.standardId)
+            await SyncService.shared.deleteSetPlan(template.id)
+            if userProperties.activeSetPlanId == SetPlan.standardId {
+                await SyncService.shared.updateActiveSetPlan(SetPlan.standardId)
             }
         }
     }

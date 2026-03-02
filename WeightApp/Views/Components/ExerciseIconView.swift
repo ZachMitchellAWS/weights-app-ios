@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct ExerciseIconView: View {
-    let exercise: Exercises
+    let exercise: Exercise
     var size: CGFloat = 72
 
     var body: some View {

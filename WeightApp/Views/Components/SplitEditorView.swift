@@ -2,23 +2,19 @@ import SwiftUI
 import SwiftData
 
 struct SplitEditorView: View {
-    let exercises: [Exercises]
+    let exercises: [Exercise]
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
     @Query(filter: #Predicate<WorkoutSplit> { !$0.deleted })
     private var splits: [WorkoutSplit]
 
-    @Query(filter: #Predicate<WorkoutSequence> { !$0.deleted })
-    private var allSequences: [WorkoutSequence]
-
     @State private var activeId: UUID?
     @State private var showNewSplitAlert = false
     @State private var newSplitName = ""
 
     private func dayNames(for split: WorkoutSplit) -> String {
-        let seqMap = Dictionary(uniqueKeysWithValues: allSequences.map { ($0.id, $0) })
-        let names = split.dayIds.compactMap { seqMap[$0]?.name }
+        let names = split.days.map { $0.name }
         return names.joined(separator: ", ")
     }
 
@@ -115,7 +111,7 @@ struct SplitEditorView: View {
                     try? modelContext.save()
                     if splits.count == 0 {
                         activeId = split.id
-                        WorkoutSequenceStore.setActiveSplitId(split.id)
+                        WorkoutSplitStore.setActiveSplitId(split.id)
                     }
                     Task { await SyncService.shared.syncSplit(split) }
                 }
@@ -124,7 +120,7 @@ struct SplitEditorView: View {
             }
         }
         .onAppear {
-            activeId = WorkoutSequenceStore.activeSplitId()
+            activeId = WorkoutSplitStore.activeSplitId()
         }
     }
 
@@ -132,17 +128,17 @@ struct SplitEditorView: View {
     private func splitCard(for split: WorkoutSplit) -> some View {
         let isActive = activeId == split.id
         let names = dayNames(for: split)
-        let subtitle = "\(split.dayIds.count) days" + (names.isEmpty ? "" : " · \(names)")
+        let subtitle = "\(split.days.count) days" + (names.isEmpty ? "" : " · \(names)")
 
         HStack(spacing: 14) {
             // Checkmark toggle
             Button {
                 if activeId == split.id {
                     activeId = nil
-                    WorkoutSequenceStore.setActiveSplitId(nil)
+                    WorkoutSplitStore.setActiveSplitId(nil)
                 } else {
                     activeId = split.id
-                    WorkoutSequenceStore.setActiveSplitId(split.id)
+                    WorkoutSplitStore.setActiveSplitId(split.id)
                 }
             } label: {
                 Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
@@ -202,7 +198,7 @@ struct SplitEditorView: View {
         split.deleted = true
         try? modelContext.save()
         Task { await SyncService.shared.deleteSplit(split.id) }
-        activeId = WorkoutSequenceStore.activeSplitId()
+        activeId = WorkoutSplitStore.activeSplitId()
     }
 
 }
@@ -211,30 +207,14 @@ struct SplitEditorView: View {
 
 struct SplitDetailView: View {
     @Bindable var split: WorkoutSplit
-    let exercises: [Exercises]
+    let exercises: [Exercise]
     @Environment(\.modelContext) private var modelContext
 
-    @Query(filter: #Predicate<WorkoutSequence> { !$0.deleted })
-    private var allSequences: [WorkoutSequence]
-
-    @State private var showAddDay = false
     @State private var showNewDayAlert = false
     @State private var newDayName = ""
     @State private var showRenameAlert = false
     @State private var renameName = ""
     @Environment(\.editMode) private var editMode
-
-    private var orderedDays: [WorkoutSequence] {
-        let seqMap = Dictionary(uniqueKeysWithValues: allSequences.map { ($0.id, $0) })
-        return split.dayIds.compactMap { seqMap[$0] }
-    }
-
-    private var unassignedDays: [WorkoutSequence] {
-        let assignedIds = Set(split.dayIds)
-        return allSequences
-            .filter { !assignedIds.contains($0.id) }
-            .sorted { $0.name < $1.name }
-    }
 
     var body: some View {
         ZStack {
@@ -258,7 +238,7 @@ struct SplitDetailView: View {
                 .padding(.top, 14)
                 .padding(.bottom, 6)
 
-            if orderedDays.isEmpty {
+            if split.days.isEmpty {
                 Spacer()
                 VStack(spacing: 16) {
                     Image(systemName: "calendar")
@@ -285,10 +265,11 @@ struct SplitDetailView: View {
                             .listRowSeparatorTint(.clear)
                     }
 
-                    ForEach(orderedDays) { day in
+                    ForEach(split.days) { day in
                         NavigationLink {
-                            SequenceDetailView(
-                                sequence: day,
+                            DayDetailView(
+                                split: split,
+                                dayId: day.id,
                                 exercises: exercises
                             )
                         } label: {
@@ -339,21 +320,9 @@ struct SplitDetailView: View {
                             .foregroundStyle(Color.appAccent)
                     }
 
-                    Menu {
-                        Button {
-                            newDayName = ""
-                            showNewDayAlert = true
-                        } label: {
-                            Label("New Day", systemImage: "plus")
-                        }
-
-                        if !unassignedDays.isEmpty {
-                            Button {
-                                showAddDay = true
-                            } label: {
-                                Label("Add Existing Day", systemImage: "arrow.right.circle")
-                            }
-                        }
+                    Button {
+                        newDayName = ""
+                        showNewDayAlert = true
                     } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 16, weight: .semibold))
@@ -366,9 +335,6 @@ struct SplitDetailView: View {
             }
         }
         .toolbarColorScheme(.dark, for: .navigationBar)
-        .sheet(isPresented: $showAddDay) {
-            addDaySheet
-        }
         .alert("Rename Split", isPresented: $showRenameAlert) {
             TextField("Name", text: $renameName)
             Button("Cancel", role: .cancel) { }
@@ -385,47 +351,196 @@ struct SplitDetailView: View {
             Button("Create") {
                 let trimmed = newDayName.trimmingCharacters(in: .whitespaces)
                 guard !trimmed.isEmpty else { return }
-                let day = WorkoutSequence(name: trimmed)
-                modelContext.insert(day)
-                split.dayIds.append(day.id)
-                try? modelContext.save()
-                Task {
-                    await SyncService.shared.syncSequence(day)
-                    await SyncService.shared.syncSplit(split)
-                }
+                split.days.append(WorkoutDay(name: trimmed))
+                saveAndSync()
             }
         } message: {
             Text("Enter a name for this day")
         }
     }
 
-    private var addDaySheet: some View {
+    private func removeDays(at offsets: IndexSet) {
+        split.days.remove(atOffsets: offsets)
+        saveAndSync()
+    }
+
+    private func moveDays(from source: IndexSet, to destination: Int) {
+        split.days.move(fromOffsets: source, toOffset: destination)
+        saveAndSync()
+    }
+
+    private func saveAndSync() {
+        try? modelContext.save()
+        Task { await SyncService.shared.syncSplit(split) }
+    }
+}
+
+// MARK: - Day Detail View
+
+struct DayDetailView: View {
+    @Bindable var split: WorkoutSplit
+    let dayId: UUID
+    let exercises: [Exercise]
+    @Environment(\.modelContext) private var modelContext
+
+    @State private var showAddExercise = false
+    @State private var showRenameAlert = false
+    @State private var renameName = ""
+    @Environment(\.editMode) private var editMode
+
+    private var dayIndex: Int? {
+        split.days.firstIndex(where: { $0.id == dayId })
+    }
+
+    private var day: WorkoutDay? {
+        guard let idx = dayIndex else { return nil }
+        return split.days[idx]
+    }
+
+    private var orderedExercises: [Exercise] {
+        guard let day else { return [] }
+        let exerciseMap = Dictionary(uniqueKeysWithValues: exercises.map { ($0.id, $0) })
+        return day.exerciseIds.compactMap { exerciseMap[$0] }
+    }
+
+    private var unsequencedExercises: [Exercise] {
+        guard let day else { return exercises }
+        let sequencedIds = Set(day.exerciseIds)
+        return exercises
+            .filter { !sequencedIds.contains($0.id) }
+            .sorted { $0.name < $1.name }
+    }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color(white: 0.14), Color(white: 0.10)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            if orderedExercises.isEmpty {
+                VStack(spacing: 16) {
+                    Image(systemName: "figure.strengthtraining.traditional")
+                        .font(.system(size: 40))
+                        .foregroundStyle(.white.opacity(0.3))
+                    Text("No exercises in this day")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.5))
+                    Button("Add All Exercise") {
+                        guard let idx = dayIndex else { return }
+                        split.days[idx].exerciseIds = exercises
+                            .sorted { $0.createdAt < $1.createdAt }
+                            .map { $0.id }
+                        saveAndSync()
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.appAccent)
+                }
+            } else {
+                List {
+                    if editMode?.wrappedValue.isEditing == true {
+                        Text("Drag to reorder exercises")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.5))
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparatorTint(.clear)
+                    }
+
+                    ForEach(orderedExercises) { exercise in
+                        HStack(spacing: 12) {
+                            ExerciseIconView(exercise: exercise, size: 32)
+                                .foregroundStyle(Color.appAccent)
+
+                            Text(exercise.name)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.white)
+
+                            Spacer()
+
+                            Image(systemName: "line.3.horizontal")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.white.opacity(0.3))
+                        }
+                        .listRowBackground(Color(white: 0.12))
+                        .listRowSeparatorTint(.white.opacity(0.08))
+                    }
+                    .onDelete(perform: removeExercises)
+                    .onMove(perform: moveExercises)
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+            }
+        }
+        .navigationTitle(day?.name ?? "Day")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 12) {
+                    Button {
+                        renameName = day?.name ?? ""
+                        showRenameAlert = true
+                    } label: {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Color.appAccent)
+                    }
+
+                    if !unsequencedExercises.isEmpty {
+                        Button {
+                            showAddExercise = true
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(Color.appAccent)
+                        }
+                    }
+
+                    EditButton()
+                        .foregroundStyle(Color.appAccent)
+                }
+            }
+        }
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .sheet(isPresented: $showAddExercise) {
+            addExerciseSheet
+        }
+        .alert("Rename Day", isPresented: $showRenameAlert) {
+            TextField("Name", text: $renameName)
+            Button("Cancel", role: .cancel) { }
+            Button("Save") {
+                let trimmed = renameName.trimmingCharacters(in: .whitespaces)
+                guard !trimmed.isEmpty, let idx = dayIndex else { return }
+                split.days[idx].name = trimmed
+                saveAndSync()
+            }
+        }
+    }
+
+    private var addExerciseSheet: some View {
         NavigationStack {
             ZStack {
                 Color.black.ignoresSafeArea()
 
                 List {
-                    ForEach(unassignedDays) { day in
+                    ForEach(unsequencedExercises) { exercise in
                         Button {
-                            split.dayIds.append(day.id)
+                            guard let idx = dayIndex else { return }
+                            split.days[idx].exerciseIds.append(exercise.id)
                             saveAndSync()
-                            if unassignedDays.isEmpty {
-                                showAddDay = false
+                            if unsequencedExercises.isEmpty {
+                                showAddExercise = false
                             }
                         } label: {
                             HStack(spacing: 12) {
-                                Image(systemName: "calendar")
-                                    .font(.system(size: 16))
+                                ExerciseIconView(exercise: exercise, size: 32)
                                     .foregroundStyle(Color.appAccent)
 
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(day.name)
-                                        .font(.subheadline.weight(.medium))
-                                        .foregroundStyle(.white)
-                                    Text("\(day.exerciseIds.count) exercises")
-                                        .font(.caption)
-                                        .foregroundStyle(.white.opacity(0.5))
-                                }
+                                Text(exercise.name)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.white)
 
                                 Spacer()
 
@@ -441,12 +556,12 @@ struct SplitDetailView: View {
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
             }
-            .navigationTitle("Add Day")
+            .navigationTitle("Add Exercise")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") {
-                        showAddDay = false
+                        showAddExercise = false
                     }
                     .foregroundStyle(Color.appAccent)
                 }
@@ -457,13 +572,15 @@ struct SplitDetailView: View {
         .presentationDragIndicator(.visible)
     }
 
-    private func removeDays(at offsets: IndexSet) {
-        split.dayIds.remove(atOffsets: offsets)
+    private func removeExercises(at offsets: IndexSet) {
+        guard let idx = dayIndex else { return }
+        split.days[idx].exerciseIds.remove(atOffsets: offsets)
         saveAndSync()
     }
 
-    private func moveDays(from source: IndexSet, to destination: Int) {
-        split.dayIds.move(fromOffsets: source, toOffset: destination)
+    private func moveExercises(from source: IndexSet, to destination: Int) {
+        guard let idx = dayIndex else { return }
+        split.days[idx].exerciseIds.move(fromOffsets: source, toOffset: destination)
         saveAndSync()
     }
 

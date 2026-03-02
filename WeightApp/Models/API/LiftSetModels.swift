@@ -18,9 +18,8 @@ struct LiftSetDTO: Codable {
     let createdDatetime: Date
     let lastModifiedDatetime: Date?
     let isBaselineSet: Bool?
-    let rir: Int?
 
-    init(from liftSet: LiftSets) {
+    init(from liftSet: LiftSet) {
         self.liftSetId = liftSet.id
         self.exerciseId = liftSet.exercise?.id ?? UUID()
         self.reps = liftSet.reps
@@ -29,10 +28,9 @@ struct LiftSetDTO: Codable {
         self.createdDatetime = liftSet.createdAt
         self.lastModifiedDatetime = nil
         self.isBaselineSet = liftSet.isBaselineSet ? true : nil
-        self.rir = liftSet.rir
     }
 
-    init(liftSetId: UUID, exerciseId: UUID, reps: Int, weight: Double, createdTimezone: String, createdDatetime: Date, lastModifiedDatetime: Date? = nil, isBaselineSet: Bool? = nil, rir: Int? = nil) {
+    init(liftSetId: UUID, exerciseId: UUID, reps: Int, weight: Double, createdTimezone: String, createdDatetime: Date, lastModifiedDatetime: Date? = nil, isBaselineSet: Bool? = nil) {
         self.liftSetId = liftSetId
         self.exerciseId = exerciseId
         self.reps = reps
@@ -41,7 +39,6 @@ struct LiftSetDTO: Codable {
         self.createdDatetime = createdDatetime
         self.lastModifiedDatetime = lastModifiedDatetime
         self.isBaselineSet = isBaselineSet
-        self.rir = rir
     }
 }
 
@@ -71,13 +68,13 @@ struct CreateLiftSetsResponse: Codable {
 
 struct DeleteLiftSetsResponse: Codable {
     let message: String
-    let deletedLiftSets: [LiftSetDTO]
+    let deletedLiftSet: [LiftSetDTO]
     let notFoundIds: [UUID]?
 }
 
-// MARK: - LiftSets Extension
+// MARK: - LiftSet Extension
 
-extension LiftSets {
+extension LiftSet {
     func toDTO() -> LiftSetDTO {
         return LiftSetDTO(from: self)
     }

@@ -43,7 +43,7 @@ struct TrendsView: View {
             .navigationTitle("Trends")
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) {
-                if syncService.isSyncingLiftSets {
+                if syncService.isSyncingLiftSet {
                     HStack(spacing: 8) {
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: Color.appAccent))

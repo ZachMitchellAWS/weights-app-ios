@@ -10,10 +10,10 @@ import SwiftData
 import Charts
 
 struct SetIntensityWidget: View {
-    let allSets: [LiftSets]
-    let allEstimated1RMs: [Estimated1RMs]
+    let allSets: [LiftSet]
+    let allEstimated1RM: [Estimated1RM]
 
-    @Query(filter: #Predicate<Exercises> { !$0.deleted }, sort: \Exercises.createdAt) private var exercises: [Exercises]
+    @Query(filter: #Predicate<Exercise> { !$0.deleted }, sort: \Exercise.createdAt) private var exercises: [Exercise]
 
     @State private var selectedExerciseName: String?
     @State private var showPROnly: Bool = false
@@ -23,7 +23,7 @@ struct SetIntensityWidget: View {
         TrendsCalculator.exerciseNames(from: allSets)
     }
 
-    private var selectedExercise: Exercises? {
+    private var selectedExercise: Exercise? {
         let name = selectedExerciseName ?? exerciseNames.first
         guard let name else { return nil }
         return exercises.first(where: { $0.name == name })
@@ -31,7 +31,7 @@ struct SetIntensityWidget: View {
 
     private var setsWithPRInfo: [CheckInView.SetWithPR] {
         guard let exercise = selectedExercise else { return [] }
-        return CheckInView.computeSetsWithPRInfo(for: exercise, from: allSets, estimated1RMs: allEstimated1RMs)
+        return CheckInView.computeSetsWithPRInfo(for: exercise, from: allSets, estimated1RMs: allEstimated1RM)
     }
 
     private var displayData: [CheckInView.SetWithPR] {

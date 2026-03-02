@@ -51,20 +51,6 @@ struct PendingLiftSetOperation: Codable, Equatable {
     }
 }
 
-struct PendingSequenceOperation: Codable, Equatable {
-    let sequenceId: UUID
-    let operationType: PendingOperationType
-    var retryCount: Int
-    let createdAt: Date
-
-    init(sequenceId: UUID, operationType: PendingOperationType) {
-        self.sequenceId = sequenceId
-        self.operationType = operationType
-        self.retryCount = 0
-        self.createdAt = Date()
-    }
-}
-
 struct PendingSplitOperation: Codable, Equatable {
     let splitId: UUID
     let operationType: PendingOperationType
@@ -95,7 +81,7 @@ struct PendingEstimated1RMOperation: Codable, Equatable {
     }
 }
 
-struct PendingSetPlanTemplateOperation: Codable, Equatable {
+struct PendingSetPlanOperation: Codable, Equatable {
     let templateId: UUID
     let operationType: PendingOperationType
     var retryCount: Int
@@ -116,9 +102,8 @@ class SyncRetryQueue {
     private let userPropertiesKey = "SyncRetryQueue.PendingUserPropertiesSync"
     private let liftSetOperationsKey = "SyncRetryQueue.PendingLiftSetOperations"
     private let estimated1RMOperationsKey = "SyncRetryQueue.PendingEstimated1RMOperations"
-    private let sequenceOperationsKey = "SyncRetryQueue.PendingSequenceOperations"
     private let splitOperationsKey = "SyncRetryQueue.PendingSplitOperations"
-    private let templateOperationsKey = "SyncRetryQueue.PendingSetPlanTemplateOperations"
+    private let templateOperationsKey = "SyncRetryQueue.PendingSetPlanOperations"
     private let maxRetries = 10
 
     private init() {}
@@ -163,13 +148,12 @@ class SyncRetryQueue {
         UserDefaults.standard.removeObject(forKey: userPropertiesKey)
         UserDefaults.standard.removeObject(forKey: liftSetOperationsKey)
         UserDefaults.standard.removeObject(forKey: estimated1RMOperationsKey)
-        UserDefaults.standard.removeObject(forKey: sequenceOperationsKey)
         UserDefaults.standard.removeObject(forKey: splitOperationsKey)
         UserDefaults.standard.removeObject(forKey: templateOperationsKey)
     }
 
     func hasPendingOperations() -> Bool {
-        return !loadOperations().isEmpty || !loadLiftSetOperations().isEmpty || !loadEstimated1RMOperations().isEmpty || !loadSequenceOperations().isEmpty || !loadSplitOperations().isEmpty || !loadTemplateOperations().isEmpty
+        return !loadOperations().isEmpty || !loadLiftSetOperations().isEmpty || !loadEstimated1RMOperations().isEmpty || !loadSplitOperations().isEmpty || !loadTemplateOperations().isEmpty
     }
 
     // MARK: - User Properties Sync Methods
@@ -403,79 +387,6 @@ class SyncRetryQueue {
         }
     }
 
-    // MARK: - Sequence Operations
-
-    func addPendingSequenceUpsert(sequenceId: UUID) {
-        SyncLogger.retry.debug("Queuing sequence upsert: \(sequenceId)")
-        addSequenceOperation(PendingSequenceOperation(sequenceId: sequenceId, operationType: .upsert))
-    }
-
-    func addPendingSequenceDelete(sequenceId: UUID) {
-        SyncLogger.retry.debug("Queuing sequence delete: \(sequenceId)")
-        addSequenceOperation(PendingSequenceOperation(sequenceId: sequenceId, operationType: .delete))
-    }
-
-    func removePendingSequenceOperation(sequenceId: UUID) {
-        SyncLogger.retry.debug("Removing sequence operation: \(sequenceId)")
-        var operations = loadSequenceOperations()
-        operations.removeAll { $0.sequenceId == sequenceId }
-        saveSequenceOperations(operations)
-    }
-
-    func getPendingSequenceOperations() -> [PendingSequenceOperation] {
-        return loadSequenceOperations()
-    }
-
-    func incrementSequenceRetryCount(for sequenceId: UUID) {
-        var operations = loadSequenceOperations()
-        if let index = operations.firstIndex(where: { $0.sequenceId == sequenceId }) {
-            operations[index].retryCount += 1
-            if operations[index].retryCount >= maxRetries {
-                SyncLogger.retry.info("Sequence \(sequenceId) dropped after \(self.maxRetries) retries")
-                operations.remove(at: index)
-            }
-        }
-        saveSequenceOperations(operations)
-    }
-
-    func hasSequencePendingOperations() -> Bool {
-        return !loadSequenceOperations().isEmpty
-    }
-
-    private func addSequenceOperation(_ operation: PendingSequenceOperation) {
-        var operations = loadSequenceOperations()
-
-        if let existingIndex = operations.firstIndex(where: { $0.sequenceId == operation.sequenceId }) {
-            operations[existingIndex] = operation
-        } else {
-            operations.append(operation)
-        }
-
-        saveSequenceOperations(operations)
-    }
-
-    private func loadSequenceOperations() -> [PendingSequenceOperation] {
-        guard let data = UserDefaults.standard.data(forKey: sequenceOperationsKey) else {
-            return []
-        }
-
-        do {
-            return try JSONDecoder().decode([PendingSequenceOperation].self, from: data)
-        } catch {
-            SyncLogger.retry.error("Failed to decode pending sequence operations: \(error)")
-            return []
-        }
-    }
-
-    private func saveSequenceOperations(_ operations: [PendingSequenceOperation]) {
-        do {
-            let data = try JSONEncoder().encode(operations)
-            UserDefaults.standard.set(data, forKey: sequenceOperationsKey)
-        } catch {
-            SyncLogger.retry.error("Failed to encode pending sequence operations: \(error)")
-        }
-    }
-
     // MARK: - Split Operations
 
     func addPendingSplitUpsert(splitId: UUID) {
@@ -553,12 +464,12 @@ class SyncRetryQueue {
 
     func addPendingTemplateUpsert(templateId: UUID) {
         SyncLogger.retry.debug("Queuing template upsert: \(templateId)")
-        addTemplateOperation(PendingSetPlanTemplateOperation(templateId: templateId, operationType: .upsert))
+        addTemplateOperation(PendingSetPlanOperation(templateId: templateId, operationType: .upsert))
     }
 
     func addPendingTemplateDelete(templateId: UUID) {
         SyncLogger.retry.debug("Queuing template delete: \(templateId)")
-        addTemplateOperation(PendingSetPlanTemplateOperation(templateId: templateId, operationType: .delete))
+        addTemplateOperation(PendingSetPlanOperation(templateId: templateId, operationType: .delete))
     }
 
     func removePendingTemplateOperation(templateId: UUID) {
@@ -568,7 +479,7 @@ class SyncRetryQueue {
         saveTemplateOperations(operations)
     }
 
-    func getPendingTemplateOperations() -> [PendingSetPlanTemplateOperation] {
+    func getPendingTemplateOperations() -> [PendingSetPlanOperation] {
         return loadTemplateOperations()
     }
 
@@ -588,7 +499,7 @@ class SyncRetryQueue {
         return !loadTemplateOperations().isEmpty
     }
 
-    private func addTemplateOperation(_ operation: PendingSetPlanTemplateOperation) {
+    private func addTemplateOperation(_ operation: PendingSetPlanOperation) {
         var operations = loadTemplateOperations()
 
         if let existingIndex = operations.firstIndex(where: { $0.templateId == operation.templateId }) {
@@ -600,20 +511,20 @@ class SyncRetryQueue {
         saveTemplateOperations(operations)
     }
 
-    private func loadTemplateOperations() -> [PendingSetPlanTemplateOperation] {
+    private func loadTemplateOperations() -> [PendingSetPlanOperation] {
         guard let data = UserDefaults.standard.data(forKey: templateOperationsKey) else {
             return []
         }
 
         do {
-            return try JSONDecoder().decode([PendingSetPlanTemplateOperation].self, from: data)
+            return try JSONDecoder().decode([PendingSetPlanOperation].self, from: data)
         } catch {
             SyncLogger.retry.error("Failed to decode pending template operations: \(error)")
             return []
         }
     }
 
-    private func saveTemplateOperations(_ operations: [PendingSetPlanTemplateOperation]) {
+    private func saveTemplateOperations(_ operations: [PendingSetPlanOperation]) {
         do {
             let data = try JSONEncoder().encode(operations)
             UserDefaults.standard.set(data, forKey: templateOperationsKey)

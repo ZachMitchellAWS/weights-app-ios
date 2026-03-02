@@ -64,7 +64,8 @@ struct APIValidationView: View {
     private let testExerciseId = UUID()
     private let testLiftSetId = UUID()
     private let testE1RMId = UUID()
-    private let testSequenceId = UUID()
+    private let testSplitId = UUID()
+    private let testDayId = UUID()
 
     var passedCount: Int {
         steps.filter { if case .passed = $0.status { return true }; return false }.count
@@ -140,7 +141,8 @@ struct APIValidationView: View {
         let exerciseId = testExerciseId
         let liftSetId = testLiftSetId
         let e1rmId = testE1RMId
-        let sequenceId = testSequenceId
+        let splitId = testSplitId
+        let dayId = testDayId
 
         steps = [
             // 1
@@ -213,7 +215,7 @@ struct APIValidationView: View {
                 guard response.availableChangePlates == [2.5, 5.0, 10.0, 25.0, 45.0] else { throw ValidationError("plates should still be present") }
             },
             // 11
-            TestStep(id: 11, name: "GET Exercises (initial)") {
+            TestStep(id: 11, name: "GET Exercise (initial)") {
                 let response = try await api.getExercises()
                 capturedExerciseCount = response.exercises.count
             },
@@ -233,7 +235,7 @@ struct APIValidationView: View {
                 guard response.exercises.contains(where: { $0.exerciseItemId == exerciseId }) else { throw ValidationError("exercise not in response") }
             },
             // 13
-            TestStep(id: 13, name: "GET Exercises (verify created)") {
+            TestStep(id: 13, name: "GET Exercise (verify created)") {
                 let response = try await api.getExercises()
                 guard response.exercises.contains(where: { $0.exerciseItemId == exerciseId }) else { throw ValidationError("test exercise not found") }
             },
@@ -252,7 +254,7 @@ struct APIValidationView: View {
                 guard response.updated == 1 else { throw ValidationError("expected updated == 1, got \(response.updated)") }
             },
             // 15
-            TestStep(id: 15, name: "GET Exercises (verify updated)") {
+            TestStep(id: 15, name: "GET Exercise (verify updated)") {
                 let response = try await api.getExercises()
                 guard let ex = response.exercises.first(where: { $0.exerciseItemId == exerciseId }) else { throw ValidationError("exercise not found") }
                 guard ex.name == "API Validation Updated Exercise" else { throw ValidationError("name not updated: \(ex.name)") }
@@ -267,13 +269,13 @@ struct APIValidationView: View {
                     createdTimezone: TimeZone.current.identifier,
                     createdDatetime: Date()
                 )
-                let response = try await api.createLiftSets([dto])
+                let response = try await api.createLiftSet([dto])
                 guard response.created == 1 else { throw ValidationError("expected created == 1, got \(response.created)") }
                 guard response.liftSets.contains(where: { $0.liftSetId == liftSetId }) else { throw ValidationError("lift set not in response") }
             },
             // 17
             TestStep(id: 17, name: "GET Lift Sets (verify created)") {
-                let response = try await api.getLiftSets()
+                let response = try await api.getLiftSet()
                 guard response.liftSets.contains(where: { $0.liftSetId == liftSetId }) else { throw ValidationError("test lift set not found") }
             },
             // 18
@@ -286,78 +288,80 @@ struct APIValidationView: View {
                     createdTimezone: TimeZone.current.identifier,
                     createdDatetime: Date()
                 )
-                let response = try await api.createEstimated1RMs([dto])
+                let response = try await api.createEstimated1RM([dto])
                 guard response.created == 1 else { throw ValidationError("expected created == 1, got \(response.created)") }
                 guard response.estimated1RMs.contains(where: { $0.liftSetId == liftSetId }) else { throw ValidationError("e1rm not in response") }
             },
             // 19
             TestStep(id: 19, name: "GET Estimated 1RMs (verify)") {
-                let response = try await api.getEstimated1RMs()
+                let response = try await api.getEstimated1RM()
                 guard response.estimated1RMs.contains(where: { $0.liftSetId == liftSetId }) else { throw ValidationError("test e1rm not found") }
             },
             // 20
             TestStep(id: 20, name: "DELETE Estimated 1RM") {
-                let response = try await api.deleteEstimated1RMs(liftSetIds: [liftSetId])
-                guard response.deletedEstimated1RMs.contains(where: { $0.liftSetId == liftSetId }) else { throw ValidationError("deleted e1rm not in response") }
+                let response = try await api.deleteEstimated1RM(liftSetIds: [liftSetId])
+                guard response.deletedEstimated1RM.contains(where: { $0.liftSetId == liftSetId }) else { throw ValidationError("deleted e1rm not in response") }
             },
             // 21
             TestStep(id: 21, name: "GET Estimated 1RMs (verify deleted)") {
-                let response = try await api.getEstimated1RMs()
+                let response = try await api.getEstimated1RM()
                 guard !response.estimated1RMs.contains(where: { $0.liftSetId == liftSetId }) else { throw ValidationError("test e1rm still present") }
             },
             // 22
             TestStep(id: 22, name: "DELETE Lift Set") {
-                let response = try await api.deleteLiftSets([liftSetId])
-                guard response.deletedLiftSets.contains(where: { $0.liftSetId == liftSetId }) else { throw ValidationError("deleted lift set not in response") }
+                let response = try await api.deleteLiftSet([liftSetId])
+                guard response.deletedLiftSet.contains(where: { $0.liftSetId == liftSetId }) else { throw ValidationError("deleted lift set not in response") }
             },
             // 23
             TestStep(id: 23, name: "GET Lift Sets (verify deleted)") {
-                let response = try await api.getLiftSets()
+                let response = try await api.getLiftSet()
                 guard !response.liftSets.contains(where: { $0.liftSetId == liftSetId }) else { throw ValidationError("test lift set still present") }
             },
             // 24
-            TestStep(id: 24, name: "POST Sequence (create)") {
-                let dto = SequenceDTO(
-                    sequenceId: sequenceId,
-                    name: "API Validation Test Sequence",
-                    exerciseIds: [exerciseId],
+            TestStep(id: 24, name: "POST Split (create)") {
+                let dayDTO = SplitDayDTO(dayId: dayId, name: "Test Day", exerciseIds: [exerciseId])
+                let dto = SplitDTO(
+                    splitId: splitId,
+                    name: "API Validation Test Split",
+                    days: [dayDTO],
                     createdTimezone: TimeZone.current.identifier,
                     createdDatetime: Date()
                 )
-                let response = try await api.upsertSequences([dto])
+                let response = try await api.upsertSplits([dto])
                 guard response.created == 1 else { throw ValidationError("expected created == 1, got \(String(describing: response.created))") }
             },
             // 25
-            TestStep(id: 25, name: "GET Sequences (verify)") {
-                let response = try await api.getSequences()
-                guard response.sequences.contains(where: { $0.sequenceId == sequenceId }) else { throw ValidationError("test sequence not found") }
+            TestStep(id: 25, name: "GET Splits (verify)") {
+                let response = try await api.getSplits()
+                guard response.splits.contains(where: { $0.splitId == splitId }) else { throw ValidationError("test split not found") }
             },
             // 26
-            TestStep(id: 26, name: "POST Sequence (update name)") {
-                let dto = SequenceDTO(
-                    sequenceId: sequenceId,
-                    name: "API Validation Updated Sequence",
-                    exerciseIds: [exerciseId],
+            TestStep(id: 26, name: "POST Split (update name)") {
+                let dayDTO = SplitDayDTO(dayId: dayId, name: "Test Day", exerciseIds: [exerciseId])
+                let dto = SplitDTO(
+                    splitId: splitId,
+                    name: "API Validation Updated Split",
+                    days: [dayDTO],
                     createdTimezone: TimeZone.current.identifier,
                     createdDatetime: Date()
                 )
-                let response = try await api.upsertSequences([dto])
+                let response = try await api.upsertSplits([dto])
                 guard response.updated == 1 else { throw ValidationError("expected updated == 1, got \(String(describing: response.updated))") }
             },
             // 27
-            TestStep(id: 27, name: "GET Sequences (verify update)") {
-                let response = try await api.getSequences()
-                guard let seq = response.sequences.first(where: { $0.sequenceId == sequenceId }) else { throw ValidationError("sequence not found") }
-                guard seq.name == "API Validation Updated Sequence" else { throw ValidationError("name not updated: \(seq.name)") }
+            TestStep(id: 27, name: "GET Splits (verify update)") {
+                let response = try await api.getSplits()
+                guard let split = response.splits.first(where: { $0.splitId == splitId }) else { throw ValidationError("split not found") }
+                guard split.name == "API Validation Updated Split" else { throw ValidationError("name not updated: \(split.name)") }
             },
             // 28
-            TestStep(id: 28, name: "DELETE Sequence") {
-                _ = try await api.deleteSequences([sequenceId])
+            TestStep(id: 28, name: "DELETE Split") {
+                _ = try await api.deleteSplits([splitId])
             },
             // 29
-            TestStep(id: 29, name: "GET Sequences (verify deleted)") {
-                let response = try await api.getSequences()
-                guard !response.sequences.contains(where: { $0.sequenceId == sequenceId }) else { throw ValidationError("test sequence still present") }
+            TestStep(id: 29, name: "GET Splits (verify deleted)") {
+                let response = try await api.getSplits()
+                guard !response.splits.contains(where: { $0.splitId == splitId }) else { throw ValidationError("test split still present") }
             },
             // 30
             TestStep(id: 30, name: "DELETE Exercise") {
@@ -365,7 +369,7 @@ struct APIValidationView: View {
                 guard response.deletedExercises.contains(where: { $0.exerciseItemId == exerciseId }) else { throw ValidationError("deleted exercise not in response") }
             },
             // 31
-            TestStep(id: 31, name: "GET Exercises (verify deleted)") {
+            TestStep(id: 31, name: "GET Exercise (verify deleted)") {
                 let response = try await api.getExercises()
                 // Deleted exercises may still appear with deleted=true, or be removed entirely
                 let activeExercises = response.exercises.filter { $0.deleted != true }

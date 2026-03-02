@@ -17,11 +17,9 @@ enum OneRMCalculator {
         return weight * (1.0 + Double(reps) / 30.0)
     }
 
-    static func estimate1RMWithRIR(weight: Double, reps: Int, rir: Int) -> Double {
-        guard reps > 0 || rir > 0 else { return 0 }
-        let effectiveReps = reps + rir
-        if effectiveReps == 1 { return weight }
-        return weight * (1.0 + Double(effectiveReps) / 30.0)
+    static func calibrated1RM(weight: Double, reps: Int, effortFraction: Double) -> Double {
+        guard effortFraction > 0 else { return estimate1RM(weight: weight, reps: reps) }
+        return estimate1RM(weight: weight, reps: reps) / effortFraction
     }
 
     /// Inverse Epley: max reps possible at a given weight for a given estimated 1RM.
@@ -39,7 +37,7 @@ enum OneRMCalculator {
         return maxReps - Double(reps)
     }
 
-    static func current1RM(from sets: [LiftSets]) -> Double {
+    static func current1RM(from sets: [LiftSet]) -> Double {
         let eligible = sets.filter { $0.reps >= 1 && $0.weight >= 0 }
         let best = eligible.map { estimate1RM(weight: $0.weight, reps: $0.reps) }.max() ?? 0
         return best

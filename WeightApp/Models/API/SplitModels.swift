@@ -1,11 +1,19 @@
 import Foundation
 
+// MARK: - Day DTO (embedded in splits)
+
+struct SplitDayDTO: Codable {
+    let dayId: UUID
+    let name: String
+    let exerciseIds: [UUID]
+}
+
 // MARK: - Data Transfer Object
 
 struct SplitDTO: Codable {
     let splitId: UUID
     let name: String
-    let dayIds: [UUID]
+    let days: [SplitDayDTO]
     let createdTimezone: String
     let createdDatetime: Date?
     let deleted: Bool?
@@ -13,16 +21,16 @@ struct SplitDTO: Codable {
     init(from split: WorkoutSplit) {
         self.splitId = split.id
         self.name = split.name
-        self.dayIds = split.dayIds
+        self.days = split.days.map { SplitDayDTO(dayId: $0.id, name: $0.name, exerciseIds: $0.exerciseIds) }
         self.createdTimezone = split.createdTimezone
         self.createdDatetime = split.createdAt
         self.deleted = split.deleted
     }
 
-    init(splitId: UUID, name: String, dayIds: [UUID], createdTimezone: String, createdDatetime: Date? = nil, deleted: Bool? = nil) {
+    init(splitId: UUID, name: String, days: [SplitDayDTO], createdTimezone: String, createdDatetime: Date? = nil, deleted: Bool? = nil) {
         self.splitId = splitId
         self.name = name
-        self.dayIds = dayIds
+        self.days = days
         self.createdTimezone = createdTimezone
         self.createdDatetime = createdDatetime
         self.deleted = deleted

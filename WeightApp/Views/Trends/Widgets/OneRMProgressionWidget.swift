@@ -77,14 +77,14 @@ struct OneRMProgressionChart: View {
 }
 
 struct OneRMProgressionWidget: View {
-    let allEstimated1RMs: [Estimated1RMs]
+    let allEstimated1RM: [Estimated1RM]
     let allExerciseNames: [String]
 
     @State private var selectedExercise: String?
 
     private var dataPoints: [TrendsCalculator.OneRMDataPoint] {
         guard let exercise = selectedExercise ?? allExerciseNames.first else { return [] }
-        return TrendsCalculator.oneRMProgression(from: allEstimated1RMs, exerciseName: exercise)
+        return TrendsCalculator.oneRMProgression(from: allEstimated1RM, exerciseName: exercise)
     }
 
     var body: some View {

@@ -11,10 +11,10 @@ import SwiftData
 // MARK: - Response DTOs
 
 struct EntitlementsResponse: Codable {
-    let activeEntitlements: [EntitlementGrant]
+    let activeEntitlements: [EntitlementGrantDTO]
 }
 
-struct EntitlementGrant: Codable {
+struct EntitlementGrantDTO: Codable {
     let userId: String
     let startUtc: String
     let endUtc: String
@@ -136,7 +136,7 @@ class EntitlementsService {
 
     // MARK: - Sync
 
-    /// Fetch entitlement status from backend and update local SwiftData model
+    /// Fetch entitlements from backend and update local SwiftData models
     @MainActor
     func syncEntitlementStatus() async {
         guard let context = modelContext else {
@@ -145,62 +145,29 @@ class EntitlementsService {
         }
 
         do {
-            let status = try await getStatus()
-            updateLocalEntitlement(status: status, context: context)
+            let response = try await processTransactions(originalTransactionIds: [])
+            updateLocalEntitlements(from: response, context: context)
         } catch {
-            print("EntitlementsService: Failed to sync status: \(error)")
+            print("EntitlementsService: Failed to sync: \(error)")
         }
     }
 
-    /// Update local Entitlements from a server status response
+    /// Replace all entitlement records with fresh data from backend response
     @MainActor
-    func updateLocalEntitlement(status: EntitlementStatusResponse, context: ModelContext) {
-        let descriptor = FetchDescriptor<Entitlements>()
-        let entitlement: Entitlements
-        if let existing = try? context.fetch(descriptor).first {
-            entitlement = existing
-        } else {
-            entitlement = Entitlements()
-            context.insert(entitlement)
+    func updateLocalEntitlements(from response: EntitlementsResponse, context: ModelContext) {
+        let existing = (try? context.fetch(FetchDescriptor<EntitlementGrant>())) ?? []
+        for record in existing { context.delete(record) }
+
+        // Insert fresh from response
+        for dto in response.activeEntitlements {
+            guard let start = parseISO8601(dto.startUtc),
+                  let end = parseISO8601(dto.endUtc) else { continue }
+            context.insert(EntitlementGrant(
+                entitlementName: dto.entitlementName,
+                startUtc: start,
+                endUtc: end
+            ))
         }
-
-        entitlement.isPremium = status.accountStatus == "premium"
-
-        if let expirationString = status.expirationUtc {
-            entitlement.expiresAt = parseISO8601(expirationString)
-        } else {
-            entitlement.expiresAt = nil
-        }
-
-        try? context.save()
-    }
-
-    /// Update local Entitlements from entitlements response after a purchase
-    @MainActor
-    func updateLocalEntitlement(from response: EntitlementsResponse, transactionId: String, context: ModelContext) {
-        let descriptor = FetchDescriptor<Entitlements>()
-        let entitlement: Entitlements
-        if let existing = try? context.fetch(descriptor).first {
-            entitlement = existing
-        } else {
-            entitlement = Entitlements()
-            context.insert(entitlement)
-        }
-
-        if let grant = response.activeEntitlements.first {
-            entitlement.isPremium = true
-            entitlement.transactionId = transactionId
-
-            // Determine subscription type from entitlement name
-            if grant.entitlementName.contains("monthly") {
-                entitlement.subscriptionType = "monthly"
-            } else if grant.entitlementName.contains("yearly") {
-                entitlement.subscriptionType = "yearly"
-            }
-
-            entitlement.expiresAt = parseISO8601(grant.endUtc)
-        }
-
         try? context.save()
     }
 

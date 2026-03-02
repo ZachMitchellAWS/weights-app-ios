@@ -14,6 +14,7 @@ struct WeightAppApp: App {
     @StateObject private var authViewModel = AuthViewModel()
     @State private var showSplash = true
     @State private var showWelcome = true
+    @State private var showSafetyDisclaimer = true
     @State private var initialExerciseId: UUID? = nil
     @State private var showOnboarding = true
     @State private var showUpsell = false
@@ -27,7 +28,7 @@ struct WeightAppApp: App {
 
         // Create the model container
         do {
-            modelContainer = try ModelContainer(for: Exercises.self, LiftSets.self, UserProperties.self, Estimated1RMs.self, Entitlements.self, WorkoutSequence.self, WorkoutSplit.self, SetPlanTemplate.self)
+            modelContainer = try ModelContainer(for: Exercise.self, LiftSet.self, UserProperties.self, Estimated1RM.self, EntitlementGrant.self, WorkoutSplit.self, SetPlan.self)
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
          }
@@ -80,6 +81,13 @@ struct WeightAppApp: App {
                                 }
                             }
                             .transition(.opacity)
+                        } else if showSafetyDisclaimer {
+                            SafetyDisclaimerView {
+                                withAnimation(.easeInOut(duration: 0.4)) {
+                                    showSafetyDisclaimer = false
+                                }
+                            }
+                            .transition(.opacity)
                         } else {
                             AuthView(authViewModel: authViewModel)
                                 .transition(.opacity)
@@ -91,6 +99,7 @@ struct WeightAppApp: App {
                 .animation(.easeInOut(duration: 0.4), value: showOnboarding)
                 .animation(.easeInOut(duration: 0.4), value: showUpsell)
                 .animation(.easeInOut(duration: 0.4), value: showWelcome)
+                .animation(.easeInOut(duration: 0.4), value: showSafetyDisclaimer)
                 .preferredColorScheme(.dark)
                 .opacity(showSplash ? 0 : 1)
                 .ignoresSafeArea(.keyboard)
@@ -111,14 +120,9 @@ struct WeightAppApp: App {
                 authViewModel.setModelContext(context)
                 EntitlementsService.shared.setModelContext(context)
 
-                // Migrate workout sequences from UserDefaults to SwiftData
-                WorkoutSequenceStore.migrateToSwiftData(context: context)
-
-                // Migrate sequences into default split if needed
-                WorkoutSequenceStore.migrateSequencesToSplits(context: context)
-
-                // Seed built-in set plan templates
-                SetPlanTemplate.seedBuiltIns(context: context)
+                // Seed defaults if needed
+                SeedService.seedSplits(context: context)
+                SeedService.seedSetPlans(context: context)
 
                 // Start listening for StoreKit transaction updates (renewals, etc.)
                 transactionListenerTask = PurchaseService.shared.listenForTransactions()
@@ -128,7 +132,6 @@ struct WeightAppApp: App {
                     Task {
                         await SyncService.shared.processRetryQueue()
                         await SyncService.shared.processUserPropertiesRetryQueue()
-                        await SyncService.shared.processSequenceRetryQueue()
                         await SyncService.shared.processSplitRetryQueue()
                         await SyncService.shared.processLiftSetRetryQueue()
                         await SyncService.shared.processEstimated1RMRetryQueue()
@@ -158,6 +161,7 @@ struct WeightAppApp: App {
             .onChange(of: authViewModel.isAuthenticated) { _, isAuthenticated in
                 if !isAuthenticated {
                     showWelcome = true
+                    showSafetyDisclaimer = true
                     showOnboarding = true
                 }
             }

@@ -25,3 +25,16 @@ struct APIConfig {
         return headers
     }
 }
+
+enum PremiumOverride {
+    private static let key = "premium_override"
+
+    static var isEnabled: Bool {
+        guard APIConfig.environment == "staging" else { return false }
+        return UserDefaults.standard.bool(forKey: key)
+    }
+
+    static func set(_ value: Bool) {
+        UserDefaults.standard.set(value, forKey: key)
+    }
+}

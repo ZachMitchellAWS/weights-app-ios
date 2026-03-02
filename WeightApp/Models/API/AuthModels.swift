@@ -78,13 +78,13 @@ struct UserPropertiesRequest: Codable {
     var hardMinReps: Int?
     var hardMaxReps: Int?
     var clearBodyweight: Bool = false
-    var activeSetPlanTemplateId: String?
-    var clearActiveSetPlanTemplate: Bool = false
+    var activeSetPlanId: String?
+    var clearActiveSetPlan: Bool = false
 
     private enum CodingKeys: String, CodingKey {
         case bodyweight, availableChangePlates, minReps, maxReps
         case easyMinReps, easyMaxReps, moderateMinReps, moderateMaxReps, hardMinReps, hardMaxReps
-        case activeSetPlanTemplateId
+        case activeSetPlanId = "activeSetPlanTemplateId"
     }
 
     func encode(to encoder: Encoder) throws {
@@ -121,10 +121,10 @@ struct UserPropertiesRequest: Codable {
         if let hardMaxReps = hardMaxReps {
             try container.encode(hardMaxReps, forKey: .hardMaxReps)
         }
-        if clearActiveSetPlanTemplate {
-            try container.encodeNil(forKey: .activeSetPlanTemplateId)
-        } else if let activeSetPlanTemplateId = activeSetPlanTemplateId {
-            try container.encode(activeSetPlanTemplateId, forKey: .activeSetPlanTemplateId)
+        if clearActiveSetPlan {
+            try container.encodeNil(forKey: .activeSetPlanId)
+        } else if let activeSetPlanId = activeSetPlanId {
+            try container.encode(activeSetPlanId, forKey: .activeSetPlanId)
         }
     }
 }
@@ -141,9 +141,16 @@ struct UserPropertiesResponse: Codable {
     let moderateMaxReps: Int?
     let hardMinReps: Int?
     let hardMaxReps: Int?
-    let activeSetPlanTemplateId: String?
+    let activeSetPlanId: String?
     let createdDatetime: String
     let lastModifiedDatetime: String
+
+    private enum CodingKeys: String, CodingKey {
+        case userId, bodyweight, availableChangePlates, minReps, maxReps
+        case easyMinReps, easyMaxReps, moderateMinReps, moderateMaxReps, hardMinReps, hardMaxReps
+        case activeSetPlanId = "activeSetPlanTemplateId"
+        case createdDatetime, lastModifiedDatetime
+    }
 }
 
 // MARK: - Token Storage

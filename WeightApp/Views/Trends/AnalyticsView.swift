@@ -9,26 +9,26 @@ import SwiftUI
 import SwiftData
 
 struct AnalyticsView: View {
-    private static var setsDescriptor: FetchDescriptor<LiftSets> {
+    private static var setsDescriptor: FetchDescriptor<LiftSet> {
         let cutoff = Calendar.current.date(byAdding: .month, value: -12, to: Date())!
-        return FetchDescriptor<LiftSets>(
+        return FetchDescriptor<LiftSet>(
             predicate: #Predicate { !$0.deleted && $0.createdAt >= cutoff },
             sortBy: [SortDescriptor(\.createdAt)]
         )
     }
-    @Query(setsDescriptor) private var allSets: [LiftSets]
+    @Query(setsDescriptor) private var allSets: [LiftSet]
 
-    private static var estimated1RMsDescriptor: FetchDescriptor<Estimated1RMs> {
+    private static var estimated1RMsDescriptor: FetchDescriptor<Estimated1RM> {
         let cutoff = Calendar.current.date(byAdding: .month, value: -12, to: Date())!
-        return FetchDescriptor<Estimated1RMs>(
+        return FetchDescriptor<Estimated1RM>(
             predicate: #Predicate { !$0.deleted && $0.createdAt >= cutoff }
         )
     }
-    @Query(estimated1RMsDescriptor) private var allEstimated1RMs: [Estimated1RMs]
+    @Query(estimated1RMsDescriptor) private var allEstimated1RM: [Estimated1RM]
 
-    @Query(filter: #Predicate<Exercises> { !$0.deleted }, sort: \Exercises.createdAt) private var exercises: [Exercises]
+    @Query(filter: #Predicate<Exercise> { !$0.deleted }, sort: \Exercise.createdAt) private var exercises: [Exercise]
 
-    @Query private var entitlementItems: [Entitlements]
+    @Query private var entitlementRecords: [EntitlementGrant]
     @Environment(\.modelContext) private var modelContext
     @State private var showUpsell = false
 
@@ -36,12 +36,7 @@ struct AnalyticsView: View {
     private static var hasEverLoaded = false
     @State private var isLoaded = AnalyticsView.hasEverLoaded
 
-    private var entitlement: Entitlements {
-        if let entitlement = entitlementItems.first { return entitlement }
-        let entitlement = Entitlements()
-        modelContext.insert(entitlement)
-        return entitlement
-    }
+    private var isPremium: Bool { PremiumOverride.isEnabled || EntitlementGrant.isPremium(entitlementRecords) }
 
     var body: some View {
         Group {
@@ -52,15 +47,15 @@ struct AnalyticsView: View {
 
                         FrequencyCalendarWidget(allSets: allSets)
 
-                        TrainingRecencyWidget(allSets: allSets, isPremium: entitlement.isActive, showUpsell: $showUpsell)
+                        TrainingRecencyWidget(allSets: allSets, isPremium: isPremium, showUpsell: $showUpsell)
 
-                        OneRMProgressionWidget(allEstimated1RMs: allEstimated1RMs, allExerciseNames: exercises.map(\.name))
+                        OneRMProgressionWidget(allEstimated1RM: allEstimated1RM, allExerciseNames: exercises.map(\.name))
 
                         ExerciseVolumeWidget(allSets: allSets)
 
                         WeeklyVolumeWidget(allSets: allSets)
 
-                        SetIntensityWidget(allSets: allSets, allEstimated1RMs: allEstimated1RMs)
+                        SetIntensityWidget(allSets: allSets, allEstimated1RM: allEstimated1RM)
 
                         PRTimelineWidget(allSets: allSets)
 

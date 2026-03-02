@@ -1,5 +1,5 @@
 //
-//  LiftSets.swift
+//  LiftSet.swift
 //  WeightApp
 //
 //  Created by Zach Mitchell on 1/13/26.
@@ -9,8 +9,8 @@ import Foundation
 import SwiftData
 
 @Model
-final class LiftSets {
-    #Index<LiftSets>([\.createdAt], [\.deleted])
+final class LiftSet {
+    #Index<LiftSet>([\.createdAt], [\.deleted])
 
     @Attribute(.unique) var id: UUID
     var createdAt: Date
@@ -19,10 +19,10 @@ final class LiftSets {
     var weight: Double
     var deleted: Bool
     var isBaselineSet: Bool = false
-    var rir: Int?  // Reps In Reserve (0-5), only set for baseline sets
-    @Relationship var exercise: Exercises?
 
-    init(exercise: Exercises, reps: Int, weight: Double) {
+    @Relationship var exercise: Exercise?
+
+    init(exercise: Exercise, reps: Int, weight: Double) {
         self.id = UUID()
         self.exercise = exercise
         self.reps = reps

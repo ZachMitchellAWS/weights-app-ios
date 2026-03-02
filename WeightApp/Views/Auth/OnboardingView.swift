@@ -156,7 +156,7 @@ private struct OnboardingChangePlatesStep: View {
 /*
 // Old multi-page coordinator logic:
 //
-// @Query(filter: #Predicate<Exercises> { !$0.deleted }, sort: \Exercises.createdAt) private var exercises: [Exercises]
+// @Query(filter: #Predicate<Exercise> { !$0.deleted }, sort: \Exercise.createdAt) private var exercises: [Exercise]
 // @State private var currentPage = 0
 // @State private var isExiting = false
 // @State private var selectedExerciseId: UUID? = nil
@@ -707,7 +707,7 @@ private struct LegendDot: View {
 // MARK: - Page Four: Exercise Selection
 
 private struct OnboardingExerciseSelection: View {
-    let exercises: [Exercises]
+    let exercises: [Exercise]
     @Binding var selectedExerciseId: UUID?
     let onSelect: (UUID) -> Void
 
@@ -716,7 +716,7 @@ private struct OnboardingExerciseSelection: View {
         GridItem(.flexible(), spacing: 12)
     ]
 
-    private var sortedExercises: [Exercises] {
+    private var sortedExercises: [Exercise] {
         exercises.sorted { $0.name < $1.name }
     }
 
@@ -760,7 +760,7 @@ private struct OnboardingExerciseSelection: View {
 }
 
 private struct OnboardingExerciseCard: View {
-    let exercise: Exercises
+    let exercise: Exercise
     let isSelected: Bool
     let onSelect: () -> Void
 
