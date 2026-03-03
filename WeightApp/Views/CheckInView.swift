@@ -284,10 +284,10 @@ struct CheckInView: View {
                 continue
             }
 
-            // For 0-weight sets, PR is based on reps; otherwise based on 1RM
+            // Zero-weight (bodyweight) sets never count as e1RM PRs
             let increases1RM: Bool
             if set.weight == 0 {
-                increases1RM = set.reps > maxReps
+                increases1RM = false
             } else {
                 increases1RM = estimated > currentMax
             }
@@ -3259,7 +3259,7 @@ struct CheckInView: View {
     private func logSet() {
         guard let ex = selectedExercises else { return }
 
-        let isFirstWeightedSet = setsForExercise.isEmpty && weight > 0
+        let isFirstWeightedSet = !setsForExercise.contains(where: { $0.weight > 0 }) && weight > 0
 
         let before = current1RM
 
@@ -3309,30 +3309,20 @@ struct CheckInView: View {
             overlayIntensityColor = .setPR
             overlayIntensityLabel = "PR"
         } else if weight == 0 {
-            // Check for rep-based PR on zero-weight sets
-            let previousMaxReps = setsForExercise
-                .filter { $0.id != set.id && $0.weight == 0 }
-                .map(\.reps)
-                .max() ?? 0
-            if reps > previousMaxReps {
-                overlayIntensityColor = .setPR
-                overlayIntensityLabel = "PR"
-            } else {
-                // Not a rep PR — color by reps
-                switch reps {
-                case 12...:
-                    overlayIntensityColor = .setNearMax
-                    overlayIntensityLabel = "Redline"
-                case 9..<12:
-                    overlayIntensityColor = .setHard
-                    overlayIntensityLabel = "Hard"
-                case 6..<9:
-                    overlayIntensityColor = .setModerate
-                    overlayIntensityLabel = "Moderate"
-                default:
-                    overlayIntensityColor = .setEasy
-                    overlayIntensityLabel = "Easy"
-                }
+            // Zero-weight sets: never show PR, color by reps
+            switch reps {
+            case 12...:
+                overlayIntensityColor = .setNearMax
+                overlayIntensityLabel = "Redline"
+            case 9..<12:
+                overlayIntensityColor = .setHard
+                overlayIntensityLabel = "Hard"
+            case 6..<9:
+                overlayIntensityColor = .setModerate
+                overlayIntensityLabel = "Moderate"
+            default:
+                overlayIntensityColor = .setEasy
+                overlayIntensityLabel = "Easy"
             }
         } else {
             // Weighted exercise - color by percent1RM
@@ -4257,7 +4247,7 @@ struct ExerciseRowView: View {
             // Center: icon + name + subtitle → taps into detail
             Button { onEdit() } label: {
                 HStack(spacing: 12) {
-                    ExerciseIconView(exercise: exercise, size: 32)
+                    ExerciseIconView(exercise: exercise, size: 52)
                         .foregroundStyle(Color.appAccent)
 
                     VStack(alignment: .leading, spacing: 2) {
@@ -4338,13 +4328,10 @@ struct SetSquareView: View {
 
         let setEstimated1RM = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
 
-        // For 0-weight sets, use rep-based comparison for PR
+        // Zero-weight sets never count as e1RM PRs
         let isPR: Bool
         if set.weight == 0 {
-            let previousSets = allSets
-                .filter { $0.exercise?.id == set.exercise?.id && $0.createdAt < set.createdAt }
-            let maxReps = previousSets.map(\.reps).max() ?? 0
-            isPR = set.reps > maxReps
+            isPR = false
         } else {
             isPR = (setEstimated1RM - currentMax) > 0.0001
         }
@@ -4498,9 +4485,6 @@ struct ProgressOptionsEmptyState: View {
     var message: String? = "Log your first set below"
     var showPRIndicator: Bool = false
 
-    @State private var appeared = false
-    @State private var pulsing = false
-
     private var isPR: Bool {
         showPRIndicator && message == nil
     }
@@ -4531,10 +4515,6 @@ struct ProgressOptionsEmptyState: View {
                     .frame(width: 72, height: 72)
                     .foregroundStyle(accentColor)
                     .shadow(color: accentColor.opacity(isPR ? 0.5 : 0.3), radius: isPR ? 20 : 14, x: 0, y: 0)
-                    .scaleEffect(isPR ? (appeared ? 1.0 : 0.6) : 1.0)
-                    .scaleEffect(pulsing ? 1.05 : 1.0)
-                    .animation(isPR ? .spring(response: 0.4, dampingFraction: 0.6) : nil, value: appeared)
-                    .animation(isPR ? .easeInOut(duration: 0.3).repeatCount(5, autoreverses: true) : nil, value: pulsing)
 
                 if let message {
                     Text(message)
@@ -4547,13 +4527,9 @@ struct ProgressOptionsEmptyState: View {
                         Text("e1RM PR")
                             .font(.bebasNeue(size: 22))
                             .foregroundStyle(Color.setPR)
-                            .opacity(appeared ? 1 : 0)
-                            .animation(.easeOut(duration: 0.4).delay(0.3), value: appeared)
                         Text("New Estimated 1RM Today")
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.5))
-                            .opacity(appeared ? 1 : 0)
-                            .animation(.easeOut(duration: 0.4).delay(0.5), value: appeared)
                     }
                     .padding(.top, 6)
                 }
@@ -4561,14 +4537,6 @@ struct ProgressOptionsEmptyState: View {
             .offset(y: 10)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear {
-            if isPR {
-                appeared = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    pulsing = true
-                }
-            }
-        }
     }
 }
 

@@ -50,7 +50,8 @@ struct IconCarouselPicker: View {
         "OverheadPressIcon",
         "BenchPressIcon",
         "BarbellRowIcon",
-        "PullUpIcon"
+        "PullUpIcon",
+        "CurlsIcon"
     ]
 
     var body: some View {
