@@ -6,7 +6,10 @@ struct CheckInView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
 
-    @State private var today = Calendar.current.startOfDay(for: Date())
+    @State private var viewingDate = Calendar.current.startOfDay(for: Date())
+
+    private var actualToday: Date { Calendar.current.startOfDay(for: Date()) }
+    private var isViewingToday: Bool { viewingDate == actualToday }
 
     @Query(filter: #Predicate<Exercise> { !$0.deleted }, sort: \Exercise.createdAt) private var exercises: [Exercise]
     @Query private var userPropertiesItems: [UserProperties]
@@ -16,6 +19,7 @@ struct CheckInView: View {
     @State private var setsForExercise: [LiftSet] = []
     @State private var estimated1RMsForExercise: [Estimated1RM] = []
     @State private var todaySetCounts: [UUID: Int] = [:]
+    @State private var exerciseRecency: [UUID: (setCount: Int, daysAgo: Int)] = [:]
 
     @ObservedObject var selectedSetData: SelectedSetData
     var initialExerciseId: UUID? = nil
@@ -47,6 +51,7 @@ struct CheckInView: View {
     @State private var repsInput: String = ""
     @State private var showLogConfirmation = false
     @State private var weightDelta: Double = 5.0
+    @State private var initialWeightDelta: Double = 5.0
     @State private var showHub = false
     @State private var hubSection: HubSection = .exercises
     @State private var hubDeepLinkExerciseId: UUID?
@@ -58,6 +63,14 @@ struct CheckInView: View {
     @State private var showExpandedProgressOptions = false
     @State private var showExerciseSelectedOverlay = false
     @State private var exerciseOverlayDismissTask: Task<Void, Never>?
+    @State private var showSplitSelectedOverlay = false
+    @State private var splitOverlayDismissTask: Task<Void, Never>?
+    @State private var splitOverlayName: String?
+    @State private var showSetPlanSelectedOverlay = false
+    @State private var setplanOverlayDismissTask: Task<Void, Never>?
+    @State private var setplanOverlayName: String?
+    @State private var setplanOverlaySequence: [String]?
+    @State private var previousSetPlanId: UUID?
     @State private var activeSplitId: UUID? = WorkoutSplitStore.activeSplitId()
     @State private var activeDayId: UUID? = WorkoutSplitStore.activeDayId()
     @State private var repRangeDebounceTask: Task<Void, Never>?
@@ -65,6 +78,7 @@ struct CheckInView: View {
     @State private var showCalibrationAlert = false
     @State private var pendingCalibrationSet: LiftSet? = nil
     @State private var pendingCalibrationEstimated: Estimated1RM? = nil
+    @State private var hasManuallySelectedDay = false
 
     enum EffortMode: Int, CaseIterable {
         case easy = 0, moderate = 1, hard = 2, progress = 3
@@ -224,12 +238,29 @@ struct CheckInView: View {
         return exercises.first(where: { $0.id == id })
     }
 
+    private var hasWeightDeltaChanges: Bool {
+        abs(weightDelta - initialWeightDelta) > 0.01
+    }
+
     private var setsForSelected: [LiftSet] {
         setsForExercise
     }
 
     private func todaySetCount(for exercise: Exercise) -> Int {
         todaySetCounts[exercise.id] ?? 0
+    }
+
+    private func exerciseCheckmarkOpacity(for exerciseId: UUID) -> Double {
+        guard let data = exerciseRecency[exerciseId] else { return 0 }
+        let completeness = min(Double(data.setCount) / 6.0, 1.0)
+        let recency = max(0, (7.0 - Double(data.daysAgo)) / 7.0)
+        return completeness * recency
+    }
+
+    private func dayCheckmarkOpacity(for day: WorkoutDay) -> Double {
+        guard !day.exerciseIds.isEmpty else { return 0 }
+        let total = day.exerciseIds.reduce(0.0) { $0 + exerciseCheckmarkOpacity(for: $1) }
+        return total / Double(day.exerciseIds.count)
     }
 
     private var estimated1RMsForSelected: [Estimated1RM] {
@@ -335,7 +366,7 @@ struct CheckInView: View {
 
     private func refreshTodaySetCounts() {
         let calendar = Calendar.current
-        let todayStart = calendar.startOfDay(for: today)
+        let todayStart = calendar.startOfDay(for: actualToday)
         let tomorrowStart = calendar.date(byAdding: .day, value: 1, to: todayStart)!
 
         let descriptor = FetchDescriptor<LiftSet>(
@@ -352,14 +383,82 @@ struct CheckInView: View {
         todaySetCounts = counts
     }
 
+    private func refreshExerciseRecency() {
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: actualToday)
+        let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: todayStart)!
+
+        let descriptor = FetchDescriptor<LiftSet>(
+            predicate: #Predicate { !$0.deleted && $0.createdAt >= sevenDaysAgo }
+        )
+        let recentSets = (try? modelContext.fetch(descriptor)) ?? []
+
+        // Group by (exerciseId, dayStart) → count
+        var dayCounts: [UUID: [Date: Int]] = [:]
+        for set in recentSets {
+            guard let exId = set.exercise?.id else { continue }
+            let dayStart = calendar.startOfDay(for: set.createdAt)
+            dayCounts[exId, default: [:]][dayStart, default: 0] += 1
+        }
+
+        // For each exercise, keep only the most recent day
+        var result: [UUID: (setCount: Int, daysAgo: Int)] = [:]
+        for (exId, days) in dayCounts {
+            if let mostRecentDay = days.keys.max() {
+                let count = days[mostRecentDay]!
+                let daysAgo = calendar.dateComponents([.day], from: mostRecentDay, to: todayStart).day ?? 7
+                result[exId] = (setCount: count, daysAgo: daysAgo)
+            }
+        }
+        exerciseRecency = result
+    }
+
     private var todayHasWeightedE1RMPR: Bool {
         let calendar = Calendar.current
-        let today = self.today
+        let today = self.actualToday
         return cachedSetsWithPRInfo.contains { info in
             info.increases1RM &&
             info.set.weight > 0 &&
             calendar.isDate(info.set.createdAt, inSameDayAs: today)
         }
+    }
+
+    // MARK: - Historical Session Navigation
+
+    private var datesWithSets: [Date] {
+        let calendar = Calendar.current
+        var unique = Set<Date>()
+        for set in setsForExercise {
+            unique.insert(calendar.startOfDay(for: set.createdAt))
+        }
+        return unique.sorted()
+    }
+
+    private var previousSessionDate: Date? {
+        datesWithSets.last(where: { $0 < viewingDate })
+    }
+
+    private var nextSessionDate: Date? {
+        guard !isViewingToday else { return nil }
+        return datesWithSets.first(where: { $0 > viewingDate }) ?? actualToday
+    }
+
+    private func navigateToPreviousSession() {
+        if let prev = previousSessionDate {
+            viewingDate = prev
+        }
+    }
+
+    private func navigateToNextSession() {
+        if let next = nextSessionDate {
+            viewingDate = next
+        } else {
+            returnToToday()
+        }
+    }
+
+    private func returnToToday() {
+        viewingDate = actualToday
     }
 
     private var current1RM: Double {
@@ -450,6 +549,25 @@ struct CheckInView: View {
         return Array(sorted.prefix(5))
     }
 
+    private func effortTierHasSuggestions(_ mode: EffortMode) -> Bool {
+        guard let targetPercent1RMs = mode.targetPercent1RMs,
+              let loadType = selectedExercises?.exerciseLoadType else { return false }
+        var results = OneRMCalculator.effortSuggestions(
+            current1RM: current1RM,
+            targetPercent1RMs: targetPercent1RMs,
+            loadType: loadType,
+            repRange: mode.repRange(from: userProperties)
+        )
+        if let bounds = mode.percent1RMBounds {
+            results = results.filter { bounds.contains($0.percent1RM) }
+        }
+        return !results.isEmpty
+    }
+
+    private var allEffortTiersReady: Bool {
+        effortTierHasSuggestions(.easy) && effortTierHasSuggestions(.moderate) && effortTierHasSuggestions(.hard)
+    }
+
     private var effortSuggestions: [OneRMCalculator.EffortSuggestion] {
         guard let mode = effortMode,
               let targetPercent1RMs = mode.targetPercent1RMs,
@@ -463,14 +581,11 @@ struct CheckInView: View {
         if let bounds = mode.percent1RMBounds {
             results = results.filter { bounds.contains($0.percent1RM) }
         }
-        if let match = lastSetMatchForEffort {
-            let repRange = mode.repRange(from: userProperties)
-            if repRange.contains(match.reps),
-               !results.contains(where: { $0.weight == match.weight && $0.reps == match.reps }) {
-                let estimated = OneRMCalculator.estimate1RM(weight: match.weight, reps: match.reps)
-                let pct = (estimated / current1RM) * 100.0
-                results.append(OneRMCalculator.EffortSuggestion(reps: match.reps, weight: match.weight, percent1RM: pct))
-            }
+        if let match = lastSetMatchForEffort,
+           !results.contains(where: { $0.weight == match.weight && $0.reps == match.reps }) {
+            let estimated = OneRMCalculator.estimate1RM(weight: match.weight, reps: match.reps)
+            let pct = (estimated / current1RM) * 100.0
+            results.append(OneRMCalculator.EffortSuggestion(reps: match.reps, weight: match.weight, percent1RM: pct))
         }
         var sorted: [OneRMCalculator.EffortSuggestion]
         switch effortSortColumn {
@@ -481,10 +596,19 @@ struct CheckInView: View {
         case .percent1RM:
             sorted = results.sorted { effortSortAscending ? $0.percent1RM < $1.percent1RM : $0.percent1RM > $1.percent1RM }
         }
-        if !effortSortUserModified, let match = lastSetMatchForEffort {
-            if let idx = sorted.firstIndex(where: { $0.weight == match.weight && $0.reps == match.reps }), idx > 0 {
-                let item = sorted.remove(at: idx)
-                sorted.insert(item, at: 0)
+        if !effortSortUserModified {
+            // Promote macro-plate-friendly options to the top (after last-set)
+            let macroWeights = OneRMCalculator.macroPlateWeights(loadType: loadType, barWeight: selectedExercises?.effectiveBarbellWeight ?? 45.0)
+            let macroItems = sorted.filter { macroWeights.contains($0.weight) }
+            let nonMacroItems = sorted.filter { !macroWeights.contains($0.weight) }
+            sorted = macroItems + nonMacroItems
+
+            // Promote last-set match to position 0
+            if let match = lastSetMatchForEffort {
+                if let idx = sorted.firstIndex(where: { $0.weight == match.weight && $0.reps == match.reps }), idx > 0 {
+                    let item = sorted.remove(at: idx)
+                    sorted.insert(item, at: 0)
+                }
             }
         }
         return sorted
@@ -538,147 +662,7 @@ struct CheckInView: View {
                 }
                 .padding(.horizontal, 12)
 
-                // Overlays
-                if showSubmitOverlay {
-                    Color.black.opacity(0.01)
-                        .ignoresSafeArea()
-                        .onTapGesture {
-                            withAnimation(.easeOut(duration: 0.18)) {
-                                showSubmitOverlay = false
-                            }
-                        }
-                        .zIndex(9)
-
-                    SubmitOverlayView(
-                        didIncrease: overlayDidIncrease,
-                        delta: overlayDelta,
-                        new1RM: overlayNew1RM,
-                        intensityLabel: overlayIntensityLabel,
-                        intensityColor: overlayIntensityColor
-                    )
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                    .zIndex(10)
-                    .onTapGesture {
-                        withAnimation(.easeOut(duration: 0.18)) {
-                            showSubmitOverlay = false
-                        }
-                    }
-                }
-
-                if showExerciseSelectedOverlay, let ex = selectedExercises {
-                    VStack(spacing: 14) {
-                        ExerciseIconView(exercise: ex, size: 72)
-                            .foregroundStyle(Color.appAccent)
-
-                        Text(ex.name)
-                            .font(.bebasNeue(size: 24))
-                            .foregroundStyle(.white)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.5)
-                            .padding(.horizontal, 12)
-                    }
-                    .frame(minWidth: 160, maxWidth: 220)
-                    .frame(height: 160)
-                    .background(
-                        RoundedRectangle(cornerRadius: 20)
-                            .fill(Color(white: 0.12))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20)
-                            .stroke(Color.appLogoColor.opacity(0.5), lineWidth: 2)
-                    )
-                    .shadow(color: .black.opacity(0.5), radius: 20, y: 5)
-                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                    .zIndex(10)
-                    .allowsHitTesting(false)
-                }
-
-                if showLogConfirmation {
-                    ConfirmationOverlayView(
-                        exercise: selectedExercises,
-                        reps: reps,
-                        weight: weight,
-                        onConfirm: {
-                            hapticFeedback.impactOccurred()
-                            showLogConfirmation = false
-                            logSet()
-                        },
-                        onCancel: {
-                            hapticFeedback.impactOccurred()
-                            showLogConfirmation = false
-                        }
-                    )
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                    .zIndex(11)
-                }
-
-                if showE1RMPopup, let exercise = selectedExercises {
-                    // Dimmed backdrop
-                    Color.black.opacity(0.55)
-                        .ignoresSafeArea()
-                        .onTapGesture {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                showE1RMPopup = false
-                            }
-                        }
-                        .zIndex(11.5)
-
-                    // Popup card
-                    VStack(spacing: 0) {
-                        // Header
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("e1RM Progression")
-                                    .font(.interSemiBold(size: 13))
-                                    .foregroundStyle(.white.opacity(0.85))
-                                Text(exercise.name)
-                                    .font(.inter(size: 11))
-                                    .foregroundStyle(.white.opacity(0.45))
-                            }
-                            Spacer()
-                            Button {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                    showE1RMPopup = false
-                                }
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(.white.opacity(0.5))
-                                    .frame(width: 26, height: 26)
-                                    .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
-                                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.white.opacity(0.12), lineWidth: 1))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 16)
-                        .padding(.bottom, 12)
-
-                        // Divider
-                        Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1).padding(.horizontal, 16)
-
-                        // Chart
-                        OneRMProgressionChart(
-                            dataPoints: TrendsCalculator.oneRMProgression(
-                                from: estimated1RMsForSelected,
-                                exerciseName: exercise.name
-                            )
-                        )
-                        .padding(.horizontal, 16)
-                        .padding(.top, 14)
-                        .padding(.bottom, 18)
-                    }
-                    .background(
-                        LinearGradient(colors: [Color(white: 0.18), Color(white: 0.14)], startPoint: .top, endPoint: .bottom)
-                            .cornerRadius(16)
-                    )
-                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.1), lineWidth: 1))
-                    .shadow(color: .black.opacity(0.5), radius: 24, y: 8)
-                    .padding(.horizontal, 16)
-                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                    .zIndex(12)
-                }
+                overlaysLayer
             }
             .onAppear {
                 validateWeightDelta()
@@ -701,8 +685,31 @@ struct CheckInView: View {
                     fetchDataForExercise(id)
                 }
                 refreshTodaySetCounts()
+                refreshExerciseRecency()
+
+                // Smart exercise selection (every launch when a split is active)
+                if WorkoutSplitStore.smartExerciseSelectionEnabled && activeSplit != nil {
+                    hasManuallySelectedDay = false
+                    if let dayId = WorkoutSplitStore.autoSelectDay(days: daysForActiveSplit, context: modelContext) {
+                        activeDayId = dayId
+                        WorkoutSplitStore.setActiveDayId(dayId)
+                    }
+                    // Prefer last-viewed exercise if it belongs to this day; otherwise first exercise
+                    if let dayId = activeDayId,
+                       let day = daysForActiveSplit.first(where: { $0.id == dayId }) {
+                        if let currentId = selectedExercisesId, day.exerciseIds.contains(currentId) {
+                            fetchDataForExercise(currentId)
+                        } else if let firstExerciseId = day.exerciseIds.first {
+                            selectedExercisesId = firstExerciseId
+                            fetchDataForExercise(firstExerciseId)
+                        }
+                    }
+                }
+
+                previousSetPlanId = userProperties.activeSetPlanId
             }
             .onChange(of: selectedExercisesId) { oldId, newId in
+                viewingDate = actualToday
                 if let newId {
                     fetchDataForExercise(newId)
                     // Auto-select the day that contains this exercise
@@ -723,7 +730,8 @@ struct CheckInView: View {
                 // (deferred to let todaysSets recompute after exercise change)
                 DispatchQueue.main.async {
                     if !setsForSelected.isEmpty, let next = nextPlannedEffortMode {
-                        effortMode = next
+                        let mode = (next != .progress && !allEffortTiersReady) ? .progress : next
+                        effortMode = mode
                         let nextIndex = todaysSets.count
                         selectedPlanTileIndex = nextIndex
                         highlightPlanTile(nextIndex)
@@ -762,14 +770,15 @@ struct CheckInView: View {
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active {
                     let currentDay = Calendar.current.startOfDay(for: Date())
-                    if currentDay != today {
-                        today = currentDay
+                    if currentDay != viewingDate {
+                        viewingDate = currentDay
                     }
                     // Refresh data when returning to app (e.g. after sync completes)
                     if let id = selectedExercisesId {
                         fetchDataForExercise(id)
                     }
                     refreshTodaySetCounts()
+                    refreshExerciseRecency()
                 }
             }
             .sheet(isPresented: $showWeightPicker) {
@@ -802,8 +811,8 @@ struct CheckInView: View {
                     onExerciseCreated: { name, loadType, movementType, icon in
                         createExercise(name: name, loadType: loadType, movementType: movementType, icon: icon)
                     },
-                    onExerciseSaved: { exercise, name, movementType, icon, notes in
-                        saveExercise(exercise, name: name, movementType: movementType, icon: icon, notes: notes)
+                    onExerciseSaved: { exercise, name, movementType, icon, notes, barbellWeight in
+                        saveExercise(exercise, name: name, movementType: movementType, icon: icon, notes: notes, barbellWeight: barbellWeight)
                     },
                     onExerciseDeleted: { exercise in
                         deleteExercise(exercise)
@@ -1346,6 +1355,7 @@ struct CheckInView: View {
                             let isSelected = activeDayId == day.id
                             Button {
                                 hapticFeedback.impactOccurred()
+                                hasManuallySelectedDay = true
                                 if isSelected {
                                     activeDayId = nil
                                     WorkoutSplitStore.setActiveDayId(nil)
@@ -1353,6 +1363,11 @@ struct CheckInView: View {
                                 } else {
                                     activeDayId = day.id
                                     WorkoutSplitStore.setActiveDayId(day.id)
+                                    // Select the first exercise of this day
+                                    let exerciseMap = Dictionary(uniqueKeysWithValues: exercises.map { ($0.id, $0) })
+                                    if let firstId = day.exerciseIds.first(where: { exerciseMap[$0] != nil }) {
+                                        selectedExercisesId = firstId
+                                    }
                                 }
                             } label: {
                                 Text("\(day.name) Day")
@@ -1371,6 +1386,17 @@ struct CheckInView: View {
                                         RoundedRectangle(cornerRadius: 7)
                                             .stroke(isSelected ? Color.appAccent : Color.clear, lineWidth: 1)
                                     )
+                                    .overlay(alignment: .bottomTrailing) {
+                                        let opacity = dayCheckmarkOpacity(for: day)
+                                        if opacity > 0.05 {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .font(.system(size: 9, weight: .bold))
+                                                .foregroundStyle(.green)
+                                                .background(Circle().fill(Color(white: 0.10)))
+                                                .opacity(opacity)
+                                                .offset(x: 3, y: 3)
+                                        }
+                                    }
                             }
                             .buttonStyle(.plain)
                             .animation(.easeInOut(duration: 0.15), value: activeDayId)
@@ -1463,6 +1489,17 @@ struct CheckInView: View {
                                     RoundedRectangle(cornerRadius: 10)
                                         .stroke(isSelected ? Color.appAccent : Color.clear, lineWidth: 1.5)
                                 )
+                                .overlay(alignment: .bottomTrailing) {
+                                    let opacity = exerciseCheckmarkOpacity(for: exercise.id)
+                                    if opacity > 0.05 {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundStyle(.green)
+                                            .background(Circle().fill(Color(white: 0.10)))
+                                            .opacity(opacity)
+                                            .offset(x: 4, y: 4)
+                                    }
+                                }
                                 .animation(.easeInOut(duration: 0.15), value: selectedExercisesId)
                             }
                             .buttonStyle(.plain)
@@ -1513,8 +1550,9 @@ struct CheckInView: View {
                 .allowsHitTesting(false)
         )
         .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
-        .onChange(of: activeSplitId) { _, _ in
+        .onChange(of: activeSplitId) { oldValue, _ in
             WorkoutSplitStore.setActiveSplitId(activeSplitId)
+            Task { await SyncService.shared.updateActiveSplit(activeSplitId) }
             if let firstDay = daysForActiveSplit.first {
                 // When split changes, auto-select first day
                 activeDayId = firstDay.id
@@ -1525,6 +1563,298 @@ struct CheckInView: View {
                 WorkoutSplitStore.setActiveDayId(nil)
                 selectedExercisesId = nil
             }
+            // Show split selected overlay (skip initial load)
+            if oldValue != nil || activeSplitId != nil {
+                splitOverlayName = activeSplit?.name ?? "Free Training"
+                splitOverlayDismissTask?.cancel()
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                    showSplitSelectedOverlay = true
+                }
+                splitOverlayDismissTask = Task {
+                    try? await Task.sleep(nanoseconds: 2_500_000_000)
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run {
+                        withAnimation(.easeOut(duration: 0.25)) {
+                            showSplitSelectedOverlay = false
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var overlaysLayer: some View {
+        Group {
+            submitOverlaySection
+            exerciseSelectedOverlay
+            splitSelectedOverlay
+            setPlanSelectedOverlay
+            logConfirmationOverlay
+            e1rmPopupOverlay
+        }
+        .onChange(of: userProperties.activeSetPlanId) { _, newValue in
+            // Skip initial load
+            guard previousSetPlanId != nil || newValue != nil else {
+                previousSetPlanId = newValue
+                return
+            }
+            let wasSet = previousSetPlanId
+            previousSetPlanId = newValue
+            guard wasSet != nil || newValue != nil else { return }
+
+            if let plan = allTemplates.first(where: { $0.id == newValue }) {
+                setplanOverlayName = plan.name
+                setplanOverlaySequence = plan.effortSequence
+            } else {
+                setplanOverlayName = nil
+                setplanOverlaySequence = nil
+            }
+            setplanOverlayDismissTask?.cancel()
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                showSetPlanSelectedOverlay = true
+            }
+            setplanOverlayDismissTask = Task {
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        showSetPlanSelectedOverlay = false
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var submitOverlaySection: some View {
+        if showSubmitOverlay {
+            Color.black.opacity(0.01)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        showSubmitOverlay = false
+                    }
+                }
+                .zIndex(9)
+
+            SubmitOverlayView(
+                didIncrease: overlayDidIncrease,
+                delta: overlayDelta,
+                new1RM: overlayNew1RM,
+                intensityLabel: overlayIntensityLabel,
+                intensityColor: overlayIntensityColor
+            )
+            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            .zIndex(10)
+            .onTapGesture {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    showSubmitOverlay = false
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var exerciseSelectedOverlay: some View {
+        if showExerciseSelectedOverlay, let ex = selectedExercises {
+            VStack(spacing: 14) {
+                ExerciseIconView(exercise: ex, size: 72)
+                    .foregroundStyle(Color.appAccent)
+
+                Text(ex.name)
+                    .font(.bebasNeue(size: 24))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.5)
+                    .padding(.horizontal, 12)
+            }
+            .frame(width: 200, height: 160)
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color(white: 0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(Color.appLogoColor.opacity(0.5), lineWidth: 2)
+            )
+            .shadow(color: .black.opacity(0.5), radius: 20, y: 5)
+            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            .zIndex(10)
+            .allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder
+    private var splitSelectedOverlay: some View {
+        if showSplitSelectedOverlay, let name = splitOverlayName {
+            VStack(spacing: 14) {
+                Image(systemName: name == "Free Training" ? "figure.walk" : "rectangle.3.group")
+                    .font(.system(size: 48))
+                    .foregroundStyle(Color.appAccent)
+
+                Text(name)
+                    .font(.bebasNeue(size: 24))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.5)
+                    .padding(.horizontal, 12)
+            }
+            .frame(width: 200, height: 160)
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color(white: 0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(Color.appLogoColor.opacity(0.5), lineWidth: 2)
+            )
+            .shadow(color: .black.opacity(0.5), radius: 20, y: 5)
+            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            .zIndex(10)
+            .allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder
+    private var setPlanSelectedOverlay: some View {
+        if showSetPlanSelectedOverlay {
+            VStack(spacing: 14) {
+                if let name = setplanOverlayName, let sequence = setplanOverlaySequence {
+                    Text(name)
+                        .font(.bebasNeue(size: 20))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.5)
+                        .padding(.horizontal, 12)
+
+                    HStack(spacing: 4) {
+                        ForEach(Array(sequence.prefix(6).enumerated()), id: \.offset) { _, effort in
+                            let color = SequenceSquareView.color(for: effort)
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(color.opacity(0.35))
+                                .frame(width: 28, height: 28)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .stroke(color, lineWidth: 1.5)
+                                )
+                        }
+                    }
+                } else {
+                    Image(systemName: "figure.walk")
+                        .font(.system(size: 48))
+                        .foregroundStyle(Color.appAccent)
+
+                    Text("No Set Plan")
+                        .font(.bebasNeue(size: 20))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 12)
+                }
+            }
+            .frame(width: 220, height: 160)
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color(white: 0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(Color.appLogoColor.opacity(0.5), lineWidth: 2)
+            )
+            .shadow(color: .black.opacity(0.5), radius: 20, y: 5)
+            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            .zIndex(10)
+            .allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder
+    private var logConfirmationOverlay: some View {
+        if showLogConfirmation {
+            ConfirmationOverlayView(
+                exercise: selectedExercises,
+                reps: reps,
+                weight: weight,
+                onConfirm: {
+                    hapticFeedback.impactOccurred()
+                    showLogConfirmation = false
+                    logSet()
+                },
+                onCancel: {
+                    hapticFeedback.impactOccurred()
+                    showLogConfirmation = false
+                }
+            )
+            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            .zIndex(11)
+        }
+    }
+
+    @ViewBuilder
+    private var e1rmPopupOverlay: some View {
+        if showE1RMPopup, let exercise = selectedExercises {
+            Color.black.opacity(0.55)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        showE1RMPopup = false
+                    }
+                }
+                .zIndex(11.5)
+
+            VStack(spacing: 0) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("e1RM Progression")
+                            .font(.interSemiBold(size: 13))
+                            .foregroundStyle(.white.opacity(0.85))
+                        Text(exercise.name)
+                            .font(.inter(size: 11))
+                            .foregroundStyle(.white.opacity(0.45))
+                    }
+                    Spacer()
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            showE1RMPopup = false
+                        }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.5))
+                            .frame(width: 26, height: 26)
+                            .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
+                            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.white.opacity(0.12), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
+
+                Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1).padding(.horizontal, 16)
+
+                OneRMProgressionChart(
+                    dataPoints: TrendsCalculator.oneRMProgression(
+                        from: estimated1RMsForSelected,
+                        exerciseName: exercise.name
+                    )
+                )
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 18)
+            }
+            .background(
+                LinearGradient(colors: [Color(white: 0.18), Color(white: 0.14)], startPoint: .top, endPoint: .bottom)
+                    .cornerRadius(16)
+            )
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.1), lineWidth: 1))
+            .shadow(color: .black.opacity(0.5), radius: 24, y: 8)
+            .padding(.horizontal, 16)
+            .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            .zIndex(12)
         }
     }
 
@@ -1728,7 +2058,15 @@ struct CheckInView: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                         showExpandedEffortOptions = true
                     }
-                }
+                },
+                hasWeightDeltaChanges: hasWeightDeltaChanges,
+                onSaveWeightDelta: { saveWeightDelta() },
+                isBarbell: selectedExercises?.exerciseLoadType == .barbell,
+                barbellWeight: Binding(
+                    get: { selectedExercises?.barbellWeight },
+                    set: { selectedExercises?.barbellWeight = $0 }
+                ),
+                onSaveBarbellWeight: { saveBarbellWeight() }
             )
             .presentationDetents([.large])
             .presentationContentInteraction(.scrolls)
@@ -1776,6 +2114,10 @@ struct CheckInView: View {
                 ),
                 onRepRangeChanged: { scheduleRepRangeSync() },
                 lastSetMatch: lastSetMatchForEffort,
+                macroPlateWeights: OneRMCalculator.macroPlateWeights(
+                    loadType: selectedExercises?.exerciseLoadType ?? .barbell,
+                    barWeight: selectedExercises?.effectiveBarbellWeight ?? 45.0
+                ),
                 onSelect: { suggestion in
                     selectEffortOption(suggestion)
                 },
@@ -1789,7 +2131,13 @@ struct CheckInView: View {
                             showExpandedEffortOptions = true
                         }
                     }
-                }
+                },
+                isBarbell: selectedExercises?.exerciseLoadType == .barbell,
+                barbellWeight: Binding(
+                    get: { selectedExercises?.barbellWeight },
+                    set: { selectedExercises?.barbellWeight = $0 }
+                ),
+                onSaveBarbellWeight: { saveBarbellWeight() }
             )
             .presentationDetents([.large])
             .presentationContentInteraction(.scrolls)
@@ -1985,9 +2333,9 @@ struct CheckInView: View {
     private var todaysSets: [LiftSet] {
         guard selectedExercises != nil else { return [] }
         let calendar = Calendar.current
-        let today = self.today
+        let date = self.viewingDate
         return setsForExercise.filter { set in
-            calendar.isDate(set.createdAt, inSameDayAs: today)
+            calendar.isDate(set.createdAt, inSameDayAs: date)
         }.sorted { $0.createdAt < $1.createdAt }
     }
 
@@ -2023,48 +2371,69 @@ struct CheckInView: View {
                 }
             } else {
                 VStack(alignment: .leading, spacing: 10) {
-                    // Set Plan — compact Menu + mini sequence preview + edit button
+                    // Date header + Set Plan menu + edit button
                     HStack(spacing: 8) {
-                        // Active template label with Menu to switch (includes "None" option)
-                        Menu {
-                            let sorted = allTemplates.sorted {
-                                if $0.isCustom != $1.isCustom { return !$0.isCustom }
-                                return $0.createdAt < $1.createdAt
-                            }
-                            ForEach(sorted) { t in
-                                Button {
-                                    hapticFeedback.impactOccurred()
-                                    userProperties.activeSetPlanId = t.id
-                                    try? modelContext.save()
-                                    Task { await SyncService.shared.updateActiveSetPlan(t.id) }
-                                } label: {
-                                    Label(t.name, systemImage: userProperties.activeSetPlanId == t.id ? "checkmark" : "")
-                                }
-                            }
-                            Divider()
-                            Button {
-                                hapticFeedback.impactOccurred()
-                                userProperties.activeSetPlanId = nil
-                                try? modelContext.save()
-                                Task { await SyncService.shared.updateActiveSetPlan(nil) }
-                            } label: {
-                                Label("None", systemImage: activeSetPlan == nil ? "checkmark" : "")
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(activeSetPlan != nil ? "\(activeSetPlan!.name) Session" : "– –")
-                                    .font(.inter(size: 11))
-                                    .lineLimit(1)
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 7, weight: .bold))
-                            }
+                        // Spacer matching left chevron reserved width (20 + 4 padding + 2 inner - 8 HStack spacing)
+                        Spacer().frame(width: 18)
+
+                        // Date label — aligned with tile start
+                        Text(isViewingToday ? "Today: \(formatShortDate(viewingDate))" : (!isViewingToday && viewingDate == datesWithSets.first) ? "Earliest: \(formatShortDate(viewingDate))" : formatShortDate(viewingDate))
+                            .font(.inter(size: 11))
                             .foregroundStyle(.white.opacity(0.5))
-                            .padding(.horizontal, 8)
-                            .frame(height: 22)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(Color(white: 0.12)))
-                        }
+                            .lineLimit(1)
 
                         Spacer()
+
+                        // Set plan menu — only shown when viewing today
+                        if isViewingToday {
+
+                            Menu {
+                                Button {
+                                    hapticFeedback.impactOccurred()
+                                    hubSection = .setPlans
+                                    hubDeepLinkExerciseId = nil
+                                    showHub = true
+                                } label: {
+                                    Label("Set Plan Catalog", systemImage: "square.stack")
+                                }
+                                Divider()
+                                let sorted = allTemplates.sorted {
+                                    if $0.isCustom != $1.isCustom { return !$0.isCustom }
+                                    return $0.createdAt < $1.createdAt
+                                }
+                                ForEach(sorted) { t in
+                                    Button {
+                                        hapticFeedback.impactOccurred()
+                                        userProperties.activeSetPlanId = t.id
+                                        try? modelContext.save()
+                                        Task { await SyncService.shared.updateActiveSetPlan(t.id) }
+                                    } label: {
+                                        Label(t.name, systemImage: userProperties.activeSetPlanId == t.id ? "checkmark" : "")
+                                    }
+                                }
+                                Divider()
+                                Button {
+                                    hapticFeedback.impactOccurred()
+                                    userProperties.activeSetPlanId = nil
+                                    try? modelContext.save()
+                                    Task { await SyncService.shared.updateActiveSetPlan(nil) }
+                                } label: {
+                                    Label("None", systemImage: activeSetPlan == nil ? "checkmark" : "")
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text(activeSetPlan != nil ? "\(activeSetPlan!.name) Session" : "– –")
+                                        .font(.inter(size: 11))
+                                        .lineLimit(1)
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 7, weight: .bold))
+                                }
+                                .foregroundStyle(.white.opacity(0.5))
+                                .padding(.horizontal, 8)
+                                .frame(height: 22)
+                                .background(RoundedRectangle(cornerRadius: 6).fill(Color(white: 0.12)))
+                            }
+                        }
 
                         // Edit button → opens Hub Set Plans tab
                         Button {
@@ -2079,111 +2448,152 @@ struct CheckInView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    .frame(height: 22)
 
-                    // Session
-                    VStack(alignment: .leading, spacing: 6) {
-                        ScrollViewReader { sessionProxy in
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 6) {
-                                    ForEach(Array(todaysSets.enumerated()), id: \.element.id) { index, set in
-                                        SetSquareView(
-                                            set: set,
-                                            allSets: setsForExercise,
-                                            currentWeight: weight,
-                                            currentReps: reps,
-                                            hasSetValues: hasSetInitialValues,
-                                            selectedSquareId: selectedSquareId,
-                                            allEstimated1RM: estimated1RMsForExercise,
-                                            onDelete: {
-                                                if let id = selectedExercisesId {
-                                                    fetchDataForExercise(id)
+                    // Session with historical navigation chevrons
+                    HStack(spacing: 0) {
+                        // Left chevron — always reserves space, hidden when no previous session
+                        Button {
+                            if previousSessionDate != nil {
+                                hapticFeedback.impactOccurred()
+                                navigateToPreviousSession()
+                            }
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white.opacity(previousSessionDate != nil ? 0.35 : 0))
+                                .frame(width: 20, height: 46)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .allowsHitTesting(previousSessionDate != nil)
+                        .padding(.trailing, 4)
+
+                        // Session tiles
+                        VStack(alignment: .leading, spacing: 6) {
+                            ScrollViewReader { sessionProxy in
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 6) {
+                                        ForEach(Array(todaysSets.enumerated()), id: \.element.id) { index, set in
+                                            SetSquareView(
+                                                set: set,
+                                                allSets: setsForExercise,
+                                                currentWeight: weight,
+                                                currentReps: reps,
+                                                hasSetValues: hasSetInitialValues,
+                                                selectedSquareId: selectedSquareId,
+                                                allEstimated1RM: estimated1RMsForExercise,
+                                                onDelete: {
+                                                    if let id = selectedExercisesId {
+                                                        fetchDataForExercise(id)
+                                                    }
+                                                    refreshTodaySetCounts()
+                                                    refreshExerciseRecency()
                                                 }
-                                                refreshTodaySetCounts()
-                                            }
-                                        )
-                                        .id(set.id)
-                                        .onTapGesture {
-                                            weight = set.weight
-                                            reps = set.reps
-                                            hasSetInitialValues = true
-                                            hasSetWeight = true
-                                            hasSetReps = true
-                                            hasSelectedOption = true
-                                            selectedSquareId = set.id
+                                            )
+                                            .id(set.id)
+                                            .onTapGesture {
+                                                weight = set.weight
+                                                reps = set.reps
+                                                hasSetInitialValues = true
+                                                hasSetWeight = true
+                                                hasSetReps = true
+                                                hasSelectedOption = true
+                                                selectedSquareId = set.id
 
-                                            // Update effort mode from plan if this set's index maps to a plan entry
-                                            if index < displaySetPlan.count {
-                                                let effortKey = displaySetPlan[index]
-                                                withAnimation { effortMode = EffortMode.from(effort: effortKey) }
-                                            }
-
-                                            hapticFeedback.impactOccurred()
-                                            flashLogSetHighlight()
-                                            Task {
-                                                try? await Task.sleep(nanoseconds: 300_000_000)
-                                                await MainActor.run {
-                                                    selectedSquareId = nil
+                                                // Update effort mode from plan if this set's index maps to a plan entry
+                                                if index < displaySetPlan.count {
+                                                    let effortKey = displaySetPlan[index]
+                                                    withAnimation { effortMode = EffortMode.from(effort: effortKey) }
                                                 }
-                                            }
-                                        }
-                                    }
 
-                                    // Plan-aware placeholder tiles
-                                    let completedCount = todaysSets.count
-                                    let planCount = displaySetPlan.count
-                                    let remaining = planCount - completedCount
-
-                                    if remaining > 0 {
-                                        ForEach(0..<remaining, id: \.self) { i in
-                                            let planIndex = completedCount + i
-                                            let effortKey = planIndex < displaySetPlan.count ? displaySetPlan[planIndex] : "easy"
-                                            let color = SequenceSquareView.color(for: effortKey)
-                                            let isNext = (i == 0)
-                                            let isHighlighted = highlightedPlanTileIndex == planIndex
-                                            RoundedRectangle(cornerRadius: 6)
-                                                .fill(Color.clear)
-                                                .frame(width: 42, height: 42)
-                                                .overlay(
-                                                    RoundedRectangle(cornerRadius: 6)
-                                                        .stroke(isHighlighted ? color : color, lineWidth: isHighlighted ? 2.5 : (isNext ? 2 : 1.5))
-                                                )
-                                                .shadow(color: isHighlighted ? color.opacity(0.5) : .clear, radius: 4)
-                                                .onTapGesture {
-                                                    guard !setsForSelected.isEmpty else { return }
-                                                    hapticFeedback.impactOccurred()
-                                                    selectedPlanTileIndex = planIndex
-                                                    highlightPlanTile(planIndex)
-                                                    withAnimation {
-                                                        effortMode = EffortMode.from(effort: effortKey)
+                                                hapticFeedback.impactOccurred()
+                                                flashLogSetHighlight()
+                                                Task {
+                                                    try? await Task.sleep(nanoseconds: 300_000_000)
+                                                    await MainActor.run {
+                                                        selectedSquareId = nil
                                                     }
                                                 }
+                                            }
                                         }
-                                        .allowsHitTesting(!setsForSelected.isEmpty)
-                                    } else {
-                                        // Plan exhausted — static outline for overflow sets
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .fill(Color.clear)
-                                            .frame(width: 42, height: 42)
-                                            .overlay(
+
+                                        if isViewingToday {
+                                            // Plan-aware placeholder tiles
+                                            let completedCount = todaysSets.count
+                                            let planCount = displaySetPlan.count
+                                            let remaining = planCount - completedCount
+
+                                            if remaining > 0 {
+                                                ForEach(0..<remaining, id: \.self) { i in
+                                                    let planIndex = completedCount + i
+                                                    let effortKey = planIndex < displaySetPlan.count ? displaySetPlan[planIndex] : "easy"
+                                                    let color = SequenceSquareView.color(for: effortKey)
+                                                    let isNext = (i == 0)
+                                                    let isHighlighted = highlightedPlanTileIndex == planIndex
+                                                    RoundedRectangle(cornerRadius: 6)
+                                                        .fill(Color.clear)
+                                                        .frame(width: 42, height: 42)
+                                                        .overlay(
+                                                            RoundedRectangle(cornerRadius: 6)
+                                                                .stroke(isHighlighted ? color : color, lineWidth: isHighlighted ? 2.5 : (isNext ? 2 : 1.5))
+                                                        )
+                                                        .shadow(color: isHighlighted ? color.opacity(0.5) : .clear, radius: 4)
+                                                        .onTapGesture {
+                                                            guard !setsForSelected.isEmpty else { return }
+                                                            hapticFeedback.impactOccurred()
+                                                            selectedPlanTileIndex = planIndex
+                                                            highlightPlanTile(planIndex)
+                                                            withAnimation {
+                                                                effortMode = EffortMode.from(effort: effortKey)
+                                                            }
+                                                        }
+                                                }
+                                                .allowsHitTesting(!setsForSelected.isEmpty)
+                                            } else {
+                                                // Plan exhausted — static outline for overflow sets
                                                 RoundedRectangle(cornerRadius: 6)
-                                                    .stroke(Color.white.opacity(0.2), lineWidth: 1.5)
-                                            )
+                                                    .fill(Color.clear)
+                                                    .frame(width: 42, height: 42)
+                                                    .overlay(
+                                                        RoundedRectangle(cornerRadius: 6)
+                                                            .stroke(Color.white.opacity(0.2), lineWidth: 1.5)
+                                                    )
+                                            }
+                                        }
                                     }
+                                    .padding(.vertical, 2)
+                                    .padding(.horizontal, 2)
                                 }
-                                .padding(.vertical, 2)
-                                .padding(.horizontal, 2)
-                            }
-                            .frame(height: 46)
-                            .scrollIndicators(.hidden)
-                            .onChange(of: sessionScrollTarget) { _, target in
-                                if let target {
-                                    withAnimation {
-                                        sessionProxy.scrollTo(target, anchor: .trailing)
+                                .frame(height: 46)
+                                .scrollIndicators(.hidden)
+                                .onChange(of: sessionScrollTarget) { _, target in
+                                    if let target {
+                                        withAnimation {
+                                            sessionProxy.scrollTo(target, anchor: .trailing)
+                                        }
+                                        sessionScrollTarget = nil
                                     }
-                                    sessionScrollTarget = nil
                                 }
                             }
                         }
+
+                        // Right chevron — always reserves space, hidden when viewing today
+                        Button {
+                            if !isViewingToday {
+                                hapticFeedback.impactOccurred()
+                                navigateToNextSession()
+                            }
+                        } label: {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white.opacity(!isViewingToday ? 0.35 : 0))
+                                .frame(width: 20, height: 46)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .allowsHitTesting(!isViewingToday)
+                        .padding(.leading, 4)
                     }
                 }
 
@@ -2341,7 +2751,7 @@ struct CheckInView: View {
                                 .foregroundStyle(Color.clear)
                         }
                     }
-                    .frame(width: 65, height: 24)
+                    .frame(width: 80, height: 24)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -2419,7 +2829,7 @@ struct CheckInView: View {
                                 .foregroundStyle(Color.clear)
                         }
                     }
-                    .frame(width: 65, height: 24)
+                    .frame(width: 50, height: 24)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -2478,8 +2888,8 @@ struct CheckInView: View {
 
     private var effortOptionsContent: some View {
         VStack(spacing: 8) {
-            if effortSuggestions.isEmpty {
-                // Starter suggestion when e1RM is too low
+            if effortSuggestions.isEmpty || !allEffortTiersReady {
+                // Starter suggestion when e1RM is too low or not all tiers are ready
                 starterSuggestionCard
             } else {
                 // Sortable header
@@ -2495,6 +2905,10 @@ struct CheckInView: View {
                     ScrollViewReader { proxy in
                         ScrollView(.vertical, showsIndicators: false) {
                             VStack(spacing: 8) {
+                                let macroWeights = OneRMCalculator.macroPlateWeights(
+                                    loadType: selectedExercises?.exerciseLoadType ?? .barbell,
+                                    barWeight: selectedExercises?.effectiveBarbellWeight ?? 45.0
+                                )
                                 ForEach(Array(effortSuggestions.enumerated()), id: \.element.id) { index, suggestion in
                                     EffortOptionCard(
                                         suggestion: suggestion,
@@ -2502,7 +2916,8 @@ struct CheckInView: View {
                                         sortColumn: effortSortColumn,
                                         columnHighlighted: effortColumnHighlighted,
                                         accentColor: (effortMode ?? .easy).tileColor,
-                                        isLastSet: lastSetMatchForEffort.map { $0.weight == suggestion.weight && $0.reps == suggestion.reps } ?? false
+                                        isLastSet: lastSetMatchForEffort.map { $0.weight == suggestion.weight && $0.reps == suggestion.reps } ?? false,
+                                        isMacroPlate: macroWeights.contains(suggestion.weight)
                                     )
                                     .onTapGesture {
                                         hapticFeedback.impactOccurred()
@@ -2535,16 +2950,24 @@ struct CheckInView: View {
                     .allowsHitTesting(false)
                 }
 
-                if lastSetMatchForEffort != nil {
+                HStack(spacing: 16) {
+                    if lastSetMatchForEffort != nil {
+                        HStack(spacing: 6) {
+                            Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("Last set with this effort")
+                                .font(.caption2)
+                        }
+                    }
                     HStack(spacing: 6) {
-                        Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                        Image(systemName: "hockey.puck.fill")
                             .font(.system(size: 11, weight: .semibold))
-                        Text("Last set with this effort")
+                        Text("Efficient plate load")
                             .font(.caption2)
                     }
-                    .foregroundStyle(.white.opacity(0.4))
-                    .padding(.top, 2)
                 }
+                .foregroundStyle(.white.opacity(0.4))
+                .padding(.top, 2)
             }
         }
     }
@@ -2580,7 +3003,9 @@ struct CheckInView: View {
 
                 Text(setsForSelected.isEmpty
                     ? "Log a Set to Unlock \(modeName) Options"
-                    : "Lift with Load to Unlock \(modeName) Options")
+                    : current1RM > 0
+                        ? "Lift with More Load to Unlock \(modeName) Options"
+                        : "Lift with Load to Unlock \(modeName) Options")
                     .font(.bebasNeue(size: 20))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
@@ -2632,7 +3057,7 @@ struct CheckInView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.white.opacity(0.6))
                         }
-                        .frame(width: 75)
+                        .frame(width: 90)
                     }
                     .buttonStyle(.plain)
 
@@ -2820,7 +3245,7 @@ struct CheckInView: View {
                         VStack(spacing: 4) {
                             Text("Increased 1RM by")
                                 .font(.subheadline)
-                            Text("+\(delta.rounded1().formatted(.number.precision(.fractionLength(delta >= 100 ? 0 : 2)))) lbs")
+                            Text("+\(delta.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
                                 .font(.title.weight(.semibold))
                                 .foregroundStyle(Color.appLogoColor)
                                 .lineLimit(1)
@@ -3001,14 +3426,20 @@ struct CheckInView: View {
         Task { await SyncService.shared.syncExercise(ex) }
     }
 
-    private func saveExercise(_ exercise: Exercise, name: String, movementType: ExerciseMovementType, icon: String, notes: String?) {
+    private func saveExercise(_ exercise: Exercise, name: String, movementType: ExerciseMovementType, icon: String, notes: String?, barbellWeight: Double? = nil) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        exercise.name = trimmed
-        exercise.icon = icon
-        exercise.exerciseMovementType = movementType
-        exercise.notes = notes
+        if exercise.isBuiltIn {
+            // Built-in exercises: only notes and barbellWeight are editable
+            exercise.notes = notes
+        } else {
+            exercise.name = trimmed
+            exercise.icon = icon
+            exercise.exerciseMovementType = movementType
+            exercise.notes = notes
+        }
+        exercise.barbellWeight = barbellWeight
         try? modelContext.save()
 
         // Sync edited exercise to backend
@@ -3016,6 +3447,7 @@ struct CheckInView: View {
     }
 
     private func deleteExercise(_ exercise: Exercise) {
+        guard !exercise.isBuiltIn else { return }
         let exerciseId = exercise.id
 
         // Delete associated sets
@@ -3064,14 +3496,42 @@ struct CheckInView: View {
     }
 
     private func validateWeightDelta() {
-        // Ensure weightDelta is valid for current exercise's available deltas
-        if !availableWeightDeltas.contains(where: { abs($0 - weightDelta) < 0.01 }) {
-            // Current delta not valid, pick new one
-            if availableWeightDeltas.contains(where: { abs($0 - 2.5) < 0.01 }) {
-                weightDelta = 2.5
-            } else {
-                weightDelta = availableWeightDeltas.min(by: { abs($0 - 2.5) < abs($1 - 2.5) }) ?? 5.0
+        // Load persisted increment if available
+        if let exercise = selectedExercises {
+            let persisted = exercise.effectiveWeightIncrement
+            if availableWeightDeltas.contains(where: { abs($0 - persisted) < 0.01 }) {
+                weightDelta = persisted
+                initialWeightDelta = weightDelta
+                return
             }
+        }
+
+        // Fallback: use load-type default if available
+        let loadDefault = selectedExercises?.defaultWeightIncrement ?? 5.0
+        if availableWeightDeltas.contains(where: { abs($0 - loadDefault) < 0.01 }) {
+            weightDelta = loadDefault
+        } else {
+            // Closest to load-type default
+            weightDelta = availableWeightDeltas.min(by: { abs($0 - loadDefault) < abs($1 - loadDefault) }) ?? 5.0
+        }
+        initialWeightDelta = weightDelta
+    }
+
+    private func saveWeightDelta() {
+        guard let exercise = selectedExercises else { return }
+        exercise.weightIncrement = weightDelta
+        try? modelContext.save()
+        initialWeightDelta = weightDelta
+        Task {
+            await SyncService.shared.syncExercise(exercise)
+        }
+    }
+
+    private func saveBarbellWeight() {
+        guard let exercise = selectedExercises else { return }
+        try? modelContext.save()
+        Task {
+            await SyncService.shared.syncExercise(exercise)
         }
     }
 
@@ -3257,6 +3717,7 @@ struct CheckInView: View {
     }
 
     private func logSet() {
+        if !isViewingToday { returnToToday() }
         guard let ex = selectedExercises else { return }
 
         let isFirstWeightedSet = !setsForExercise.contains(where: { $0.weight > 0 }) && weight > 0
@@ -3296,6 +3757,7 @@ struct CheckInView: View {
         // Refresh local data after logging
         fetchDataForExercise(ex.id)
         refreshTodaySetCounts()
+        refreshExerciseRecency()
 
         // Scroll session view to the newly logged set
         sessionScrollTarget = set.id
@@ -3351,7 +3813,8 @@ struct CheckInView: View {
 
             DispatchQueue.main.async {
                 if let next = nextPlannedEffortMode {
-                    withAnimation { effortMode = next }
+                    let mode = (next != .progress && !allEffortTiersReady) ? .progress : next
+                    withAnimation { effortMode = mode }
                 }
             }
         }
@@ -3390,13 +3853,14 @@ struct CheckInView: View {
             fetchDataForExercise(exId)
         }
         refreshTodaySetCounts()
+        refreshExerciseRecency()
         sessionScrollTarget = set.id
 
         // Show overlay with calibration result
         overlayDidIncrease = false
         overlayDelta = 0
         overlayNew1RM = calibratedValue
-        overlayIntensityColor = effort.tileColor
+        overlayIntensityColor = effort == .progress ? .setNearMax : effort.tileColor
         overlayIntensityLabel = "Calibrated"
 
         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
@@ -3411,7 +3875,8 @@ struct CheckInView: View {
 
             DispatchQueue.main.async {
                 if let next = nextPlannedEffortMode {
-                    withAnimation { effortMode = next }
+                    let mode = (next != .progress && !allEffortTiersReady) ? .progress : next
+                    withAnimation { effortMode = mode }
                 }
             }
         }
@@ -3644,8 +4109,9 @@ struct NewExerciseFormView: View {
 
 struct EditExerciseFormView: View {
     let exercise: Exercise
-    let onSave: (_ exercise: Exercise, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void
+    let onSave: (_ exercise: Exercise, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?, _ barbellWeight: Double?) -> Void
     let onDelete: ((_ exercise: Exercise) -> Void)?
+    @Binding var pendingExerciseSave: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
@@ -3653,6 +4119,7 @@ struct EditExerciseFormView: View {
     @State private var movementType: ExerciseMovementType
     @State private var icon: String
     @State private var notesInput: String
+    @State private var barbellWeightInput: String
     @State private var showDeleteSection = false
     @State private var showDeleteConfirmation = false
     @State private var deleteConfirmationChecked = false
@@ -3667,16 +4134,32 @@ struct EditExerciseFormView: View {
 
     init(exercise: Exercise,
          showBackChevron: Bool = true,
-         onSave: @escaping (_ exercise: Exercise, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void,
-         onDelete: ((_ exercise: Exercise) -> Void)? = nil) {
+         onSave: @escaping (_ exercise: Exercise, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?, _ barbellWeight: Double?) -> Void,
+         onDelete: ((_ exercise: Exercise) -> Void)? = nil,
+         pendingExerciseSave: Binding<(() -> Void)?>) {
         self.exercise = exercise
         self.showBackChevron = showBackChevron
         self.onSave = onSave
         self.onDelete = onDelete
+        self._pendingExerciseSave = pendingExerciseSave
         self._name = State(initialValue: exercise.name)
         self._movementType = State(initialValue: exercise.exerciseMovementType)
         self._icon = State(initialValue: exercise.icon)
         self._notesInput = State(initialValue: exercise.notes ?? "")
+        self._barbellWeightInput = State(initialValue: exercise.barbellWeight.map { String(format: "%g", $0) } ?? "")
+    }
+
+    private var parsedBarbellWeight: Double? {
+        guard let val = Double(barbellWeightInput.trimmingCharacters(in: .whitespaces)) else { return nil }
+        return val >= 15 && val <= 75 ? val : nil
+    }
+
+    private var barbellWeightChanged: Bool {
+        let currentVal = exercise.barbellWeight
+        let newVal = barbellWeightInput.trimmingCharacters(in: .whitespaces).isEmpty ? nil : parsedBarbellWeight
+        if currentVal == nil && newVal == nil { return false }
+        if let c = currentVal, let n = newVal { return abs(c - n) > 0.001 }
+        return true
     }
 
     private var hasUnsavedChanges: Bool {
@@ -3686,7 +4169,7 @@ struct EditExerciseFormView: View {
         let notesChanged = notesInput != (exercise.notes ?? "")
         let movementTypeChanged = movementType != exercise.exerciseMovementType
         guard !trimmedName.isEmpty else { return false }
-        return nameChanged || iconChanged || notesChanged || movementTypeChanged
+        return nameChanged || iconChanged || notesChanged || movementTypeChanged || barbellWeightChanged
     }
 
     var body: some View {
@@ -3721,9 +4204,15 @@ struct EditExerciseFormView: View {
                     let currentMovement = movementType
                     let currentIcon = icon
                     let currentNotes = notesInput.isEmpty ? nil : notesInput
+                    let barWeight: Double? = {
+                        let input = barbellWeightInput.trimmingCharacters(in: .whitespaces)
+                        guard !input.isEmpty, let val = Double(input), val >= 15, val <= 75 else { return nil }
+                        return abs(val - 45.0) < 0.001 ? nil : val
+                    }()
+                    pendingExerciseSave = nil
                     dismiss()
                     DispatchQueue.main.async {
-                        onSave(exercise, trimmed, currentMovement, currentIcon, currentNotes)
+                        onSave(exercise, trimmed, currentMovement, currentIcon, currentNotes, barWeight)
                     }
                 } label: {
                     Text("Save")
@@ -3749,24 +4238,34 @@ struct EditExerciseFormView: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.white.opacity(0.7))
 
-                        TextField("Exercise name", text: $name)
-                            .textInputAutocapitalization(.words)
-                            .font(.body)
-                            .padding(14)
-                            .background(Color(white: 0.08))
-                            .cornerRadius(10)
-                            .foregroundStyle(.white)
-                            .onChange(of: name) { _, newValue in
-                                if newValue.count > maxNameLength {
-                                    name = String(newValue.prefix(maxNameLength))
+                        if exercise.isBuiltIn {
+                            Text(name)
+                                .font(.body)
+                                .padding(14)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color(white: 0.08))
+                                .cornerRadius(10)
+                                .foregroundStyle(.white.opacity(0.6))
+                        } else {
+                            TextField("Exercise name", text: $name)
+                                .textInputAutocapitalization(.words)
+                                .font(.body)
+                                .padding(14)
+                                .background(Color(white: 0.08))
+                                .cornerRadius(10)
+                                .foregroundStyle(.white)
+                                .onChange(of: name) { _, newValue in
+                                    if newValue.count > maxNameLength {
+                                        name = String(newValue.prefix(maxNameLength))
+                                    }
                                 }
-                            }
 
-                        HStack {
-                            Text("\(name.count) / \(maxNameLength)")
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.5))
-                            Spacer()
+                            HStack {
+                                Text("\(name.count) / \(maxNameLength)")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.5))
+                                Spacer()
+                            }
                         }
                     }
 
@@ -3783,6 +4282,27 @@ struct EditExerciseFormView: View {
                             .background(Color(white: 0.08))
                             .cornerRadius(10)
                             .foregroundStyle(.white.opacity(0.6))
+                    }
+
+                    // Bar Weight (barbell exercises only)
+                    if exercise.exerciseLoadType == .barbell {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Bar Weight")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.7))
+
+                            TextField("45", text: $barbellWeightInput)
+                                .keyboardType(.decimalPad)
+                                .font(.body)
+                                .padding(14)
+                                .background(Color(white: 0.08))
+                                .cornerRadius(10)
+                                .foregroundStyle(.white)
+
+                            Text("15–75 lbs. Leave empty for default (45 lb).")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.4))
+                        }
                     }
 
                     // Movement Type
@@ -3829,8 +4349,8 @@ struct EditExerciseFormView: View {
                         }
                     }
 
-                    if !exercise.isCustom {
-                        Text("Load type and movement type are set by default and can't be changed.")
+                    if exercise.isBuiltIn {
+                        Text("Name, icon, load type, and movement type are set by default and can't be changed.")
                             .font(.caption2)
                             .foregroundStyle(.white.opacity(0.4))
                     }
@@ -3841,7 +4361,17 @@ struct EditExerciseFormView: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.white.opacity(0.7))
 
-                        IconCarouselPicker(selectedIcon: $icon)
+                        if exercise.isBuiltIn {
+                            Image(icon)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 48, height: 48)
+                                .padding(14)
+                                .background(Color(white: 0.08))
+                                .cornerRadius(10)
+                        } else {
+                            IconCarouselPicker(selectedIcon: $icon)
+                        }
                     }
 
                     // Notes text field
@@ -4000,6 +4530,29 @@ struct EditExerciseFormView: View {
         } message: {
             Text("This will permanently delete \"\(exercise.name)\" and all its workout history.")
         }
+        .onChange(of: name) { _, _ in syncPendingSave() }
+        .onChange(of: movementType) { _, _ in syncPendingSave() }
+        .onChange(of: icon) { _, _ in syncPendingSave() }
+        .onChange(of: notesInput) { _, _ in syncPendingSave() }
+        .onChange(of: barbellWeightInput) { _, _ in syncPendingSave() }
+        .onDisappear { pendingExerciseSave = nil }
+    }
+
+    private func syncPendingSave() {
+        if hasUnsavedChanges {
+            pendingExerciseSave = { [exercise, name, movementType, icon, notesInput, barbellWeightInput] in
+                let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                let notes: String? = notesInput.isEmpty ? nil : notesInput
+                let barWeight: Double? = {
+                    let input = barbellWeightInput.trimmingCharacters(in: .whitespaces)
+                    guard !input.isEmpty, let val = Double(input), val >= 15, val <= 75 else { return nil }
+                    return abs(val - 45.0) < 0.001 ? nil : val
+                }()
+                onSave(exercise, trimmed, movementType, icon, notes, barWeight)
+            }
+        } else {
+            pendingExerciseSave = nil
+        }
     }
 }
 
@@ -4008,8 +4561,9 @@ struct ExercisesSelectionView: View {
     @Binding var selectedExercisesId: UUID?
     var initialDeepLinkExerciseId: UUID? = nil
     let onExerciseCreated: (_ name: String, _ loadType: ExerciseLoadType, _ movementType: ExerciseMovementType, _ icon: String) -> Void
-    let onExerciseSaved: (_ exercise: Exercise, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void
+    let onExerciseSaved: (_ exercise: Exercise, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?, _ barbellWeight: Double?) -> Void
     let onExerciseDeleted: (_ exercise: Exercise) -> Void
+    @Binding var pendingExerciseSave: (() -> Void)?
 
     @State private var navigationPath = NavigationPath()
     @State private var hasAppliedDeepLink = false
@@ -4206,12 +4760,13 @@ struct ExercisesSelectionView: View {
                     if let exercise = exercises.first(where: { $0.id == exerciseId }) {
                         EditExerciseFormView(
                             exercise: exercise,
-                            onSave: { exercise, name, movementType, icon, notes in
-                                onExerciseSaved(exercise, name, movementType, icon, notes)
+                            onSave: { exercise, name, movementType, icon, notes, barbellWeight in
+                                onExerciseSaved(exercise, name, movementType, icon, notes, barbellWeight)
                             },
-                            onDelete: { exercise in
+                            onDelete: exercise.isBuiltIn ? nil : { exercise in
                                 onExerciseDeleted(exercise)
-                            }
+                            },
+                            pendingExerciseSave: $pendingExerciseSave
                         )
                     }
                 }
@@ -4595,12 +5150,40 @@ struct ExpandedProgressOptionsSheet: View {
     let onRepRangeChanged: () -> Void
     let onSelect: (OneRMCalculator.Suggestion) -> Void
     var onSwitchMode: ((CheckInView.EffortMode) -> Void)? = nil
+    var hasWeightDeltaChanges: Bool = false
+    var onSaveWeightDelta: (() -> Void)? = nil
+    var isBarbell: Bool = false
+    @Binding var barbellWeight: Double?
+    var onSaveBarbellWeight: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var columnHighlighted = false
     @State private var selectedSuggestion: OneRMCalculator.Suggestion?
     @State private var showChangePlates = false
+    @State private var barbellWeightInput: String = ""
+    @State private var initialMinReps: Int = 0
+    @State private var initialMaxReps: Int = 0
+    @State private var initialBarbellWeight: Double? = nil
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
+
+    private var hasRepRangeChanges: Bool {
+        minReps != initialMinReps || maxReps != initialMaxReps
+    }
+
+    private var hasBarbellWeightChanges: Bool {
+        let input = barbellWeightInput.trimmingCharacters(in: .whitespaces)
+        let newVal: Double? = {
+            guard !input.isEmpty, let val = Double(input), val >= 15, val <= 75 else { return nil }
+            return abs(val - 45.0) < 0.001 ? nil : val
+        }()
+        if initialBarbellWeight == nil && newVal == nil { return false }
+        if let i = initialBarbellWeight, let n = newVal { return abs(i - n) > 0.001 }
+        return true
+    }
+
+    private var hasAnyChanges: Bool {
+        hasWeightDeltaChanges || hasRepRangeChanges || hasBarbellWeightChanges
+    }
 
     private var sortedSuggestions: [OneRMCalculator.Suggestion] {
         switch sortColumn {
@@ -4672,14 +5255,14 @@ struct ExpandedProgressOptionsSheet: View {
                     }
 
                     VStack(spacing: 0) {
-                        Text(weightDelta.formatted(.number.precision(.fractionLength(1))))
+                        Text(weightDelta.formatted(.number.precision(.fractionLength(2))))
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.white)
                         Text("Δ LB")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(Color.appLabel)
                     }
-                    .frame(width: 45)
+                    .frame(width: 55)
 
                     Button {
                         if let currentIndex = availableWeightDeltas.firstIndex(where: { abs($0 - weightDelta) < 0.01 }),
@@ -4705,6 +5288,29 @@ struct ExpandedProgressOptionsSheet: View {
                     Text("Edit Change Plates ›")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.4))
+                }
+
+                if isBarbell {
+                    HStack(spacing: 8) {
+                        Text("Bar Weight")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.7))
+                        TextField("45", text: $barbellWeightInput)
+                            .keyboardType(.decimalPad)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .frame(width: 44)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 4)
+                            .background(Color(white: 0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        Text("lb")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
                 }
 
                 // Rep range slider
@@ -4739,13 +5345,13 @@ struct ExpandedProgressOptionsSheet: View {
 
             // Header row with column labels
             HStack(spacing: 12) {
-                columnButton(title: "WEIGHT", column: .weight, width: 65)
+                columnButton(title: "WEIGHT", column: .weight, width: 80)
                 Spacer().frame(width: 1)
                 columnButton(title: "REPS", column: .reps, width: 50)
                 Spacer().frame(width: 1)
                 columnButton(title: "e1RM", column: .est1RM, width: 60)
                 Spacer().frame(width: 1)
-                columnButton(title: "GAIN", column: .gain, width: 65)
+                columnButton(title: "GAIN", column: .gain, width: 50)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
@@ -4778,9 +5384,27 @@ struct ExpandedProgressOptionsSheet: View {
                 if let selected = selectedSuggestion {
                     onSelect(selected)
                 }
+                if hasWeightDeltaChanges {
+                    onSaveWeightDelta?()
+                }
+                if isBarbell {
+                    let input = barbellWeightInput.trimmingCharacters(in: .whitespaces)
+                    if input.isEmpty {
+                        if barbellWeight != nil {
+                            barbellWeight = nil
+                            onSaveBarbellWeight?()
+                        }
+                    } else if let val = Double(input), val >= 15, val <= 75 {
+                        let newVal: Double? = abs(val - 45.0) < 0.001 ? nil : val
+                        if newVal != barbellWeight {
+                            barbellWeight = newVal
+                            onSaveBarbellWeight?()
+                        }
+                    }
+                }
                 dismiss()
             } label: {
-                Text("Done")
+                Text(hasAnyChanges ? "Save" : "Done")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
@@ -4805,6 +5429,12 @@ struct ExpandedProgressOptionsSheet: View {
                 .presentationDetents([.height(480), .large])
                 .presentationContentInteraction(.scrolls)
                 .presentationDragIndicator(.visible)
+        }
+        .onAppear {
+            barbellWeightInput = barbellWeight.map { String(format: "%g", $0) } ?? ""
+            initialMinReps = minReps
+            initialMaxReps = maxReps
+            initialBarbellWeight = barbellWeight
         }
     }
 
@@ -4867,8 +5497,12 @@ struct ExpandedEffortOptionsSheet: View {
     @Binding var repRangeMax: Int
     let onRepRangeChanged: () -> Void
     var lastSetMatch: (weight: Double, reps: Int)? = nil
+    var macroPlateWeights: Set<Double> = []
     let onSelect: (OneRMCalculator.EffortSuggestion) -> Void
     var onSwitchMode: ((CheckInView.EffortMode) -> Void)? = nil
+    var isBarbell: Bool = false
+    @Binding var barbellWeight: Double?
+    var onSaveBarbellWeight: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedSuggestion: OneRMCalculator.EffortSuggestion?
@@ -4876,7 +5510,30 @@ struct ExpandedEffortOptionsSheet: View {
     @State private var sortAscending: Bool = true
     @State private var columnHighlighted = false
     @State private var sheetSortUserModified: Bool = false
+    @State private var barbellWeightInput: String = ""
+    @State private var initialRepRangeMin: Int = 0
+    @State private var initialRepRangeMax: Int = 0
+    @State private var initialBarbellWeight: Double? = nil
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
+
+    private var hasRepRangeChanges: Bool {
+        repRangeMin != initialRepRangeMin || repRangeMax != initialRepRangeMax
+    }
+
+    private var hasBarbellWeightChanges: Bool {
+        let input = barbellWeightInput.trimmingCharacters(in: .whitespaces)
+        let newVal: Double? = {
+            guard !input.isEmpty, let val = Double(input), val >= 15, val <= 75 else { return nil }
+            return abs(val - 45.0) < 0.001 ? nil : val
+        }()
+        if initialBarbellWeight == nil && newVal == nil { return false }
+        if let i = initialBarbellWeight, let n = newVal { return abs(i - n) > 0.001 }
+        return true
+    }
+
+    private var hasAnyChanges: Bool {
+        hasRepRangeChanges || hasBarbellWeightChanges
+    }
 
     private var sortedSuggestions: [OneRMCalculator.EffortSuggestion] {
         var sorted: [OneRMCalculator.EffortSuggestion]
@@ -4985,6 +5642,29 @@ struct ExpandedEffortOptionsSheet: View {
                     minSpan: Double(UserProperties.minRepRangeSpan)
                 )
                 .padding(.horizontal, 16)
+
+                if isBarbell {
+                    HStack(spacing: 8) {
+                        Text("Bar Weight")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.7))
+                        TextField("45", text: $barbellWeightInput)
+                            .keyboardType(.decimalPad)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .frame(width: 44)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 4)
+                            .background(Color(white: 0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        Text("lb")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                }
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
@@ -5013,7 +5693,8 @@ struct ExpandedEffortOptionsSheet: View {
                             sortColumn: sortColumn,
                             columnHighlighted: columnHighlighted,
                             accentColor: effortMode.tileColor,
-                            isLastSet: lastSetMatch.map { $0.weight == suggestion.weight && $0.reps == suggestion.reps } ?? false
+                            isLastSet: lastSetMatch.map { $0.weight == suggestion.weight && $0.reps == suggestion.reps } ?? false,
+                            isMacroPlate: macroPlateWeights.contains(suggestion.weight)
                         )
                         .onTapGesture {
                             hapticFeedback.impactOccurred()
@@ -5025,14 +5706,23 @@ struct ExpandedEffortOptionsSheet: View {
                 .padding(.vertical, 12)
             }
 
-            // Done button
+            // Done / Save button
             Button {
                 if let selected = selectedSuggestion {
                     onSelect(selected)
                 }
+                if isBarbell && hasBarbellWeightChanges {
+                    let input = barbellWeightInput.trimmingCharacters(in: .whitespaces)
+                    if input.isEmpty {
+                        barbellWeight = nil
+                    } else if let val = Double(input), val >= 15, val <= 75 {
+                        barbellWeight = abs(val - 45.0) < 0.001 ? nil : val
+                    }
+                    onSaveBarbellWeight?()
+                }
                 dismiss()
             } label: {
-                Text("Done")
+                Text(hasAnyChanges ? "Save" : "Done")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
@@ -5041,19 +5731,27 @@ struct ExpandedEffortOptionsSheet: View {
                     .cornerRadius(10)
             }
             .padding(.horizontal, 40)
-            .padding(.top, lastSetMatch != nil ? 12 : 24)
+            .padding(.top, 12)
             .padding(.bottom, 16)
 
-            if lastSetMatch != nil {
+            HStack(spacing: 16) {
+                if lastSetMatch != nil {
+                    HStack(spacing: 6) {
+                        Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Last set with this effort")
+                            .font(.caption2)
+                    }
+                }
                 HStack(spacing: 6) {
-                    Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                    Image(systemName: "hockey.puck.fill")
                         .font(.system(size: 11, weight: .semibold))
-                    Text("Last set with this effort")
+                    Text("Efficient plate load")
                         .font(.caption2)
                 }
-                .foregroundStyle(.white.opacity(0.4))
-                .padding(.bottom, 8)
             }
+            .foregroundStyle(.white.opacity(0.4))
+            .padding(.bottom, 8)
         }
         .background(
             LinearGradient(
@@ -5063,6 +5761,12 @@ struct ExpandedEffortOptionsSheet: View {
             )
             .ignoresSafeArea()
         )
+        .onAppear {
+            initialRepRangeMin = repRangeMin
+            initialRepRangeMax = repRangeMax
+            initialBarbellWeight = barbellWeight
+            barbellWeightInput = barbellWeight.map { String(format: "%g", $0) } ?? ""
+        }
     }
 
     private var previousMode: CheckInView.EffortMode? {
@@ -5122,6 +5826,7 @@ struct AvailableChangePlatesView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query private var userPropertiesItems: [UserProperties]
+    @State private var initialPlates: [Double] = []
 
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
 
@@ -5140,6 +5845,10 @@ struct AvailableChangePlatesView: View {
 
     private func isPlateActive(_ plate: Double) -> Bool {
         return plateWeights.contains { abs($0 - plate) < 0.01 }
+    }
+
+    private var hasChanges: Bool {
+        userProperties.availableChangePlates.sorted() != initialPlates
     }
 
     var body: some View {
@@ -5187,9 +5896,14 @@ struct AvailableChangePlatesView: View {
                 Spacer()
 
                 Button {
+                    if hasChanges {
+                        Task {
+                            await SyncService.shared.updateChangePlates(userProperties.availableChangePlates)
+                        }
+                    }
                     dismiss()
                 } label: {
-                    Text("Done")
+                    Text(hasChanges ? "Save" : "Done")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
@@ -5209,6 +5923,9 @@ struct AvailableChangePlatesView: View {
                     .padding(.bottom, 24)
             }
         }
+        .onAppear {
+            initialPlates = userProperties.availableChangePlates.sorted()
+        }
     }
 
     private func togglePlate(_ plate: Double) {
@@ -5218,10 +5935,6 @@ struct AvailableChangePlatesView: View {
             userProperties.availableChangePlates.append(plate)
         }
         try? modelContext.save()
-
-        Task {
-            await SyncService.shared.updateChangePlates(userProperties.availableChangePlates)
-        }
     }
 }
 
@@ -5235,6 +5948,7 @@ struct ChangePlatesView: View {
     let availableWeightDeltas: [Double]
     let minWeightDelta: Double
     let maxWeightDelta: Double
+    @State private var initialPlates: [Double] = []
 
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
 
@@ -5267,6 +5981,10 @@ struct ChangePlatesView: View {
 
     private func isPlateActive(_ plate: Double) -> Bool {
         return plateWeights.contains { abs($0 - plate) < 0.01 }
+    }
+
+    private var hasChanges: Bool {
+        userProperties.availableChangePlates.sorted() != initialPlates
     }
 
     var body: some View {
@@ -5370,11 +6088,16 @@ struct ChangePlatesView: View {
 
                 Spacer()
 
-                // Done button
+                // Done/Save button
                 Button {
+                    if hasChanges {
+                        Task {
+                            await SyncService.shared.updateChangePlates(userProperties.availableChangePlates)
+                        }
+                    }
                     dismiss()
                 } label: {
-                    Text("Done")
+                    Text(hasChanges ? "Save" : "Done")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
@@ -5395,6 +6118,9 @@ struct ChangePlatesView: View {
                     .padding(.bottom, 24)
             }
         }
+        .onAppear {
+            initialPlates = userProperties.availableChangePlates.sorted()
+        }
     }
 
     private func togglePlate(_ plate: Double) {
@@ -5413,11 +6139,6 @@ struct ChangePlatesView: View {
             userProperties.availableChangePlates.append(plate)
         }
         try? modelContext.save()
-
-        // Sync to backend
-        Task {
-            await SyncService.shared.updateChangePlates(userProperties.availableChangePlates)
-        }
     }
 }
 

@@ -33,6 +33,9 @@ struct MoreView: View {
     @State private var isPopulatingToday = false
     @State private var isPopulatingYesterday = false
     @State private var showYesterdayDataPopulatedAlert = false
+    @State private var isSeedingMissing = false
+    @State private var showSeedMissingAlert = false
+    @State private var seedMissingCount = 0
     @State private var showExerciseIds = false
     @State private var showMemberSince = false
     @State private var showTokenExpiry = false
@@ -459,6 +462,22 @@ struct MoreView: View {
                     }
                 }
 
+                // Accessories Section
+                Section {
+                    NavigationLink {
+                        AccessoriesView()
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "square.grid.2x2")
+                                .foregroundStyle(Color.appAccent)
+                                .font(.system(size: 20))
+                            Text("Accessories")
+                                .foregroundStyle(Color.appAccent)
+                        }
+                        .padding(.horizontal, 4)
+                    }
+                }
+
                 #if DEBUG
                 // Developer Section (Bottom, Expandable)
                 Section {
@@ -543,6 +562,26 @@ struct MoreView: View {
                             }
                         }
                         .disabled(isPopulatingYesterday)
+
+                        Button {
+                            isSeedingMissing = true
+                            seedMissingCount = SeedService.seedExercises(context: modelContext).count
+                            isSeedingMissing = false
+                            showSeedMissingAlert = true
+                        } label: {
+                            HStack {
+                                Text("Seed Missing Exercises")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if isSeedingMissing {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "plus.circle")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+                        }
+                        .disabled(isSeedingMissing)
 
                         Button {
                             Task {
@@ -1022,6 +1061,13 @@ struct MoreView: View {
                 Button("OK") { }
             } message: {
                 Text("Created yesterday's sets at Easy/Moderate/Hard effort levels for all exercises. Switch effort modes in CheckIn to see the repeat-arrow indicator on matching tiles.")
+            }
+            .alert("Seed Missing Exercises", isPresented: $showSeedMissingAlert) {
+                Button("OK") { }
+            } message: {
+                Text(seedMissingCount > 0
+                     ? "Added \(seedMissingCount) new exercise\(seedMissingCount == 1 ? "" : "s")."
+                     : "All exercises already exist — nothing to add.")
             }
             .alert("User Properties", isPresented: $showUserPropertiesAlert) {
                 Button("OK") { }
@@ -2225,7 +2271,7 @@ private struct SubmitOverlayPreview: View {
                     VStack(spacing: 4) {
                         Text("Increased 1RM by")
                             .font(.subheadline)
-                        Text("+\(delta.rounded1().formatted(.number.precision(.fractionLength(delta >= 100 ? 0 : 2)))) lbs")
+                        Text("+\(delta.rounded1().formatted(.number.precision(.fractionLength(0)))) lbs")
                             .font(.title.weight(.semibold))
                             .foregroundStyle(Color.appLogoColor)
                             .lineLimit(1)

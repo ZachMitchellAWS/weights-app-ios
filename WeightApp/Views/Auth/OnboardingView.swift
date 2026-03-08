@@ -39,6 +39,7 @@ private struct OnboardingChangePlatesStep: View {
 
     @Environment(\.modelContext) private var modelContext
     @Query private var userPropertiesItems: [UserProperties]
+    @State private var initialPlates: [Double] = []
 
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
     private let allPlateOptions: [Double] = [0.25, 0.5, 0.75, 1.0, 1.25, 2.0]
@@ -56,6 +57,10 @@ private struct OnboardingChangePlatesStep: View {
 
     private var hasSelection: Bool {
         !plateWeights.isEmpty
+    }
+
+    private var hasChanges: Bool {
+        userProperties.availableChangePlates.sorted() != initialPlates
     }
 
     private func isPlateActive(_ plate: Double) -> Bool {
@@ -121,6 +126,11 @@ private struct OnboardingChangePlatesStep: View {
 
             // Bottom button
             Button {
+                if hasChanges {
+                    Task {
+                        await SyncService.shared.updateChangePlates(userProperties.availableChangePlates)
+                    }
+                }
                 onComplete()
             } label: {
                 Text("Continue")
@@ -135,6 +145,9 @@ private struct OnboardingChangePlatesStep: View {
             .padding(.horizontal, 32)
             .padding(.bottom, 50)
         }
+        .onAppear {
+            initialPlates = userProperties.availableChangePlates.sorted()
+        }
     }
 
     private func togglePlate(_ plate: Double) {
@@ -144,10 +157,6 @@ private struct OnboardingChangePlatesStep: View {
             userProperties.availableChangePlates.append(plate)
         }
         try? modelContext.save()
-
-        Task {
-            await SyncService.shared.updateChangePlates(userProperties.availableChangePlates)
-        }
     }
 }
 

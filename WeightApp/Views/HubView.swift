@@ -21,9 +21,10 @@ struct HubView: View {
     @Binding var selectedSection: HubSection
     let deepLinkExerciseId: UUID?
     let onExerciseCreated: (_ name: String, _ loadType: ExerciseLoadType, _ movementType: ExerciseMovementType, _ icon: String) -> Void
-    let onExerciseSaved: (_ exercise: Exercise, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?) -> Void
+    let onExerciseSaved: (_ exercise: Exercise, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?, _ barbellWeight: Double?) -> Void
     let onExerciseDeleted: (_ exercise: Exercise) -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var pendingExerciseSave: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -52,17 +53,22 @@ struct HubView: View {
                     initialDeepLinkExerciseId: deepLinkExerciseId,
                     onExerciseCreated: onExerciseCreated,
                     onExerciseSaved: onExerciseSaved,
-                    onExerciseDeleted: onExerciseDeleted
+                    onExerciseDeleted: onExerciseDeleted,
+                    pendingExerciseSave: $pendingExerciseSave
                 )
             case .setPlans:
                 SetPlanCatalogView()
             }
 
-            // Done button (all tabs)
+            // Done / Save button
             Button {
+                if let save = pendingExerciseSave {
+                    save()
+                    pendingExerciseSave = nil
+                }
                 dismiss()
             } label: {
-                Text("Done")
+                Text(pendingExerciseSave != nil ? "Save" : "Done")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)

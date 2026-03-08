@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 extension Color {
     // MARK: - App Theme Colors
@@ -49,4 +50,57 @@ extension Color {
 
     /// Personal record set
     static let setPR = Color(red: 0xFF/255, green: 0xB0/255, blue: 0x00/255) // #FFB000
+
+    /// Cycling palette for split day chips
+    static let dayChipColors: [Color] = [.setEasy, .setModerate, .setHard, .setNearMax, .setPR]
+
+    // MARK: - Balance Spectrum Colors
+
+    /// Warm coral — needs attention (score < 0.85)
+    static let balanceWeak = Color(red: 0xEF/255, green: 0x6B/255, blue: 0x4A/255) // #EF6B4A
+
+    /// Warm amber — slightly weak (score 0.85–0.92)
+    static let balanceMild = Color(red: 0xF5/255, green: 0xA6/255, blue: 0x23/255) // #F5A623
+
+    /// Green — balanced (score 0.92–1.08)
+    static let balanceGood = Color.setEasy // #22C55E
+
+    /// Cool teal — slightly strong (score 1.08–1.15)
+    static let balanceCoolMild = Color.setModerate // #21B7C9
+
+    /// Cool blue — relative strength (score > 1.15)
+    static let balanceStrong = Color(red: 0x4A/255, green: 0x90/255, blue: 0xD9/255) // #4A90D9
+
+    /// Interpolate balance score to a color on the warm-to-cool spectrum
+    static func balanceColor(for score: Double) -> Color {
+        switch score {
+        case ..<0.85:
+            let t = max(0, (score - 0.70) / 0.15)
+            return interpolate(from: .balanceWeak, to: .balanceMild, t: t)
+        case 0.85..<0.92:
+            let t = (score - 0.85) / 0.07
+            return interpolate(from: .balanceMild, to: .balanceGood, t: t)
+        case 0.92..<1.08:
+            return .balanceGood
+        case 1.08..<1.15:
+            let t = (score - 1.08) / 0.07
+            return interpolate(from: .balanceCoolMild, to: .balanceStrong, t: t)
+        default:
+            let t = min(1, (score - 1.15) / 0.15)
+            return interpolate(from: .balanceStrong, to: .balanceStrong, t: t)
+        }
+    }
+
+    private static func interpolate(from c1: Color, to c2: Color, t: Double) -> Color {
+        var r1: CGFloat = 0, g1: CGFloat = 0, b1: CGFloat = 0, a1: CGFloat = 0
+        var r2: CGFloat = 0, g2: CGFloat = 0, b2: CGFloat = 0, a2: CGFloat = 0
+        UIColor(c1).getRed(&r1, green: &g1, blue: &b1, alpha: &a1)
+        UIColor(c2).getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
+        let clampedT = max(0, min(1, t))
+        return Color(
+            red: r1 + (r2 - r1) * clampedT,
+            green: g1 + (g2 - g1) * clampedT,
+            blue: b1 + (b2 - b1) * clampedT
+        )
+    }
 }

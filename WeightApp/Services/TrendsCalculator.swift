@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 struct TrendsCalculator {
     // MARK: - Weekly Volume
@@ -103,34 +104,45 @@ struct TrendsCalculator {
             return IntensityDistribution()
         }
 
-        let recentSets = sets.filter { $0.createdAt >= cutoffDate }
         var distribution = IntensityDistribution()
 
-        // Group sets by exercise to compute per-exercise maxes
+        // Walk each exercise chronologically with a running max,
+        // matching the same approach as computeSetsWithPRInfo
         let byExercise = Dictionary(grouping: sets) { $0.exercise?.id }
 
-        for set in recentSets {
-            // Skip baseline sets — they don't count in distribution
-            if set.isBaselineSet { continue }
+        for (_, exerciseSets) in byExercise {
+            let sorted = exerciseSets.sorted { $0.createdAt < $1.createdAt }
+            var currentMax: Double = 0
 
-            let exerciseSets = byExercise[set.exercise?.id] ?? []
-            let previousSets = exerciseSets.filter { $0.createdAt < set.createdAt }
-            let currentMax = previousSets.map { OneRMCalculator.estimate1RM(weight: $0.weight, reps: $0.reps) }.max() ?? 0
-            let setEstimated1RM = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
+            for set in sorted {
+                if set.isBaselineSet { continue }
 
-            if currentMax > 0 {
-                let percent1RM = setEstimated1RM / currentMax
-                let bucket = IntensityBucket.from(percent1RM: percent1RM)
-                switch bucket {
-                case .pr: distribution.pr += 1
-                case .redline: distribution.redline += 1
-                case .hard: distribution.hard += 1
-                case .moderate: distribution.moderate += 1
-                case .easy: distribution.easy += 1
+                let estimated = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
+                let isInWindow = set.createdAt >= cutoffDate
+
+                if isInWindow && currentMax > 0 {
+                    let percent1RM = estimated / currentMax
+                    let bucket: IntensityBucket
+                    // Match computeSetsWithPRInfo: a true PR is when estimated > currentMax
+                    if set.weight > 0 && estimated > currentMax {
+                        bucket = .pr
+                    } else {
+                        bucket = IntensityBucket.from(percent1RM: percent1RM)
+                    }
+                    switch bucket {
+                    case .pr: distribution.pr += 1
+                    case .redline: distribution.redline += 1
+                    case .hard: distribution.hard += 1
+                    case .moderate: distribution.moderate += 1
+                    case .easy: distribution.easy += 1
+                    }
                 }
-            } else {
-                // First set for this exercise, count as PR
-                distribution.pr += 1
+                // else: no prior history — skip rather than guessing
+
+                // Update running max (even for sets outside the window, to build history)
+                if set.weight > 0 && estimated > currentMax {
+                    currentMax = estimated
+                }
             }
         }
 
@@ -323,6 +335,130 @@ struct TrendsCalculator {
     static func exerciseNames(from sets: [LiftSet]) -> [String] {
         let names = Set(sets.compactMap { $0.exercise?.name })
         return names.sorted()
+    }
+
+    // MARK: - Strength Balance
+
+    struct FundamentalExercise {
+        let id: UUID
+        let name: String
+        let icon: String
+        let ratioCoefficient: Double
+    }
+
+    static let fundamentalExercises: [FundamentalExercise] = [
+        FundamentalExercise(id: Exercise.deadliftsId, name: "Deadlifts", icon: "DeadliftIcon", ratioCoefficient: 1.40),
+        FundamentalExercise(id: Exercise.squatsId, name: "Squats", icon: "SquatIcon", ratioCoefficient: 1.25),
+        FundamentalExercise(id: Exercise.benchPressId, name: "Bench Press", icon: "BenchPressIcon", ratioCoefficient: 1.00),
+        FundamentalExercise(id: Exercise.barbellRowId, name: "Barbell Row", icon: "BarbellRowIcon", ratioCoefficient: 0.825),
+        FundamentalExercise(id: Exercise.overheadPressId, name: "Overhead Press", icon: "OverheadPressIcon", ratioCoefficient: 0.625),
+    ]
+
+    struct ExerciseBalance: Identifiable {
+        let id: UUID
+        let exerciseName: String
+        let icon: String
+        let current1RM: Double?
+        let balanceScore: Double?
+        let balanceColor: Color
+    }
+
+    static func strengthBalance(from estimated1RMs: [Estimated1RM]) -> [ExerciseBalance] {
+        let fundamentalIds = Set(fundamentalExercises.map(\.id))
+
+        // Group by exercise, take most recent e1RM for each
+        let grouped = Dictionary(grouping: estimated1RMs.filter { rec in
+            guard let eid = rec.exercise?.id else { return false }
+            return fundamentalIds.contains(eid)
+        }) { $0.exercise!.id }
+
+        var latestByExercise: [UUID: Double] = [:]
+        for (exerciseId, records) in grouped {
+            if let mostRecent = records.max(by: { $0.createdAt < $1.createdAt }) {
+                latestByExercise[exerciseId] = mostRecent.value
+            }
+        }
+
+        // Normalize each by ratio coefficient
+        var normalizedValues: [(exercise: FundamentalExercise, normalized: Double, raw: Double)] = []
+        for exercise in fundamentalExercises {
+            if let e1rm = latestByExercise[exercise.id] {
+                normalizedValues.append((exercise, e1rm / exercise.ratioCoefficient, e1rm))
+            }
+        }
+
+        // Need at least 2 exercises with data
+        guard normalizedValues.count >= 2 else {
+            return fundamentalExercises.map { ex in
+                let raw = latestByExercise[ex.id]
+                return ExerciseBalance(
+                    id: ex.id,
+                    exerciseName: ex.name,
+                    icon: ex.icon,
+                    current1RM: raw,
+                    balanceScore: nil,
+                    balanceColor: .gray
+                )
+            }
+        }
+
+        let mean = normalizedValues.map(\.normalized).reduce(0, +) / Double(normalizedValues.count)
+
+        return fundamentalExercises.map { ex in
+            if let e1rm = latestByExercise[ex.id] {
+                let normalized = e1rm / ex.ratioCoefficient
+                let score = normalized / mean
+                return ExerciseBalance(
+                    id: ex.id,
+                    exerciseName: ex.name,
+                    icon: ex.icon,
+                    current1RM: e1rm,
+                    balanceScore: score,
+                    balanceColor: Color.balanceColor(for: score)
+                )
+            } else {
+                return ExerciseBalance(
+                    id: ex.id,
+                    exerciseName: ex.name,
+                    icon: ex.icon,
+                    current1RM: nil,
+                    balanceScore: nil,
+                    balanceColor: .gray
+                )
+            }
+        }
+    }
+
+    // MARK: - Balance Insight
+
+    static func balanceInsight(from balances: [ExerciseBalance]) -> String {
+        let scored = balances.filter { $0.balanceScore != nil }
+        guard !scored.isEmpty else { return "" }
+
+        let weak = scored.filter { $0.balanceScore! < 0.92 }.map(\.exerciseName)
+        let strong = scored.filter { $0.balanceScore! > 1.08 }.map(\.exerciseName)
+
+        if weak.isEmpty && strong.isEmpty {
+            return "Your strength is well-proportioned across all lifts."
+        }
+
+        var parts: [String] = []
+
+        if !weak.isEmpty {
+            let names = weak.joined(separator: " and ")
+            parts.append("Your \(names) \(weak.count == 1 ? "is" : "are") relatively weaker compared to your other lifts")
+        }
+
+        if !strong.isEmpty {
+            let names = strong.joined(separator: " and ")
+            if weak.isEmpty {
+                parts.append("Your \(names) \(strong.count == 1 ? "is a relative strength" : "are relative strengths")")
+            } else {
+                parts.append("while your \(names) \(strong.count == 1 ? "is a relative strength" : "are relative strengths")")
+            }
+        }
+
+        return parts.joined(separator: ", ") + "."
     }
 
     // MARK: - Exercise Recency

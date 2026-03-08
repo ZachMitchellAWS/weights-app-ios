@@ -73,4 +73,59 @@ enum WorkoutSplitStore {
             try? context.save()
         }
     }
+
+    // MARK: - Smart Day/Exercise Selection
+
+    static var smartExerciseSelectionEnabled = true
+
+    /// Determines which workout day to auto-select based on today's activity or rotation.
+    /// Returns the day ID to select, or nil if no split/days available.
+    static func autoSelectDay(days: [WorkoutDay], context: ModelContext) -> UUID? {
+        guard !days.isEmpty else { return nil }
+
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: Date())
+        let tomorrowStart = calendar.date(byAdding: .day, value: 1, to: todayStart)!
+
+        // Fetch today's non-deleted sets
+        let todayDescriptor = FetchDescriptor<LiftSet>(
+            predicate: #Predicate<LiftSet> { !$0.deleted && $0.createdAt >= todayStart && $0.createdAt < tomorrowStart },
+            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+        )
+        let todaySets = (try? context.fetch(todayDescriptor)) ?? []
+
+        // Step 1: Check if any day has activity today → mid-workout
+        var dayActivity: [(day: WorkoutDay, mostRecent: Date)] = []
+        for day in days {
+            let dayExerciseSet = Set(day.exerciseIds)
+            if let mostRecent = todaySets.first(where: { set in
+                guard let exId = set.exercise?.id else { return false }
+                return dayExerciseSet.contains(exId)
+            }) {
+                dayActivity.append((day, mostRecent.createdAt))
+            }
+        }
+        if !dayActivity.isEmpty {
+            // Pick the day with the most recent set today
+            return dayActivity.max(by: { $0.mostRecent < $1.mostRecent })?.day.id
+        }
+
+        // Step 2: No activity today → find the most recent set in the last 7 days
+        let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: todayStart)!
+        var recentDescriptor = FetchDescriptor<LiftSet>(
+            predicate: #Predicate<LiftSet> { !$0.deleted && $0.createdAt >= sevenDaysAgo && $0.createdAt < todayStart },
+            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+        )
+        recentDescriptor.fetchLimit = 1
+        if let mostRecentSet = (try? context.fetch(recentDescriptor))?.first,
+           let exerciseId = mostRecentSet.exercise?.id,
+           let (dayIndex, _) = days.enumerated().first(where: { $0.element.exerciseIds.contains(exerciseId) }) {
+            let nextIndex = (dayIndex + 1) % days.count
+            return days[nextIndex].id
+        }
+
+        // Step 3: No history in the last 7 days (or no match) → first day
+        return days.first?.id
+    }
+
 }

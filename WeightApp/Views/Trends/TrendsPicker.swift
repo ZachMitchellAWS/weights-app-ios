@@ -8,11 +8,13 @@
 import SwiftUI
 
 enum TrendsTab: Int, CaseIterable {
-    case analytics = 0
-    case history = 1
+    case balance = 0
+    case analytics = 1
+    case history = 2
 
     var title: String {
         switch self {
+        case .balance: return "Balance"
         case .analytics: return "Analytics"
         case .history: return "History"
         }
@@ -32,10 +34,17 @@ struct TrendsPicker: View {
 
             // Sliding indicator
             GeometryReader { geometry in
+                let tabCount = CGFloat(TrendsTab.allCases.count)
+                let segmentWidth = geometry.size.width / tabCount
+                let indicatorWidth = segmentWidth - 6
+
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color.appAccent)
-                    .frame(width: geometry.size.width / 2 - 6, height: 32)
-                    .offset(x: selectedTab == .analytics ? 4 : geometry.size.width / 2 + 2, y: 4)
+                    .frame(width: indicatorWidth, height: 32)
+                    .offset(
+                        x: CGFloat(selectedTab.rawValue) * segmentWidth + 3,
+                        y: 4
+                    )
                     .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selectedTab)
             }
             .frame(height: 40)

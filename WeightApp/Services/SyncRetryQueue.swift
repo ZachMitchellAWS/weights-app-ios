@@ -95,6 +95,20 @@ struct PendingSetPlanOperation: Codable, Equatable {
     }
 }
 
+struct PendingAccessoryGoalCheckinOperation: Codable, Equatable {
+    let checkinId: UUID
+    let operationType: PendingOperationType
+    var retryCount: Int
+    let createdAt: Date
+
+    init(checkinId: UUID, operationType: PendingOperationType) {
+        self.checkinId = checkinId
+        self.operationType = operationType
+        self.retryCount = 0
+        self.createdAt = Date()
+    }
+}
+
 class SyncRetryQueue {
     static let shared = SyncRetryQueue()
 
@@ -104,6 +118,7 @@ class SyncRetryQueue {
     private let estimated1RMOperationsKey = "SyncRetryQueue.PendingEstimated1RMOperations"
     private let splitOperationsKey = "SyncRetryQueue.PendingSplitOperations"
     private let templateOperationsKey = "SyncRetryQueue.PendingSetPlanOperations"
+    private let accessoryGoalCheckinOperationsKey = "SyncRetryQueue.PendingAccessoryGoalCheckinOperations"
     private let maxRetries = 10
 
     private init() {}
@@ -150,10 +165,11 @@ class SyncRetryQueue {
         UserDefaults.standard.removeObject(forKey: estimated1RMOperationsKey)
         UserDefaults.standard.removeObject(forKey: splitOperationsKey)
         UserDefaults.standard.removeObject(forKey: templateOperationsKey)
+        UserDefaults.standard.removeObject(forKey: accessoryGoalCheckinOperationsKey)
     }
 
     func hasPendingOperations() -> Bool {
-        return !loadOperations().isEmpty || !loadLiftSetOperations().isEmpty || !loadEstimated1RMOperations().isEmpty || !loadSplitOperations().isEmpty || !loadTemplateOperations().isEmpty
+        return !loadOperations().isEmpty || !loadLiftSetOperations().isEmpty || !loadEstimated1RMOperations().isEmpty || !loadSplitOperations().isEmpty || !loadTemplateOperations().isEmpty || !loadAccessoryGoalCheckinOperations().isEmpty
     }
 
     // MARK: - User Properties Sync Methods
@@ -530,6 +546,79 @@ class SyncRetryQueue {
             UserDefaults.standard.set(data, forKey: templateOperationsKey)
         } catch {
             SyncLogger.retry.error("Failed to encode pending template operations: \(error)")
+        }
+    }
+
+    // MARK: - Accessory Goal Checkin Operations
+
+    func addPendingAccessoryGoalCheckinCreate(checkinId: UUID) {
+        SyncLogger.retry.debug("Queuing accessory goal checkin create: \(checkinId)")
+        addAccessoryGoalCheckinOperation(PendingAccessoryGoalCheckinOperation(checkinId: checkinId, operationType: .upsert))
+    }
+
+    func addPendingAccessoryGoalCheckinDelete(checkinId: UUID) {
+        SyncLogger.retry.debug("Queuing accessory goal checkin delete: \(checkinId)")
+        addAccessoryGoalCheckinOperation(PendingAccessoryGoalCheckinOperation(checkinId: checkinId, operationType: .delete))
+    }
+
+    func removePendingAccessoryGoalCheckinOperation(checkinId: UUID) {
+        SyncLogger.retry.debug("Removing accessory goal checkin operation: \(checkinId)")
+        var operations = loadAccessoryGoalCheckinOperations()
+        operations.removeAll { $0.checkinId == checkinId }
+        saveAccessoryGoalCheckinOperations(operations)
+    }
+
+    func getPendingAccessoryGoalCheckinOperations() -> [PendingAccessoryGoalCheckinOperation] {
+        return loadAccessoryGoalCheckinOperations()
+    }
+
+    func incrementAccessoryGoalCheckinRetryCount(for checkinId: UUID) {
+        var operations = loadAccessoryGoalCheckinOperations()
+        if let index = operations.firstIndex(where: { $0.checkinId == checkinId }) {
+            operations[index].retryCount += 1
+            if operations[index].retryCount >= maxRetries {
+                SyncLogger.retry.info("Accessory goal checkin \(checkinId) dropped after \(self.maxRetries) retries")
+                operations.remove(at: index)
+            }
+        }
+        saveAccessoryGoalCheckinOperations(operations)
+    }
+
+    func hasAccessoryGoalCheckinPendingOperations() -> Bool {
+        return !loadAccessoryGoalCheckinOperations().isEmpty
+    }
+
+    private func addAccessoryGoalCheckinOperation(_ operation: PendingAccessoryGoalCheckinOperation) {
+        var operations = loadAccessoryGoalCheckinOperations()
+
+        if let existingIndex = operations.firstIndex(where: { $0.checkinId == operation.checkinId }) {
+            operations[existingIndex] = operation
+        } else {
+            operations.append(operation)
+        }
+
+        saveAccessoryGoalCheckinOperations(operations)
+    }
+
+    private func loadAccessoryGoalCheckinOperations() -> [PendingAccessoryGoalCheckinOperation] {
+        guard let data = UserDefaults.standard.data(forKey: accessoryGoalCheckinOperationsKey) else {
+            return []
+        }
+
+        do {
+            return try JSONDecoder().decode([PendingAccessoryGoalCheckinOperation].self, from: data)
+        } catch {
+            SyncLogger.retry.error("Failed to decode pending accessory goal checkin operations: \(error)")
+            return []
+        }
+    }
+
+    private func saveAccessoryGoalCheckinOperations(_ operations: [PendingAccessoryGoalCheckinOperation]) {
+        do {
+            let data = try JSONEncoder().encode(operations)
+            UserDefaults.standard.set(data, forKey: accessoryGoalCheckinOperationsKey)
+        } catch {
+            SyncLogger.retry.error("Failed to encode pending accessory goal checkin operations: \(error)")
         }
     }
 }

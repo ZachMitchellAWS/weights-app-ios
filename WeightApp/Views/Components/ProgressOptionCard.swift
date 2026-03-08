@@ -90,6 +90,7 @@ struct EffortOptionCard: View {
     var columnHighlighted: Bool = false
     var accentColor: Color = .setEasy
     var isLastSet: Bool = false
+    var isMacroPlate: Bool = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -107,6 +108,11 @@ struct EffortOptionCard: View {
                 Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(accentColor.opacity(0.7))
+                    .padding(.leading, 10)
+            } else if isMacroPlate {
+                Image(systemName: "hockey.puck.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(accentColor.opacity(0.5))
                     .padding(.leading, 10)
             }
         }

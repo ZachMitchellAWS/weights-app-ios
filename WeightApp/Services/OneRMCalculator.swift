@@ -83,6 +83,19 @@ enum OneRMCalculator {
         let percent1RM: Double
     }
 
+    /// Returns the set of weights achievable using a single plate per side.
+    /// Barbell: 45 lb bar + one plate from {10,15,25,35,45,55} on each side.
+    /// Single load: individual plate weights from {10,15,25,35,45,55}.
+    static func macroPlateWeights(loadType: ExerciseLoadType, barWeight: Double = 45.0) -> Set<Double> {
+        let plates: [Double] = [10, 15, 25, 35, 45, 55]
+        switch loadType {
+        case .barbell:
+            return Set(plates.map { barWeight + $0 * 2 }).union([barWeight])
+        case .singleLoad:
+            return Set(plates)
+        }
+    }
+
     static func effortSuggestions(
         current1RM: Double,
         targetPercent1RMs: [Double],

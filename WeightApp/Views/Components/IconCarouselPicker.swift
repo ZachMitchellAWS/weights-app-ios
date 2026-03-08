@@ -51,7 +51,31 @@ struct IconCarouselPicker: View {
         "BenchPressIcon",
         "BarbellRowIcon",
         "PullUpIcon",
-        "CurlsIcon"
+        "CurlsIcon",
+        // Arms – Biceps / Forearms
+        "DumbbellCurlsIcon",
+        "ConcentrationCurlsIcon",
+        "InclineDumbbellCurlsIcon",
+        "HammerCurlsIcon",
+        "LowPulleyCurlsIcon",
+        "HighPulleyCurlsIcon",
+        "MachineCurlsIcon",
+        "PreacherCurlsIcon",
+        "StandingReverseCurlsIcon",
+        "SeatedReverseCurlsIcon",
+        "WristCurlsIcon",
+        "FingerCurlsIcon",
+        "ReverseBarbellCurlsIcon",
+        // Arms – Triceps
+        "TricepPushdownsIcon",
+        "ReverseTricepPushdownsIcon",
+        "StandingCableOverheadTricepExtensionsIcon",
+        "LyingBarbellTricepExtensionsIcon",
+        "LyingDumbbellTricepExtensionsIcon",
+        "OneArmOverheadDumbbellTricepExtensionsIcon",
+        "TricepKickbacksIcon",
+        "SeatedDumbbellTricepExtensionsIcon",
+        "SeatedEZBarTricepExtensionsIcon"
     ]
 
     var body: some View {
@@ -146,10 +170,36 @@ struct IconCarouselPicker: View {
         }
     }
 
-    /// Suggests an icon based on exercise name keywords
+    /// Suggests an icon based on exercise name keywords.
+    /// Specific name matches come first; generic keyword matches are last.
     static func suggestedIcon(for name: String) -> String {
         let lowered = name.lowercased()
 
+        // Exact / specific name matches (arms)
+        if lowered == "dumbbell curls" { return "DumbbellCurlsIcon" }
+        if lowered == "concentration curls" { return "ConcentrationCurlsIcon" }
+        if lowered == "incline dumbbell curls" { return "InclineDumbbellCurlsIcon" }
+        if lowered == "hammer curls" { return "HammerCurlsIcon" }
+        if lowered == "low pulley curls" { return "LowPulleyCurlsIcon" }
+        if lowered == "high pulley curls" { return "HighPulleyCurlsIcon" }
+        if lowered == "machine curls" { return "MachineCurlsIcon" }
+        if lowered == "preacher curls" { return "PreacherCurlsIcon" }
+        if lowered == "standing reverse curls" { return "StandingReverseCurlsIcon" }
+        if lowered == "seated reverse curls" { return "SeatedReverseCurlsIcon" }
+        if lowered == "wrist curls" { return "WristCurlsIcon" }
+        if lowered == "finger curls" { return "FingerCurlsIcon" }
+        if lowered == "reverse barbell curls" { return "ReverseBarbellCurlsIcon" }
+        if lowered == "tricep pushdowns" { return "TricepPushdownsIcon" }
+        if lowered == "reverse tricep pushdowns" { return "ReverseTricepPushdownsIcon" }
+        if lowered == "standing cable overhead tricep extensions" { return "StandingCableOverheadTricepExtensionsIcon" }
+        if lowered == "lying barbell tricep extensions" { return "LyingBarbellTricepExtensionsIcon" }
+        if lowered == "lying dumbbell tricep extensions" { return "LyingDumbbellTricepExtensionsIcon" }
+        if lowered == "one-arm overhead dumbbell tricep extensions" { return "OneArmOverheadDumbbellTricepExtensionsIcon" }
+        if lowered == "tricep kickbacks" { return "TricepKickbacksIcon" }
+        if lowered == "seated dumbbell tricep extensions" { return "SeatedDumbbellTricepExtensionsIcon" }
+        if lowered == "seated ez-bar tricep extensions" { return "SeatedEZBarTricepExtensionsIcon" }
+
+        // Generic keyword matches (original exercises)
         if lowered.contains("overhead") && lowered.contains("press") {
             return "OverheadPressIcon"
         } else if lowered.contains("bench") {

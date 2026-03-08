@@ -438,6 +438,43 @@ class APIService {
         )
     }
 
+    // MARK: - Accessory Goal Checkin Endpoints
+
+    func getAccessoryGoalCheckins(limit: Int = 100, pageToken: String? = nil, metricType: String? = nil) async throws -> GetAccessoryGoalCheckinsResponse {
+        var endpoint = "/checkin/accessory-goal-checkins?limit=\(limit)"
+        if let pageToken = pageToken {
+            endpoint += "&pageToken=\(pageToken)"
+        }
+        if let metricType = metricType {
+            endpoint += "&metricType=\(metricType)"
+        }
+        return try await requestWithDateDecoding(
+            endpoint: endpoint,
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+
+    func createAccessoryGoalCheckins(_ checkins: [AccessoryGoalCheckinDTO]) async throws -> CreateAccessoryGoalCheckinsResponse {
+        let body = CreateAccessoryGoalCheckinsRequest(checkins: checkins)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/accessory-goal-checkins",
+            method: "POST",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    func deleteAccessoryGoalCheckins(_ checkinIds: [UUID]) async throws -> DeleteAccessoryGoalCheckinsResponse {
+        let body = DeleteAccessoryGoalCheckinsRequest(checkinIds: checkinIds)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/accessory-goal-checkins",
+            method: "DELETE",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
     // MARK: - Request Method with Date Decoding
 
     private func requestWithDateDecoding<T: Decodable>(
@@ -495,7 +532,7 @@ class APIService {
                 throw APIError.httpError(httpResponse.statusCode, "Unknown error")
             }
 
-            SyncLogger.api.debug("\(method) \(endpoint) → \(httpResponse.statusCode)")
+            SyncLogger.api.debug("\(method) \(endpoint) → \(httpResponse.statusCode) (\(data.count) bytes)")
 
             do {
                 let decoder = JSONDecoder()
@@ -503,7 +540,8 @@ class APIService {
                 let decodedData = try decoder.decode(T.self, from: data)
                 return decodedData
             } catch {
-                SyncLogger.api.error("Decode error: \(method) \(endpoint) — \(error)")
+                let rawBody = String(data: data.prefix(500), encoding: .utf8) ?? "<non-utf8>"
+                SyncLogger.api.error("Decode error: \(method) \(endpoint) — \(error)\nRaw body: \(rawBody)")
                 throw APIError.decodingError(error)
             }
         } catch let error as APIError {

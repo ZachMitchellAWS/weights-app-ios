@@ -13,11 +13,6 @@ struct SplitEditorView: View {
     @State private var showNewSplitAlert = false
     @State private var newSplitName = ""
 
-    private func dayNames(for split: WorkoutSplit) -> String {
-        let names = split.days.map { $0.name }
-        return names.joined(separator: ", ")
-    }
-
     var body: some View {
         NavigationStack {
             ZStack {
@@ -112,6 +107,7 @@ struct SplitEditorView: View {
                     if splits.count == 0 {
                         activeId = split.id
                         WorkoutSplitStore.setActiveSplitId(split.id)
+                        Task { await SyncService.shared.updateActiveSplit(split.id) }
                     }
                     Task { await SyncService.shared.syncSplit(split) }
                 }
@@ -127,48 +123,63 @@ struct SplitEditorView: View {
     @ViewBuilder
     private func splitCard(for split: WorkoutSplit) -> some View {
         let isActive = activeId == split.id
-        let names = dayNames(for: split)
-        let subtitle = "\(split.days.count) days" + (names.isEmpty ? "" : " · \(names)")
 
-        HStack(spacing: 14) {
-            // Checkmark toggle
-            Button {
-                if activeId == split.id {
-                    activeId = nil
-                    WorkoutSplitStore.setActiveSplitId(nil)
-                } else {
-                    activeId = split.id
-                    WorkoutSplitStore.setActiveSplitId(split.id)
-                }
-            } label: {
-                Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 22))
-                    .foregroundStyle(isActive ? Color.appAccent : .white.opacity(0.3))
-            }
-            .buttonStyle(.plain)
-
-            // Card body — navigates to detail
-            NavigationLink(value: split.id) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(split.name)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white)
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.5))
-                            .lineLimit(1)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 14) {
+                // Checkmark toggle
+                Button {
+                    if activeId == split.id {
+                        activeId = nil
+                        WorkoutSplitStore.setActiveSplitId(nil)
+                        Task { await SyncService.shared.updateActiveSplit(nil) }
+                    } else {
+                        activeId = split.id
+                        WorkoutSplitStore.setActiveSplitId(split.id)
+                        Task { await SyncService.shared.updateActiveSplit(split.id) }
                     }
-
-                    Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.3))
+                } label: {
+                    Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 22))
+                        .foregroundStyle(isActive ? Color.appAccent : .white.opacity(0.3))
                 }
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+
+                // Card body — navigates to detail
+                NavigationLink(value: split.id) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(split.name)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white)
+                            Text("\(split.days.count) days")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.5))
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.3))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+
+            if !split.days.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(split.days.enumerated()), id: \.element.id) { index, day in
+                            let color = Color.dayChipColors[index % Color.dayChipColors.count]
+                            dayChip(name: day.name, count: day.exerciseIds.count, color: color)
+                        }
+                    }
+                }
+                .scrollIndicators(.hidden)
+                .padding(.top, 10)
+                .padding(.leading, 36) // 22pt icon + 14pt spacing
+            }
         }
         .padding(16)
         .background(
@@ -178,7 +189,7 @@ struct SplitEditorView: View {
                 endPoint: .bottom
             )
         )
-        .cornerRadius(16)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(
             RoundedRectangle(cornerRadius: 16)
                 .stroke(isActive ? Color.appAccent : Color.white.opacity(0.2), lineWidth: isActive ? 2 : 1)
@@ -192,6 +203,18 @@ struct SplitEditorView: View {
                 Label("Delete", systemImage: "trash")
             }
         }
+    }
+
+    @ViewBuilder
+    private func dayChip(name: String, count: Int, color: Color) -> some View {
+        Text("\(name) (\(count))")
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(color.opacity(0.15)))
+            .overlay(Capsule().stroke(color.opacity(0.4), lineWidth: 1))
     }
 
     private func deleteSplit(_ split: WorkoutSplit) {
@@ -302,6 +325,13 @@ struct SplitDetailView: View {
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
+
+                Text("Hold and drag to reorder")
+                    .font(.footnote.italic())
+                    .foregroundStyle(.white.opacity(0.3))
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 4)
+                    .padding(.bottom, 24)
             }
             } // VStack
         }
@@ -472,6 +502,13 @@ struct DayDetailView: View {
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
+
+                Text("Hold and drag to reorder")
+                    .font(.footnote.italic())
+                    .foregroundStyle(.white.opacity(0.3))
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 4)
+                    .padding(.bottom, 24)
             }
         }
         .navigationTitle(day?.name ?? "Day")

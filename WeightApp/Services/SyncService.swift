@@ -36,14 +36,17 @@ class SyncService: ObservableObject {
         var templatesComplete: Bool = false
         var liftSetsComplete: Bool = false
         var estimated1RMsComplete: Bool = false
+        var accessoryGoalCheckinsComplete: Bool = false
 
         // Pagination cursors (nil = start from beginning)
         var liftSetPageToken: String? = nil
         var estimated1RMPageToken: String? = nil
+        var accessoryGoalCheckinPageToken: String? = nil
 
         // Running totals for progress display on resume
         var liftSetsFetched: Int = 0
         var estimated1RMsFetched: Int = 0
+        var accessoryGoalCheckinsFetched: Int = 0
     }
 
     private static let syncStateKey = "SyncService.SyncState"
@@ -110,12 +113,17 @@ class SyncService: ObservableObject {
             SyncLogger.sync.info("Step 2: Syncing exercises")
             do {
                 let response = try await APIService.shared.getExercises()
+                SyncLogger.sync.info("[DEBUG] getExercises returned \(response.exercises.count) exercise(s)")
 
                 if response.exercises.isEmpty {
                     SyncLogger.sync.info("No exercises on backend, creating defaults")
                     await createAndSyncDefaultExercises(context: context)
                 } else {
                     SyncLogger.sync.info("Importing \(response.exercises.count) exercises from backend")
+                    let deletedCount = response.exercises.filter { $0.deleted == true }.count
+                    if deletedCount > 0 {
+                        SyncLogger.sync.info("[DEBUG] \(deletedCount) of \(response.exercises.count) exercises are marked deleted")
+                    }
                     await importExercisesFromBackend(response.exercises)
                 }
 
@@ -123,7 +131,7 @@ class SyncService: ObservableObject {
                 state.exercisesComplete = true
                 syncState = state
             } catch {
-                SyncLogger.sync.error("Initial exercise sync failed: \(error.localizedDescription)")
+                SyncLogger.sync.error("Initial exercise sync failed: \(error)")
             }
         } else {
             SyncLogger.sync.debug("Step 2: Exercise already synced, skipping")
@@ -176,6 +184,18 @@ class SyncService: ObservableObject {
 
         await processLiftSetRetryQueue()
         await processEstimated1RMRetryQueue()
+
+        // Step 4: Sync accessory goal checkins
+        if !state.accessoryGoalCheckinsComplete {
+            SyncLogger.sync.info("Step 4: Syncing accessory goal checkins")
+            await syncAccessoryGoalCheckinsFromBackend(resumeState: &state)
+            state.accessoryGoalCheckinsComplete = true
+            syncState = state
+        } else {
+            SyncLogger.sync.debug("Step 4: Accessory goal checkins already synced, skipping")
+        }
+
+        await processAccessoryGoalCheckinRetryQueue()
 
         // All done
         state.syncComplete = true
@@ -240,6 +260,19 @@ class SyncService: ObservableObject {
             }
             if let activeSetPlanId = response.activeSetPlanId {
                 userProperties.activeSetPlanId = UUID(uuidString: activeSetPlanId)
+            }
+            if let activeSplitId = response.activeSplitId,
+               let splitUUID = UUID(uuidString: activeSplitId) {
+                WorkoutSplitStore.setActiveSplitId(splitUUID)
+            }
+            if let stepsGoal = response.stepsGoal {
+                userProperties.stepsGoal = stepsGoal
+            }
+            if let proteinGoal = response.proteinGoal {
+                userProperties.proteinGoal = proteinGoal
+            }
+            if let bodyweightTarget = response.bodyweightTarget {
+                userProperties.bodyweightTarget = bodyweightTarget
             }
 
             try? context.save()
@@ -315,6 +348,22 @@ class SyncService: ObservableObject {
         }
     }
 
+    func updateActiveSplit(_ splitId: UUID?) async {
+        do {
+            var request = UserPropertiesRequest()
+            if let splitId = splitId {
+                request.activeSplitId = splitId.uuidString
+            } else {
+                request.clearActiveSplit = true
+            }
+            _ = try await APIService.shared.updateUserProperties(request)
+            retryQueue.removePendingUserPropertiesSync()
+        } catch {
+            SyncLogger.sync.error("Failed to update active split: \(error.localizedDescription)")
+            retryQueue.addPendingUserPropertiesSync()
+        }
+    }
+
     func processUserPropertiesRetryQueue() async {
         guard let context = modelContext else { return }
         guard retryQueue.hasUserPropertiesPending() else { return }
@@ -338,6 +387,11 @@ class SyncService: ObservableObject {
                 request.activeSetPlanId = templateId.uuidString
             } else {
                 request.clearActiveSetPlan = true
+            }
+            if let splitId = WorkoutSplitStore.activeSplitId() {
+                request.activeSplitId = splitId.uuidString
+            } else {
+                request.clearActiveSplit = true
             }
             _ = try await APIService.shared.updateUserProperties(request)
             retryQueue.removePendingUserPropertiesSync()
@@ -997,7 +1051,7 @@ class SyncService: ObservableObject {
                         id: dto.splitId,
                         name: dto.name,
                         days: days,
-                        createdAt: dto.createdDatetime ?? Date(),
+                        createdAt: dto.createdDatetime   ?? Date(),
                         createdTimezone: dto.createdTimezone,
                         deleted: dto.deleted ?? false
                     )
@@ -1194,7 +1248,7 @@ class SyncService: ObservableObject {
 
     func createDefaultExercisesLocally() async {
         guard let context = modelContext else { return }
-        SeedService.seedExercises(context: context)
+        _ = SeedService.seedExercises(context: context)
     }
 
     func createDefaultExercisesAndSync() async {
@@ -1227,9 +1281,15 @@ class SyncService: ObservableObject {
     private func createAndSyncDefaultExercises(context: ModelContext) async {
         var exerciseDTOs: [ExerciseDTO] = []
 
-        for (name, loadType, movementType) in SeedService.defaultExercises {
-            let icon = IconCarouselPicker.suggestedIcon(for: name)
-            let exercise = Exercise(name: name, isCustom: false, loadType: loadType, movementType: movementType, icon: icon)
+        for def in Exercise.builtInTemplates {
+            let exercise = Exercise(
+                id: def.id,
+                name: def.name,
+                isCustom: false,
+                loadType: def.loadType,
+                movementType: def.movementType,
+                icon: def.icon
+            )
             context.insert(exercise)
             exerciseDTOs.append(exercise.toDTO())
         }
@@ -1274,6 +1334,8 @@ class SyncService: ObservableObject {
                     if let mt = dto.movementType {
                         existing.movementType = mt
                     }
+                    existing.weightIncrement = dto.weightIncrement
+                    existing.barbellWeight = dto.barbellWeight
                 } else {
                     let loadType = ExerciseLoadType(rawValue: dto.loadType) ?? .barbell
                     let movementType = ExerciseMovementType(rawValue: dto.movementType ?? "") ?? .other
@@ -1290,6 +1352,8 @@ class SyncService: ObservableObject {
                         icon: dto.icon ?? "LiftTheBullIcon"
                     )
                     context.insert(exercise)
+                    exercise.weightIncrement = dto.weightIncrement
+                    exercise.barbellWeight = dto.barbellWeight
                 }
             }
 
@@ -1306,6 +1370,124 @@ class SyncService: ObservableObject {
     private func fetchAllExercises(context: ModelContext) -> [Exercise] {
         let descriptor = FetchDescriptor<Exercise>()
         return (try? context.fetch(descriptor)) ?? []
+    }
+
+    // MARK: - Accessory Goal Checkin Sync
+
+    /// Fetches all accessory goal checkins from backend using pagination and imports them locally
+    private func syncAccessoryGoalCheckinsFromBackend(resumeState state: inout SyncState) async {
+        var pageToken = state.accessoryGoalCheckinPageToken
+        var totalFetched = state.accessoryGoalCheckinsFetched
+
+        do {
+            repeat {
+                let response = try await APIService.shared.getAccessoryGoalCheckins(limit: 500, pageToken: pageToken)
+                totalFetched += response.count
+
+                await importAccessoryGoalCheckinsFromBackend(response.checkins)
+
+                state.accessoryGoalCheckinsFetched = totalFetched
+                pageToken = response.hasMore ? response.nextPageToken : nil
+                state.accessoryGoalCheckinPageToken = pageToken
+                syncState = state
+
+            } while pageToken != nil
+
+            SyncLogger.sync.info("Completed accessory goal checkin sync, fetched \(totalFetched) total")
+        } catch {
+            SyncLogger.sync.error("Failed to sync accessory goal checkins: \(error.localizedDescription)")
+        }
+    }
+
+    /// Syncs a single accessory goal checkin to the backend (for new creations)
+    func syncAccessoryGoalCheckin(_ checkin: AccessoryGoalCheckin) async {
+        let dto = checkin.toDTO()
+
+        do {
+            _ = try await APIService.shared.createAccessoryGoalCheckins([dto])
+            retryQueue.removePendingAccessoryGoalCheckinOperation(checkinId: checkin.id)
+            SyncLogger.sync.debug("Synced accessory goal checkin \(checkin.id)")
+        } catch {
+            SyncLogger.sync.error("Failed to sync accessory goal checkin \(checkin.id): \(error.localizedDescription)")
+            retryQueue.addPendingAccessoryGoalCheckinCreate(checkinId: checkin.id)
+        }
+    }
+
+    /// Deletes an accessory goal checkin from the backend
+    func deleteAccessoryGoalCheckin(_ checkinId: UUID) async {
+        do {
+            _ = try await APIService.shared.deleteAccessoryGoalCheckins([checkinId])
+            retryQueue.removePendingAccessoryGoalCheckinOperation(checkinId: checkinId)
+            SyncLogger.sync.debug("Deleted accessory goal checkin \(checkinId)")
+        } catch {
+            SyncLogger.sync.error("Failed to delete accessory goal checkin \(checkinId): \(error.localizedDescription)")
+            retryQueue.addPendingAccessoryGoalCheckinDelete(checkinId: checkinId)
+        }
+    }
+
+    /// Process pending accessory goal checkin operations from retry queue
+    func processAccessoryGoalCheckinRetryQueue() async {
+        guard let context = modelContext else { return }
+
+        let pendingOperations = retryQueue.getPendingAccessoryGoalCheckinOperations()
+
+        for operation in pendingOperations {
+            switch operation.operationType {
+            case .upsert:
+                if let checkin = fetchAccessoryGoalCheckin(by: operation.checkinId, context: context) {
+                    do {
+                        _ = try await APIService.shared.createAccessoryGoalCheckins([checkin.toDTO()])
+                        retryQueue.removePendingAccessoryGoalCheckinOperation(checkinId: operation.checkinId)
+                    } catch {
+                        retryQueue.incrementAccessoryGoalCheckinRetryCount(for: operation.checkinId)
+                    }
+                } else {
+                    retryQueue.removePendingAccessoryGoalCheckinOperation(checkinId: operation.checkinId)
+                }
+
+            case .delete:
+                do {
+                    _ = try await APIService.shared.deleteAccessoryGoalCheckins([operation.checkinId])
+                    retryQueue.removePendingAccessoryGoalCheckinOperation(checkinId: operation.checkinId)
+                } catch {
+                    retryQueue.incrementAccessoryGoalCheckinRetryCount(for: operation.checkinId)
+                }
+            }
+        }
+    }
+
+    private func importAccessoryGoalCheckinsFromBackend(_ dtos: [AccessoryGoalCheckinDTO]) async {
+        guard let container = modelContainer else { return }
+        let sendableDtos = dtos
+        await Task.detached {
+            let context = ModelContext(container)
+            context.autosaveEnabled = false
+
+            let existingCheckins = (try? context.fetch(FetchDescriptor<AccessoryGoalCheckin>())) ?? []
+            let existingById = Dictionary(uniqueKeysWithValues: existingCheckins.map { ($0.id, $0) })
+
+            for dto in sendableDtos {
+                if let existing = existingById[dto.checkinId] {
+                    existing.metricType = dto.metricType
+                    existing.value = dto.value
+                    existing.createdTimezone = dto.createdTimezone
+                    existing.createdAt = dto.createdDatetime
+                } else {
+                    let checkin = AccessoryGoalCheckin(metricType: dto.metricType, value: dto.value)
+                    checkin.id = dto.checkinId
+                    checkin.createdTimezone = dto.createdTimezone
+                    checkin.createdAt = dto.createdDatetime
+                    context.insert(checkin)
+                }
+            }
+
+            try? context.save()
+        }.value
+    }
+
+    private func fetchAccessoryGoalCheckin(by id: UUID, context: ModelContext) -> AccessoryGoalCheckin? {
+        let descriptor = FetchDescriptor<AccessoryGoalCheckin>(predicate: #Predicate { $0.id == id })
+        return try? context.fetch(descriptor).first
     }
 
     // MARK: - Cleanup

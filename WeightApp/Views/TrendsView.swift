@@ -12,7 +12,7 @@ struct TrendsView: View {
     @ObservedObject var selectedSetData: SelectedSetData
     @ObservedObject private var syncService = SyncService.shared
     @Binding var selectedTab: Int
-    @State private var trendsTab: TrendsTab = .analytics
+    @State private var trendsTab: TrendsTab = .balance
 
     var body: some View {
         NavigationStack {
@@ -26,6 +26,10 @@ struct TrendsView: View {
                 // AnalyticsView: only rendered when selected (avoids expensive widget recomputation while on other tabs)
                 // HistoryView: always in tree (preserves scroll position, delete mode state) but hidden via opacity
                 ZStack {
+                    if trendsTab == .balance {
+                        BalanceView()
+                    }
+
                     if trendsTab == .analytics {
                         AnalyticsView()
                     }

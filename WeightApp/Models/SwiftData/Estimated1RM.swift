@@ -8,6 +8,11 @@
 import Foundation
 import SwiftData
 
+/// A point-in-time snapshot of the running-max estimated 1RM for an exercise,
+/// recorded each time a LiftSet is logged. The `value` is NOT the e1RM of the
+/// individual set — it's `max(previousMax, setE1RM)`, i.e. the best known e1RM
+/// for the exercise up to that moment. For baseline sets, the value may be
+/// calibrated from user-reported effort rather than the raw Epley formula.
 @Model
 final class Estimated1RM {
     #Index<Estimated1RM>([\.createdAt], [\.deleted])

@@ -23,12 +23,21 @@ struct WeightAppApp: App {
     let modelContainer: ModelContainer
 
     init() {
+        // Clear stale keychain tokens on fresh install.
+        // UserDefaults is wiped on uninstall but Keychain persists,
+        // so if the flag is missing we know this is a new install.
+        let hasLaunchedKey = "hasLaunchedBefore"
+        if !UserDefaults.standard.bool(forKey: hasLaunchedKey) {
+            KeychainService.shared.clearTokens()
+            UserDefaults.standard.set(true, forKey: hasLaunchedKey)
+        }
+
         // Lock to portrait orientation
         AppDelegate.orientationLock = .portrait
 
         // Create the model container
         do {
-            modelContainer = try ModelContainer(for: Exercise.self, LiftSet.self, UserProperties.self, Estimated1RM.self, EntitlementGrant.self, WorkoutSplit.self, SetPlan.self)
+            modelContainer = try ModelContainer(for: Exercise.self, LiftSet.self, UserProperties.self, Estimated1RM.self, EntitlementGrant.self, WorkoutSplit.self, SetPlan.self, AccessoryGoalCheckin.self)
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
          }
@@ -120,8 +129,7 @@ struct WeightAppApp: App {
                 authViewModel.setModelContext(context)
                 EntitlementsService.shared.setModelContext(context)
 
-                // Seed defaults if needed
-                SeedService.seedSplits(context: context)
+                // Seed set plan defaults (splits are seeded after sync to avoid duplicates)
                 SeedService.seedSetPlans(context: context)
 
                 // Start listening for StoreKit transaction updates (renewals, etc.)
@@ -136,6 +144,7 @@ struct WeightAppApp: App {
                         await SyncService.shared.processLiftSetRetryQueue()
                         await SyncService.shared.processEstimated1RMRetryQueue()
                         await SyncService.shared.processTemplateRetryQueue()
+                        await SyncService.shared.processAccessoryGoalCheckinRetryQueue()
 
                         // Sync entitlement status from backend
                         await EntitlementsService.shared.syncEntitlementStatus()

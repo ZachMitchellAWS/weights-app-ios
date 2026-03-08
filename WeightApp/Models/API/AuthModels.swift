@@ -80,11 +80,21 @@ struct UserPropertiesRequest: Codable {
     var clearBodyweight: Bool = false
     var activeSetPlanId: String?
     var clearActiveSetPlan: Bool = false
+    var activeSplitId: String?
+    var clearActiveSplit: Bool = false
+    var stepsGoal: Int?
+    var proteinGoal: Int?
+    var bodyweightTarget: Double?
+    var clearStepsGoal: Bool = false
+    var clearProteinGoal: Bool = false
+    var clearBodyweightTarget: Bool = false
 
     private enum CodingKeys: String, CodingKey {
         case bodyweight, availableChangePlates, minReps, maxReps
         case easyMinReps, easyMaxReps, moderateMinReps, moderateMaxReps, hardMinReps, hardMaxReps
         case activeSetPlanId = "activeSetPlanTemplateId"
+        case activeSplitId
+        case stepsGoal, proteinGoal, bodyweightTarget
     }
 
     func encode(to encoder: Encoder) throws {
@@ -126,6 +136,26 @@ struct UserPropertiesRequest: Codable {
         } else if let activeSetPlanId = activeSetPlanId {
             try container.encode(activeSetPlanId, forKey: .activeSetPlanId)
         }
+        if clearActiveSplit {
+            try container.encodeNil(forKey: .activeSplitId)
+        } else if let activeSplitId = activeSplitId {
+            try container.encode(activeSplitId, forKey: .activeSplitId)
+        }
+        if clearStepsGoal {
+            try container.encodeNil(forKey: .stepsGoal)
+        } else if let stepsGoal = stepsGoal {
+            try container.encode(stepsGoal, forKey: .stepsGoal)
+        }
+        if clearProteinGoal {
+            try container.encodeNil(forKey: .proteinGoal)
+        } else if let proteinGoal = proteinGoal {
+            try container.encode(proteinGoal, forKey: .proteinGoal)
+        }
+        if clearBodyweightTarget {
+            try container.encodeNil(forKey: .bodyweightTarget)
+        } else if let bodyweightTarget = bodyweightTarget {
+            try container.encode(bodyweightTarget, forKey: .bodyweightTarget)
+        }
     }
 }
 
@@ -142,6 +172,10 @@ struct UserPropertiesResponse: Codable {
     let hardMinReps: Int?
     let hardMaxReps: Int?
     let activeSetPlanId: String?
+    let activeSplitId: String?
+    let stepsGoal: Int?
+    let proteinGoal: Int?
+    let bodyweightTarget: Double?
     let createdDatetime: String
     let lastModifiedDatetime: String
 
@@ -149,6 +183,8 @@ struct UserPropertiesResponse: Codable {
         case userId, bodyweight, availableChangePlates, minReps, maxReps
         case easyMinReps, easyMaxReps, moderateMinReps, moderateMaxReps, hardMinReps, hardMaxReps
         case activeSetPlanId = "activeSetPlanTemplateId"
+        case activeSplitId
+        case stepsGoal, proteinGoal, bodyweightTarget
         case createdDatetime, lastModifiedDatetime
     }
 }
