@@ -130,6 +130,9 @@ final class Exercise {
     static let tricepKickbacksId                        = UUID(uuidString: "00000000-0000-0000-0001-000000000029")!
     static let seatedDumbbellTricepExtensionsId         = UUID(uuidString: "00000000-0000-0000-0001-000000000030")!
     static let seatedEZBarTricepExtensionsId            = UUID(uuidString: "00000000-0000-0000-0001-000000000031")!
+    static let lateralRaisesId                          = UUID(uuidString: "00000000-0000-0000-0001-000000000032")!
+    static let flyesId                                  = UUID(uuidString: "00000000-0000-0000-0001-000000000033")!
+    static let sideRaisesId                             = UUID(uuidString: "00000000-0000-0000-0001-000000000034")!
 
     static let builtInIds: Set<UUID> = [
         deadliftsId, squatsId, benchPressId, overheadPressId, barbellRowId,
@@ -140,7 +143,8 @@ final class Exercise {
         reverseBarbellCurlsId, tricepPushdownsId, reverseTricepPushdownsId,
         standingCableOverheadTricepExtensionsId, lyingBarbellTricepExtensionsId,
         lyingDumbbellTricepExtensionsId, oneArmOverheadDumbbellTricepExtensionsId,
-        tricepKickbacksId, seatedDumbbellTricepExtensionsId, seatedEZBarTricepExtensionsId
+        tricepKickbacksId, seatedDumbbellTricepExtensionsId, seatedEZBarTricepExtensionsId,
+        lateralRaisesId, flyesId, sideRaisesId
     ]
 
     // MARK: - Built-in Definitions
@@ -177,5 +181,8 @@ final class Exercise {
         (tricepKickbacksId,                        "Tricep Kickbacks",                               .singleLoad, .push,  "TricepKickbacksIcon"),
         (seatedDumbbellTricepExtensionsId,         "Seated Dumbbell Tricep Extensions",              .singleLoad, .push,  "SeatedDumbbellTricepExtensionsIcon"),
         (seatedEZBarTricepExtensionsId,            "Seated EZ-Bar Tricep Extensions",                .barbell,    .push,  "SeatedEZBarTricepExtensionsIcon"),
+        (lateralRaisesId,                          "Lateral Raises",                                 .singleLoad, .push,  "LateralRaisesIcon"),
+        (flyesId,                                  "Flys",                                          .singleLoad, .push,  "FlyesIcon"),
+        (sideRaisesId,                             "Side Raises",                                    .singleLoad, .push,  "SideRaisesIcon"),
     ]
 }

@@ -174,6 +174,11 @@ struct WeightAppApp: App {
                     showOnboarding = true
                 }
             }
+            .onChange(of: authViewModel.showPostAuthFlow) { _, showFlow in
+                if showFlow {
+                    showOnboarding = true
+                }
+            }
         }
         .modelContainer(modelContainer)
     }

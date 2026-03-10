@@ -41,6 +41,10 @@ struct TrendsView: View {
                     )
                     .opacity(trendsTab == .history ? 1 : 0)
                     .allowsHitTesting(trendsTab == .history)
+
+                    if trendsTab == .insights {
+                        InsightsView()
+                    }
                 }
             }
             .background(Color.black)

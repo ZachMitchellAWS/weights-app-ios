@@ -11,6 +11,14 @@ import Charts
 struct OneRMProgressionChart: View {
     let dataPoints: [TrendsCalculator.OneRMDataPoint]
 
+    private var yDomain: ClosedRange<Double> {
+        let values = dataPoints.map(\.value)
+        guard let lo = values.min(), let hi = values.max() else { return 0...100 }
+        let range = hi - lo
+        let padding = Swift.max(range * 0.15, 2.0)
+        return (lo - padding)...(hi + padding)
+    }
+
     var body: some View {
         if dataPoints.isEmpty {
             Text("No data for this exercise")
@@ -32,14 +40,14 @@ struct OneRMProgressionChart: View {
                             endPoint: .bottom
                         )
                     )
-                    .interpolationMethod(.catmullRom)
+                    .interpolationMethod(.linear)
 
                     LineMark(
                         x: .value("Date", point.date),
                         y: .value("1RM", point.value)
                     )
                     .foregroundStyle(Color.appAccent)
-                    .interpolationMethod(.catmullRom)
+                    .interpolationMethod(.linear)
                     .lineStyle(StrokeStyle(lineWidth: 2))
 
                     if point.isPR {
@@ -52,7 +60,7 @@ struct OneRMProgressionChart: View {
                     }
                 }
             }
-            .chartYScale(domain: .automatic(includesZero: false))
+            .chartYScale(domain: yDomain)
             .chartXAxis {
                 AxisMarks(values: .automatic(desiredCount: 3)) { _ in
                     AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
@@ -72,6 +80,7 @@ struct OneRMProgressionChart: View {
                 }
             }
             .frame(height: 180)
+            .clipShape(Rectangle())
         }
     }
 }

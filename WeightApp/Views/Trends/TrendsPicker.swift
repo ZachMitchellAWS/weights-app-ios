@@ -11,12 +11,14 @@ enum TrendsTab: Int, CaseIterable {
     case balance = 0
     case analytics = 1
     case history = 2
+    case insights = 3
 
     var title: String {
         switch self {
         case .balance: return "Balance"
         case .analytics: return "Analytics"
         case .history: return "History"
+        case .insights: return "Insights"
         }
     }
 }
