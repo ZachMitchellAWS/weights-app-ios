@@ -37,7 +37,8 @@ struct WidgetCard<Content: View>: View {
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(white: 0.14))
-        .cornerRadius(12)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        // .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.4), lineWidth: 1.5))
     }
 }
 

@@ -145,13 +145,21 @@ struct EffortOptionCard: View {
     }
 
     private var percent1RMColumn: some View {
-        Text("\(suggestion.percent1RM, specifier: "%.1f")%")
-            .font(.callout)
-            .foregroundStyle(columnHighlighted && sortColumn == .percent1RM ? Color.appAccent : .white.opacity(0.8))
-            .animation(.easeInOut(duration: 0.15), value: columnHighlighted)
-            .lineLimit(1)
-            .minimumScaleFactor(0.7)
-            .frame(maxWidth: .infinity)
+        Group {
+            if suggestion.percent1RM < 0 {
+                Text("–")
+                    .font(.callout)
+                    .foregroundStyle(Color.white.opacity(0.3))
+            } else {
+                Text("\(suggestion.percent1RM, specifier: "%.1f")%")
+                    .font(.callout)
+                    .foregroundStyle(columnHighlighted && sortColumn == .percent1RM ? Color.appAccent : .white.opacity(0.8))
+                    .animation(.easeInOut(duration: 0.15), value: columnHighlighted)
+            }
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+        .frame(maxWidth: .infinity)
     }
 
     private func formatWeight(_ weight: Double) -> String {

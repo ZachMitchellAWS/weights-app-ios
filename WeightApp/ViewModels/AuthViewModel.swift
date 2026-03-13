@@ -92,6 +92,7 @@ class AuthViewModel: ObservableObject {
 
             // Perform initial sync for returning user (includes user properties sync)
             await SyncService.shared.performInitialSync(isNewUser: false)
+            await EntitlementsService.shared.syncEntitlementStatus()
 
             isLoading = false
             return .success
@@ -115,6 +116,7 @@ class AuthViewModel: ObservableObject {
 
             // Perform initial sync for new user (includes user properties sync)
             await SyncService.shared.performInitialSync(isNewUser: true)
+            await EntitlementsService.shared.syncEntitlementStatus()
 
             isLoading = false
             return .success
@@ -191,6 +193,7 @@ class AuthViewModel: ObservableObject {
         isAuthenticated = true
         userId = response.userId
         await SyncService.shared.performInitialSync(isNewUser: isNewUser)
+        await EntitlementsService.shared.syncEntitlementStatus()
         isLoading = false
         return .success
     }

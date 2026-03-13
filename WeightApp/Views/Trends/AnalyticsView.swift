@@ -36,7 +36,10 @@ struct AnalyticsView: View {
     private static var hasEverLoaded = false
     @State private var isLoaded = AnalyticsView.hasEverLoaded
 
-    private var isPremium: Bool { PremiumOverride.isEnabled || EntitlementGrant.isPremium(entitlementRecords) }
+    private var isPremium: Bool {
+        if FreeOverride.isEnabled { return false }
+        return PremiumOverride.isEnabled || EntitlementGrant.isPremium(entitlementRecords)
+    }
 
     var body: some View {
         Group {
@@ -56,10 +59,6 @@ struct AnalyticsView: View {
                         WeeklyVolumeWidget(allSets: allSets)
 
                         SetIntensityWidget(allSets: allSets, allEstimated1RM: allEstimated1RM)
-
-                        PRTimelineWidget(allSets: allSets)
-
-                        BestLiftsWidget(allSets: allSets)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)

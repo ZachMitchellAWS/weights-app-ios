@@ -6,55 +6,398 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct InsightsView: View {
-    private let sections: [(title: String, body: String)] = [
-        ("Training Volume",
-         "You performed 3 sessions this week and hit your full Push / Pull / Legs split once through, using the Standard set plan. Total volume was 54 logged sets, which is a solid week: 18 Push, 24 Pull, 12 Legs. Nice balanced coverage, and it gives you a clean baseline to build from."),
-        ("Strength Highlights",
-         "There were a lot of good jumps. Your top e1RMs this week were Deadlift 222 lb, Squat 222 lb, Bench 215.8 lb, Barbell Row 203.5 lb, Romanian Deadlift 180 lb, and Overhead Press 128.3 lb. Biggest movers were Bench (+89.2 lb from first logged set to best set), Deadlift (+89 lb), Squat (+89 lb), Barbell Row (+83.2 lb), and RDL (+75 lb). Since this is your first real logged week, those are also your current all-time PR marks in the app."),
-        ("Areas to Watch",
-         "No major regressions showed up, which is what you want in week one. The one lift that looked the flattest was Overhead Press — it topped out at 128.3 lb e1RM, and most earlier sets clustered lower without much middle-ground buildup. That is not a red flag, just the clearest candidate for a tweak. Everything else trended up well across the session."),
-        ("Accessory Goals",
-         "Bodyweight averaged about 242.7 lb, which is 22.7 lb above your 220 lb target, and the trend moved up from 240 to 248 lb. Protein totaled 800 g for the week, about 114 g/day on average, which is well under your 240 g/day goal. Steps totaled 22,550 for the week, about 3,221/day, also under your 5,000/day target."),
-        ("Next Week",
-         "Keep the split the same, but try switching Overhead Press from Standard to Pyramid for one week so you get to the top set sooner while still keeping back-off work. Everything else is moving — bring protein up first, and your lifting progress should keep stacking fast.")
+    @State private var viewModel = InsightsViewModel()
+    @Query private var entitlementRecords: [EntitlementGrant]
+    @Query private var allLiftSets: [LiftSet]
+    @State private var showUpsell = false
+
+    private static let headerColors: [Color] = [
+        Color(red: 0x21/255, green: 0xB7/255, blue: 0xC9/255),  // teal (Training Volume)
+        Color(red: 0x22/255, green: 0xC5/255, blue: 0x5E/255),  // green (Strength Highlights)
+        Color(red: 0xF5/255, green: 0x9E/255, blue: 0x0B/255),  // amber (Areas to Watch)
+        Color(red: 0x5B/255, green: 0x3B/255, blue: 0xE8/255),  // violet (Accessory Goals)
+        Color.appAccent,                                          // light amber (Next Week)
     ]
+
+    private var isPremium: Bool {
+        if FreeOverride.isEnabled { return false }
+        return PremiumOverride.isEnabled || EntitlementGrant.isPremium(entitlementRecords)
+    }
+
+    private var hasLocalSetsThisWeek: Bool {
+        let calendar = Calendar.current
+        let now = Date()
+        guard let weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start else { return false }
+        return allLiftSets.contains { $0.createdAt >= weekStart }
+    }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 12) {
-                // Header
-                VStack(spacing: 6) {
-                    Image(systemName: "sparkles")
-                        .font(.title)
-                        .foregroundStyle(Color.appAccent)
-                        .shadow(color: Color.appAccent.opacity(0.5), radius: 8)
+                insightsHeader
 
-                    Text("Weekly Insights")
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(.white)
-
-                    Text("Mar 2 – Mar 8, 2026")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.5))
-                }
-                .padding(.top, 8)
-                .padding(.bottom, 4)
-
-                // Narrative cards
-                ForEach(sections, id: \.title) { section in
-                    WidgetCard(title: section.title) {
-                        Text(section.body)
-                            .font(.callout)
-                            .foregroundStyle(.white.opacity(0.85))
-                            .lineSpacing(4)
-                    }
+                switch viewModel.state {
+                case .idle:
+                    EmptyView()
+                case .locked:
+                    lockedContent
+                case .loading:
+                    loadingContent
+                case .empty(let reason):
+                    emptyContent(reason: reason)
+                case .processing:
+                    processingContent
+                case .loaded(let response):
+                    populatedContent(response: response)
+                case .error(let message):
+                    errorContent(message: message)
                 }
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 20)
         }
         .scrollIndicators(.hidden)
+        .refreshable {
+            await viewModel.fetchInsights(force: true, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
+        }
+        .task {
+            await viewModel.onAppear(isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
+        }
+        .fullScreenCover(isPresented: $showUpsell) {
+            UpsellView { _ in showUpsell = false }
+        }
+    }
+
+    // MARK: - Header
+
+    private var insightsHeader: some View {
+        VStack(spacing: 6) {
+            PhaseAnimator(InsightsView.headerColors, trigger: true) { phase in
+                Image(systemName: "brain.fill")
+                    .font(.title)
+                    .foregroundStyle(phase)
+                    .shadow(color: phase.opacity(0.5), radius: 8)
+            } animation: { _ in
+                .easeInOut(duration: 1.2)
+            }
+
+            Text("Progress Narratives")
+                .font(.title3.weight(.bold))
+                .foregroundStyle(.white)
+
+            if case .loaded(let response) = viewModel.state,
+               let start = response.weekStartDate,
+               let end = response.weekEndDate {
+                Text(InsightsView.formatDateRange(start: start, end: end))
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.5))
+
+                Text("Next available \(InsightsView.formatNextAvailable(weekEnd: end))")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.35))
+            }
+        }
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+    }
+
+    // MARK: - Locked State
+
+    private var lockedContent: some View {
+        ZStack {
+            VStack(spacing: 12) {
+                ForEach(InsightSectionStyle.allCases) { style in
+                    placeholderCard(style: style)
+                }
+            }
+            .blur(radius: 6)
+            .allowsHitTesting(false)
+
+            VStack(spacing: 16) {
+                Image(systemName: "lock.fill")
+                    .font(.largeTitle)
+                    .foregroundStyle(Color.appAccent)
+
+                Text("Premium Feature")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+
+                Text("Unlock AI-powered weekly training insights with Premium.")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+
+                Button {
+                    showUpsell = true
+                } label: {
+                    Text("Learn More")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 10)
+                        .background(Color.appAccent)
+                        .clipShape(Capsule())
+                }
+            }
+            .padding(32)
+        }
+    }
+
+    // MARK: - Loading State
+
+    private var loadingContent: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .tint(.white.opacity(0.6))
+            Text("Loading insights...")
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.5))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 60)
+    }
+
+    // MARK: - Empty State
+
+    @ViewBuilder
+    private func emptyContent(reason: InsightsViewModel.EmptyReason) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "chart.bar.doc.horizontal")
+                .font(.system(size: 40))
+                .foregroundStyle(Color.appAccent.opacity(0.5))
+
+            switch reason {
+            case .noSetsLogged:
+                Text("Log at least one set to unlock your weekly insight.")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+
+            case .setsLoggedWeekInProgress(let sundayDate):
+                Text("Your insight will be ready after \(sundayDate).")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+
+                Text("Pull to refresh to check.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.4))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+    }
+
+    // MARK: - Processing State
+
+    private var processingContent: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .tint(Color.appAccent)
+            Text("Generating your insights...")
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.7))
+            Text("This usually takes about a minute.")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.4))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 60)
+    }
+
+    // MARK: - Populated State
+
+    @ViewBuilder
+    private func populatedContent(response: WeeklyInsightsResponse) -> some View {
+        if let sections = response.sections {
+            ForEach(sections, id: \.title) { section in
+                let style = InsightSectionStyle.from(title: section.title)
+                InsightSectionCard(section: section, style: style)
+            }
+
+            // AI Disclaimer
+            Text("This analysis is AI-generated and may contain inaccuracies.\nConsult a qualified professional before making changes to your training program.")
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.35))
+                .multilineTextAlignment(.center)
+                .padding(.top, 16)
+        }
+    }
+
+    // MARK: - Error State
+
+    private func errorContent(message: String) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.icloud")
+                .font(.system(size: 40))
+                .foregroundStyle(.white.opacity(0.4))
+
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.7))
+                .multilineTextAlignment(.center)
+
+            Button {
+                Task {
+                    await viewModel.fetchInsights(force: true, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
+                }
+            } label: {
+                Text("Try Again")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 10)
+                    .background(Color.appAccent)
+                    .clipShape(Capsule())
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+    }
+
+    // MARK: - Placeholder Card (for blurred locked state)
+
+    private func placeholderCard(style: InsightSectionStyle) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: style.icon)
+                    .foregroundStyle(style.color)
+                    .font(.subheadline)
+                Text(style.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+            Text("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.")
+                .font(.callout)
+                .foregroundStyle(.white.opacity(0.85))
+                .lineSpacing(4)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(white: 0.14))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    // MARK: - Date Range Formatting
+
+    static func formatNextAvailable(weekEnd: String) -> String {
+        let isoFormatter = DateFormatter()
+        isoFormatter.dateFormat = "yyyy-MM-dd"
+        guard let endDate = isoFormatter.date(from: weekEnd),
+              let nextMonday = Calendar.current.date(byAdding: .day, value: 8, to: endDate) else { return "" }
+        let displayFormatter = DateFormatter()
+        displayFormatter.dateFormat = "EEE, MMM d"
+        return displayFormatter.string(from: nextMonday)
+    }
+
+    static func formatDateRange(start: String, end: String) -> String {
+        let isoFormatter = DateFormatter()
+        isoFormatter.dateFormat = "yyyy-MM-dd"
+
+        let displayFormatter = DateFormatter()
+        displayFormatter.dateFormat = "MMM d"
+
+        let yearFormatter = DateFormatter()
+        yearFormatter.dateFormat = "yyyy"
+
+        guard let startDate = isoFormatter.date(from: start),
+              let endDate = isoFormatter.date(from: end) else {
+            return "\(start) – \(end)"
+        }
+
+        let startStr = displayFormatter.string(from: startDate)
+        let endStr = displayFormatter.string(from: endDate)
+        let year = yearFormatter.string(from: endDate)
+        return "\(startStr) – \(endStr), \(year)"
+    }
+}
+
+// MARK: - Section Styling
+
+enum InsightSectionStyle: String, CaseIterable, Identifiable {
+    case trainingVolume
+    case strengthHighlights
+    case areasToWatch
+    case accessoryGoals
+    case nextWeek
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .trainingVolume: return "Training Volume"
+        case .strengthHighlights: return "Strength Highlights"
+        case .areasToWatch: return "Areas to Watch"
+        case .accessoryGoals: return "Accessory Goals"
+        case .nextWeek: return "Next Week"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .trainingVolume: return "chart.bar.fill"
+        case .strengthHighlights: return "trophy.fill"
+        case .areasToWatch: return "exclamationmark.triangle.fill"
+        case .accessoryGoals: return "target"
+        case .nextWeek: return "arrow.right.circle.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .trainingVolume: return Color(red: 0x21/255, green: 0xB7/255, blue: 0xC9/255)
+        case .strengthHighlights: return Color(red: 0x22/255, green: 0xC5/255, blue: 0x5E/255)
+        case .areasToWatch: return Color(red: 0xF5/255, green: 0x9E/255, blue: 0x0B/255)
+        case .accessoryGoals: return Color(red: 0x5B/255, green: 0x3B/255, blue: 0xE8/255)
+        case .nextWeek: return Color.appAccent
+        }
+    }
+
+    static func from(title: String) -> InsightSectionStyle {
+        switch title {
+        case "Training Volume": return .trainingVolume
+        case "Strength Highlights": return .strengthHighlights
+        case "Areas to Watch": return .areasToWatch
+        case "Accessory Goals": return .accessoryGoals
+        case "Next Week": return .nextWeek
+        default: return .trainingVolume
+        }
+    }
+}
+
+// MARK: - Insight Section Card
+
+struct InsightSectionCard: View {
+    let section: InsightSection
+    let style: InsightSectionStyle
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: style.icon)
+                    .foregroundStyle(style.color)
+                    .font(.subheadline)
+                Text(section.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+
+            Text(section.body)
+                .font(.callout)
+                .foregroundStyle(.white.opacity(0.85))
+                .lineSpacing(4)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(style.color)
+                .frame(width: 3)
+        }
+        .background(Color(white: 0.14))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }

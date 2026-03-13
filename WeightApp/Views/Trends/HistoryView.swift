@@ -13,7 +13,7 @@ struct HistoryView: View {
     @ObservedObject var selectedSetData: SelectedSetData
     @Binding var selectedTab: Int
     var isVisible: Bool = true
-    @State private var isDeleteModeActive = false
+    @Binding var isDeleteModeActive: Bool
     @State private var setToDelete: LiftSet? = nil
     @State private var showDeleteConfirmation = false
 
@@ -104,18 +104,6 @@ struct HistoryView: View {
                 .listStyle(.insetGrouped)
                 .scrollContentBackground(.hidden)
                 .background(Color.black)
-            }
-        }
-        .toolbar {
-            if isVisible && !sets.isEmpty {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        isDeleteModeActive.toggle()
-                    } label: {
-                        Image(systemName: isDeleteModeActive ? "minus.circle.fill" : "minus.circle")
-                            .foregroundStyle(isDeleteModeActive ? .red : Color.appAccent)
-                    }
-                }
             }
         }
         .alert("Delete Set", isPresented: $showDeleteConfirmation) {
@@ -242,7 +230,7 @@ struct HistoryView: View {
         }
 
         return grouped.sorted { $0.key > $1.key }.map { dateKey, sets in
-            let sortedSets = sets.sorted { $0.createdAt < $1.createdAt }
+            let sortedSets = sets.sorted { $0.createdAt > $1.createdAt }
             var exerciseGroups: [ExerciseGroup] = []
             var currentExerciseName: String? = nil
             var currentSets: [LiftSet] = []

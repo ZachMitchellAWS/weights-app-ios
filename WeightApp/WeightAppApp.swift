@@ -146,6 +146,9 @@ struct WeightAppApp: App {
                         await SyncService.shared.processTemplateRetryQueue()
                         await SyncService.shared.processAccessoryGoalCheckinRetryQueue()
 
+                        // Sync timezone to backend if changed
+                        await SyncService.shared.syncTimezoneIfNeeded()
+
                         // Sync entitlement status from backend
                         await EntitlementsService.shared.syncEntitlementStatus()
 

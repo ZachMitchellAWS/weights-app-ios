@@ -10,6 +10,32 @@ import SwiftData
 import Charts
 
 struct BalanceView: View {
+    @Query private var userPropertiesArray: [UserProperties]
+    @Query private var entitlementRecords: [EntitlementGrant]
+    @Environment(\.modelContext) private var modelContext
+    @State private var showUpsell = false
+
+    private var isPremium: Bool {
+        if FreeOverride.isEnabled { return false }
+        return PremiumOverride.isEnabled || EntitlementGrant.isPremium(entitlementRecords)
+    }
+
+    private var userProperties: UserProperties {
+        if let props = userPropertiesArray.first { return props }
+        let props = UserProperties()
+        modelContext.insert(props)
+        return props
+    }
+
+    private static var setsDescriptor: FetchDescriptor<LiftSet> {
+        let cutoff = Calendar.current.date(byAdding: .month, value: -12, to: Date())!
+        return FetchDescriptor<LiftSet>(
+            predicate: #Predicate { !$0.deleted && $0.createdAt >= cutoff },
+            sortBy: [SortDescriptor(\.createdAt)]
+        )
+    }
+    @Query(setsDescriptor) private var allSets: [LiftSet]
+
     private static var estimated1RMsDescriptor: FetchDescriptor<Estimated1RM> {
         return FetchDescriptor<Estimated1RM>(
             predicate: #Predicate { !$0.deleted }
@@ -28,6 +54,13 @@ struct BalanceView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
+                StrengthTierWidget(
+                    allEstimated1RM: allEstimated1RM,
+                    userProperties: userProperties,
+                    isPremium: isPremium,
+                    showUpsell: $showUpsell
+                )
+
                 if hasEnoughData {
                     balanceChart
                     insightWidget
@@ -35,11 +68,18 @@ struct BalanceView: View {
                 } else {
                     emptyState
                 }
+
+                PRTimelineWidget(allSets: allSets)
+
+                BestLiftsWidget(allSets: allSets)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 20)
         }
         .scrollIndicators(.hidden)
+        .fullScreenCover(isPresented: $showUpsell) {
+            UpsellView { _ in showUpsell = false }
+        }
     }
 
     // MARK: - Balance Chart

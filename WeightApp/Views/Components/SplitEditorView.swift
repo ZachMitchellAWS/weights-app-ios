@@ -6,7 +6,7 @@ struct SplitEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
-    @Query(filter: #Predicate<WorkoutSplit> { !$0.deleted })
+    @Query(filter: #Predicate<WorkoutSplit> { !$0.deleted }, sort: \WorkoutSplit.createdAt)
     private var splits: [WorkoutSplit]
 
     @State private var activeId: UUID?

@@ -140,17 +140,18 @@ class SyncService: ObservableObject {
         // Step 2.5: Sync splits (references exerciseIds via embedded days, so must run after exercises)
         if !state.splitsComplete {
             SyncLogger.sync.info("Step 2.5: Syncing splits")
-            await syncSplitsFromBackend()
+            let backendSplitCount = await syncSplitsFromBackend()
             await processSplitRetryQueue()
             state.splitsComplete = true
             syncState = state
+
+            // Seed only if backend had nothing (new user)
+            if backendSplitCount == 0, let ctx = modelContext {
+                SyncLogger.sync.info("No splits on backend, creating defaults")
+                await createAndSyncDefaultSplits(context: ctx)
+            }
         } else {
             SyncLogger.sync.debug("Step 2.5: Splits already synced, skipping")
-        }
-
-        // Seed default splits if none exist (handles logout → login as new user)
-        if let ctx = modelContext {
-            SeedService.seedSplits(context: ctx)
         }
 
         // Assign default exercises to days now that exercises exist
@@ -161,17 +162,18 @@ class SyncService: ObservableObject {
         // Step 2.7: Sync set plan templates
         if !state.templatesComplete {
             SyncLogger.sync.info("Step 2.7: Syncing set plan templates")
-            await syncSetPlansFromBackend()
+            let backendTemplateCount = await syncSetPlansFromBackend()
             await processTemplateRetryQueue()
             state.templatesComplete = true
             syncState = state
+
+            // Seed only if backend had nothing (new user)
+            if backendTemplateCount == 0, let ctx = modelContext {
+                SyncLogger.sync.info("No set plans on backend, creating defaults")
+                await createAndSyncDefaultSetPlans(context: ctx)
+            }
         } else {
             SyncLogger.sync.debug("Step 2.7: Templates already synced, skipping")
-        }
-
-        // Seed built-in set plan templates if needed (handles logout → login)
-        if let ctx = modelContext {
-            SeedService.seedSetPlans(context: ctx)
         }
 
         // Step 3: Sync lift sets and estimated 1RMs (interleaved, resumable)
@@ -274,6 +276,10 @@ class SyncService: ObservableObject {
             if let bodyweightTarget = response.bodyweightTarget {
                 userProperties.bodyweightTarget = bodyweightTarget
             }
+            if let timezone = response.timezone {
+                userProperties.timezoneIdentifier = timezone
+            }
+            userProperties.biologicalSex = response.biologicalSex
 
             try? context.save()
 
@@ -282,6 +288,32 @@ class SyncService: ObservableObject {
         } catch {
             SyncLogger.sync.error("Failed to sync user properties: \(error.localizedDescription)")
             // Don't block exercise sync - user properties are not critical
+        }
+    }
+
+    func syncTimezoneIfNeeded() async {
+        guard let context = modelContext else {
+            SyncLogger.sync.warning("syncTimezoneIfNeeded: no modelContext")
+            return
+        }
+        let currentTz = TimeZone.current.identifier
+        let userProperties = fetchOrCreateUserProperties(context: context)
+
+        // Only send if different from what we have locally
+        guard userProperties.timezoneIdentifier != currentTz else {
+            SyncLogger.sync.debug("syncTimezoneIfNeeded: already up to date (\(currentTz))")
+            return
+        }
+
+        SyncLogger.sync.info("syncTimezoneIfNeeded: updating \(userProperties.timezoneIdentifier ?? "nil") → \(currentTz)")
+        do {
+            let request = UserPropertiesRequest(timezone: currentTz)
+            _ = try await APIService.shared.updateUserProperties(request)
+            userProperties.timezoneIdentifier = currentTz
+            try? context.save()
+            SyncLogger.sync.info("syncTimezoneIfNeeded: success")
+        } catch {
+            SyncLogger.sync.error("Failed to sync timezone: \(error.localizedDescription)")
         }
     }
 
@@ -308,6 +340,22 @@ class SyncService: ObservableObject {
             retryQueue.removePendingUserPropertiesSync()
         } catch {
             SyncLogger.sync.error("Failed to update bodyweight: \(error.localizedDescription)")
+            retryQueue.addPendingUserPropertiesSync()
+        }
+    }
+
+    func updateBiologicalSex(_ sex: String?) async {
+        do {
+            var request = UserPropertiesRequest()
+            if let sex = sex {
+                request.biologicalSex = sex
+            } else {
+                request.clearBiologicalSex = true
+            }
+            _ = try await APIService.shared.updateUserProperties(request)
+            retryQueue.removePendingUserPropertiesSync()
+        } catch {
+            SyncLogger.sync.error("Failed to update biological sex: \(error.localizedDescription)")
             retryQueue.addPendingUserPropertiesSync()
         }
     }
@@ -381,7 +429,8 @@ class SyncService: ObservableObject {
                 moderateMinReps: userProperties.moderateMinReps,
                 moderateMaxReps: userProperties.moderateMaxReps,
                 hardMinReps: userProperties.hardMinReps,
-                hardMaxReps: userProperties.hardMaxReps
+                hardMaxReps: userProperties.hardMaxReps,
+                timezone: userProperties.timezoneIdentifier
             )
             if let templateId = userProperties.activeSetPlanId {
                 request.activeSetPlanId = templateId.uuidString
@@ -636,11 +685,11 @@ class SyncService: ObservableObject {
     }
 
     /// Syncs a single lift set to the backend (for new creations)
-    func syncLiftSet(_ liftSet: LiftSet) async {
+    func syncLiftSet(_ liftSet: LiftSet, isPremiumOnClient: Bool = false) async {
         let dto = liftSet.toDTO()
 
         do {
-            _ = try await APIService.shared.createLiftSet([dto])
+            _ = try await APIService.shared.createLiftSet([dto], isPremiumOnClient: isPremiumOnClient)
             retryQueue.removePendingLiftSetOperation(liftSetId: liftSet.id)
             SyncLogger.sync.debug("Synced lift set \(liftSet.id)")
         } catch {
@@ -650,13 +699,13 @@ class SyncService: ObservableObject {
     }
 
     /// Syncs multiple lift sets to the backend (batch create)
-    func syncLiftSet(_ liftSets: [LiftSet]) async {
+    func syncLiftSet(_ liftSets: [LiftSet], isPremiumOnClient: Bool = false) async {
         guard !liftSets.isEmpty else { return }
 
         let dtos = liftSets.map { $0.toDTO() }
 
         do {
-            _ = try await APIService.shared.createLiftSet(dtos)
+            _ = try await APIService.shared.createLiftSet(dtos, isPremiumOnClient: isPremiumOnClient)
             for liftSet in liftSets {
                 retryQueue.removePendingLiftSetOperation(liftSetId: liftSet.id)
             }
@@ -932,8 +981,8 @@ class SyncService: ObservableObject {
 
     // MARK: - Split Sync
 
-    func syncSplitsFromBackend() async {
-        guard let context = modelContext else { return }
+    func syncSplitsFromBackend() async -> Int {
+        guard let context = modelContext else { return 0 }
 
         do {
             let response = try await APIService.shared.getSplits()
@@ -957,8 +1006,10 @@ class SyncService: ObservableObject {
             }
 
             SyncLogger.sync.info("Completed split sync, fetched \(response.splits.count) from backend")
+            return response.splits.count
         } catch {
             SyncLogger.sync.error("Failed to sync splits: \(error.localizedDescription)")
+            return 0
         }
     }
 
@@ -1075,8 +1126,8 @@ class SyncService: ObservableObject {
 
     // MARK: - Set Plan Template Sync
 
-    func syncSetPlansFromBackend() async {
-        guard let context = modelContext else { return }
+    func syncSetPlansFromBackend() async -> Int {
+        guard let context = modelContext else { return 0 }
 
         do {
             let response = try await APIService.shared.getSetPlans()
@@ -1100,8 +1151,10 @@ class SyncService: ObservableObject {
             }
 
             SyncLogger.sync.info("Completed template sync, fetched \(response.templates.count) from backend")
+            return response.templates.count
         } catch {
             SyncLogger.sync.error("Failed to sync templates: \(error.localizedDescription)")
+            return 0
         }
     }
 
@@ -1306,6 +1359,122 @@ class SyncService: ObservableObject {
         }
     }
 
+    private func createAndSyncDefaultSplits(context: ModelContext) async {
+        let baseDate = Date()
+        var dtos: [SplitDTO] = []
+        for (index, def) in WorkoutSplit.builtInTemplates.enumerated() {
+            let split = WorkoutSplit(
+                id: def.id,
+                name: def.name,
+                days: def.days,
+                createdAt: baseDate.addingTimeInterval(Double(index)),
+                createdTimezone: TimeZone.current.identifier
+            )
+            context.insert(split)
+            dtos.append(split.toDTO())
+        }
+        try? context.save()
+
+        // Set default active split
+        if WorkoutSplitStore.activeSplitId() == nil {
+            WorkoutSplitStore.setActiveSplitId(WorkoutSplit.pplId)
+            WorkoutSplitStore.setActiveDayId(WorkoutSplit.pushDayId)
+            Task { await SyncService.shared.updateActiveSplit(WorkoutSplit.pplId) }
+        }
+
+        // Push to backend
+        do {
+            _ = try await APIService.shared.upsertSplits(dtos)
+        } catch {
+            SyncLogger.sync.error("Failed to batch POST default splits: \(error.localizedDescription)")
+            for dto in dtos {
+                retryQueue.addPendingSplitUpsert(splitId: dto.splitId)
+            }
+        }
+    }
+
+    private func createAndSyncDefaultSetPlans(context: ModelContext) async {
+        var dtos: [SetPlanDTO] = []
+        for def in SetPlan.builtInTemplates {
+            let template = SetPlan(
+                id: def.id,
+                name: def.name,
+                effortSequence: def.sequence,
+                isCustom: false,
+                templateDescription: def.description
+            )
+            context.insert(template)
+            dtos.append(template.toDTO())
+        }
+        try? context.save()
+
+        // Set default active set plan if none
+        if let userProps = try? context.fetch(FetchDescriptor<UserProperties>()).first,
+           userProps.activeSetPlanId == nil {
+            userProps.activeSetPlanId = SetPlan.standardId
+            try? context.save()
+            Task { await SyncService.shared.updateActiveSetPlan(SetPlan.standardId) }
+        }
+
+        // Push to backend
+        do {
+            _ = try await APIService.shared.upsertSetPlans(dtos)
+        } catch {
+            SyncLogger.sync.error("Failed to batch POST default set plans: \(error.localizedDescription)")
+            for dto in dtos {
+                retryQueue.addPendingTemplateUpsert(templateId: dto.templateId)
+            }
+        }
+    }
+
+    // MARK: - Fallback: Splits
+
+    func retryFetchSplits() async -> Bool {
+        do {
+            let response = try await APIService.shared.getSplits()
+            if response.splits.isEmpty {
+                return false
+            } else {
+                await importSplitsFromBackend(response.splits)
+                return true
+            }
+        } catch {
+            SyncLogger.sync.error("Retry fetch splits failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    func createDefaultSplitsAndSync() async {
+        guard let context = modelContext else { return }
+        let existingSplits = fetchAllSplits(context: context).filter { !$0.deleted }
+        guard existingSplits.isEmpty else { return }
+        await createAndSyncDefaultSplits(context: context)
+    }
+
+    // MARK: - Fallback: Set Plans
+
+    func retryFetchSetPlans() async -> Bool {
+        do {
+            let response = try await APIService.shared.getSetPlans()
+            if response.templates.isEmpty {
+                return false
+            } else {
+                await importSetPlansFromBackend(response.templates)
+                return true
+            }
+        } catch {
+            SyncLogger.sync.error("Retry fetch set plans failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    func createDefaultSetPlansAndSync() async {
+        guard let context = modelContext else { return }
+        let existingPlans = fetchAllTemplates(context: context).filter { !$0.deleted }
+        guard existingPlans.isEmpty else { return }
+        await createAndSyncDefaultSetPlans(context: context)
+    }
+
     private func importExercisesFromBackend(_ dtos: [ExerciseDTO]) async {
         guard let container = modelContainer else { return }
         let sendableDtos = dtos
@@ -1496,5 +1665,7 @@ class SyncService: ObservableObject {
         SyncLogger.sync.info("Clearing sync state on logout")
         retryQueue.clearAll()
         UserDefaults.standard.removeObject(forKey: Self.syncStateKey)
+        UserDefaults.standard.removeObject(forKey: "insights_cached_response")
+        UserDefaults.standard.removeObject(forKey: "insights_last_fetched_at")
     }
 }

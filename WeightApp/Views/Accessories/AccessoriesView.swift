@@ -194,6 +194,11 @@ struct AccessoriesView: View {
         Task {
             await SyncService.shared.syncAccessoryGoalCheckin(checkin)
         }
+
+        if metricType == "bodyweight" {
+            userProperties.bodyweight = value
+            Task { await SyncService.shared.updateBodyweight(value) }
+        }
     }
 
     private func deleteCheckin(_ checkin: AccessoryGoalCheckin) {

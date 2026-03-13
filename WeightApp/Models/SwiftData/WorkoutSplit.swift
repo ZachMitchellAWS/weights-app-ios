@@ -73,8 +73,8 @@ final class WorkoutSplit {
             name: "Push / Pull / Legs Basic",
             days: [
                 WorkoutDay(id: pushDayId, name: "Push", exerciseIds: [Exercise.benchPressId, Exercise.overheadPressId, Exercise.dipsId]),
-                WorkoutDay(id: pullDayId, name: "Pull", exerciseIds: [Exercise.deadliftsId, Exercise.barbellRowId, Exercise.pullUpsId, Exercise.barbellCurlsId]),
-                WorkoutDay(id: legDayId, name: "Leg", exerciseIds: [Exercise.squatsId, Exercise.romanianDeadliftsId])
+                WorkoutDay(id: pullDayId, name: "Pull", exerciseIds: [Exercise.barbellRowId, Exercise.pullUpsId, Exercise.barbellCurlsId]),
+                WorkoutDay(id: legDayId, name: "Leg", exerciseIds: [Exercise.squatsId, Exercise.romanianDeadliftsId, Exercise.bulgarianSplitSquatsId])
             ]
         ),
         (
@@ -82,8 +82,8 @@ final class WorkoutSplit {
             name: "Push / Pull / Legs Complete",
             days: [
                 WorkoutDay(id: pplCompletePushDayId, name: "Push", exerciseIds: [Exercise.benchPressId, Exercise.overheadPressId, Exercise.dipsId, Exercise.lateralRaisesId, Exercise.tricepPushdownsId, Exercise.flyesId, Exercise.sideRaisesId]),
-                WorkoutDay(id: pplCompletePullDayId, name: "Pull", exerciseIds: [Exercise.deadliftsId, Exercise.barbellRowId, Exercise.pullUpsId, Exercise.barbellCurlsId]),
-                WorkoutDay(id: pplCompleteLegDayId, name: "Leg", exerciseIds: [Exercise.squatsId, Exercise.romanianDeadliftsId])
+                WorkoutDay(id: pplCompletePullDayId, name: "Pull", exerciseIds: [Exercise.deadliftsId, Exercise.barbellRowId, Exercise.pullUpsId, Exercise.barbellCurlsId, Exercise.highPulleyLateralExtensionsId, Exercise.barbellShrugsId, Exercise.pulloversId]),
+                WorkoutDay(id: pplCompleteLegDayId, name: "Leg", exerciseIds: [Exercise.squatsId, Exercise.romanianDeadliftsId, Exercise.bulgarianSplitSquatsId])
             ]
         ),
         (

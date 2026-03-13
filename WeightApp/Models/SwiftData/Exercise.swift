@@ -11,6 +11,29 @@ import SwiftData
 enum ExerciseLoadType: String, Codable, CaseIterable {
     case barbell = "Barbell"
     case singleLoad = "Single Load"
+    case bodyweightPlusSingleLoad = "Bodyweight + Single Load"
+
+    var allowsZeroWeight: Bool {
+        switch self {
+        case .barbell: return false
+        case .singleLoad, .bodyweightPlusSingleLoad: return true
+        }
+    }
+
+    var plateMultiplier: Double {
+        switch self {
+        case .barbell: return 2.0
+        case .singleLoad, .bodyweightPlusSingleLoad: return 1.0
+        }
+    }
+
+    var isBarbell: Bool { self == .barbell }
+}
+
+enum BodyweightProgressionStage {
+    case foundation   // No set with reps >= 10 at 0 lbs AND no set with weight > 0
+    case guidedLoad   // Foundation passed but not all effort tiers ready
+    case organic      // Full suggestion algorithm
 }
 
 enum ExerciseMovementType: String, Codable, CaseIterable {
@@ -88,7 +111,16 @@ final class Exercise {
     }
 
     var defaultWeightIncrement: Double {
-        exerciseLoadType == .barbell ? 5.0 : 2.5
+        exerciseLoadType.isBarbell ? 5.0 : 2.5
+    }
+
+    func bodyweightStage(sets: [LiftSet], allEffortTiersReady: Bool) -> BodyweightProgressionStage {
+        guard exerciseLoadType == .bodyweightPlusSingleLoad else { return .organic }
+        let hasFoundationSet = sets.contains { $0.reps >= 10 && $0.weight == 0 }
+        let hasWeightedSet = sets.contains { $0.weight > 0 }
+        if !hasFoundationSet && !hasWeightedSet { return .foundation }
+        if allEffortTiersReady { return .organic }
+        return .guidedLoad
     }
 
     var effectiveWeightIncrement: Double {
@@ -133,6 +165,10 @@ final class Exercise {
     static let lateralRaisesId                          = UUID(uuidString: "00000000-0000-0000-0001-000000000032")!
     static let flyesId                                  = UUID(uuidString: "00000000-0000-0000-0001-000000000033")!
     static let sideRaisesId                             = UUID(uuidString: "00000000-0000-0000-0001-000000000034")!
+    static let bulgarianSplitSquatsId                   = UUID(uuidString: "00000000-0000-0000-0001-000000000035")!
+    static let barbellShrugsId                          = UUID(uuidString: "00000000-0000-0000-0001-000000000036")!
+    static let highPulleyLateralExtensionsId            = UUID(uuidString: "00000000-0000-0000-0001-000000000037")!
+    static let pulloversId                              = UUID(uuidString: "00000000-0000-0000-0001-000000000038")!
 
     static let builtInIds: Set<UUID> = [
         deadliftsId, squatsId, benchPressId, overheadPressId, barbellRowId,
@@ -144,7 +180,8 @@ final class Exercise {
         standingCableOverheadTricepExtensionsId, lyingBarbellTricepExtensionsId,
         lyingDumbbellTricepExtensionsId, oneArmOverheadDumbbellTricepExtensionsId,
         tricepKickbacksId, seatedDumbbellTricepExtensionsId, seatedEZBarTricepExtensionsId,
-        lateralRaisesId, flyesId, sideRaisesId
+        lateralRaisesId, flyesId, sideRaisesId,
+        bulgarianSplitSquatsId, barbellShrugsId, highPulleyLateralExtensionsId, pulloversId
     ]
 
     // MARK: - Built-in Definitions
@@ -155,8 +192,8 @@ final class Exercise {
         (benchPressId,                             "Bench Press",                                    .barbell,    .push,  "BenchPressIcon"),
         (overheadPressId,                          "Overhead Press",                                 .barbell,    .push,  "OverheadPressIcon"),
         (barbellRowId,                             "Barbell Row",                                    .barbell,    .pull,  "BarbellRowIcon"),
-        (pullUpsId,                                "Pull Ups",                                       .singleLoad, .pull,  "PullUpIcon"),
-        (dipsId,                                   "Dips",                                           .singleLoad, .push,  "DipsIcon"),
+        (pullUpsId,                                "Pull Ups",                                       .bodyweightPlusSingleLoad, .pull,  "PullUpIcon"),
+        (dipsId,                                   "Dips",                                           .bodyweightPlusSingleLoad, .push,  "DipsIcon"),
         (barbellCurlsId,                           "Barbell Curls",                                  .barbell,    .pull,  "CurlsIcon"),
         (romanianDeadliftsId,                      "Romanian Deadlifts",                             .barbell,    .hinge, "DeadliftIcon"),
         (dumbbellCurlsId,                          "Dumbbell Curls",                                 .singleLoad, .pull,  "DumbbellCurlsIcon"),
@@ -184,5 +221,9 @@ final class Exercise {
         (lateralRaisesId,                          "Lateral Raises",                                 .singleLoad, .push,  "LateralRaisesIcon"),
         (flyesId,                                  "Flys",                                          .singleLoad, .push,  "FlyesIcon"),
         (sideRaisesId,                             "Side Raises",                                    .singleLoad, .push,  "SideRaisesIcon"),
+        (bulgarianSplitSquatsId,                   "Bulgarian Split Squats",                         .singleLoad, .squat, "BulgarianSplitSquatsIcon"),
+        (barbellShrugsId,                          "Barbell Shrugs",                                 .barbell,    .pull,  "BarbellShrugsIcon"),
+        (highPulleyLateralExtensionsId,            "High Pulley Lateral Extensions",                 .singleLoad, .pull,  "HighPulleyLateralExtensionsIcon"),
+        (pulloversId,                              "Pullovers",                                      .singleLoad, .pull,  "PulloversIcon"),
     ]
 }

@@ -59,8 +59,9 @@ enum SeedService {
         let existingById = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
 
         var inserted: [WorkoutSplit] = []
+        let baseDate = Date()
 
-        for def in WorkoutSplit.builtInTemplates {
+        for (index, def) in WorkoutSplit.builtInTemplates.enumerated() {
             if let split = existingById[def.id] {
                 split.name = def.name
                 split.days = def.days
@@ -69,7 +70,7 @@ enum SeedService {
                     id: def.id,
                     name: def.name,
                     days: def.days,
-                    createdAt: Date(),
+                    createdAt: baseDate.addingTimeInterval(Double(index)),
                     createdTimezone: TimeZone.current.identifier
                 )
                 context.insert(split)

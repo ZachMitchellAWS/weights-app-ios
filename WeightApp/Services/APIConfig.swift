@@ -38,3 +38,16 @@ enum PremiumOverride {
         UserDefaults.standard.set(value, forKey: key)
     }
 }
+
+enum FreeOverride {
+    private static let key = "free_override"
+
+    static var isEnabled: Bool {
+        guard APIConfig.environment == "staging" else { return false }
+        return UserDefaults.standard.bool(forKey: key)
+    }
+
+    static func set(_ value: Bool) {
+        UserDefaults.standard.set(value, forKey: key)
+    }
+}

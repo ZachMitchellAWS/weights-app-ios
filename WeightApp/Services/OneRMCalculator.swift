@@ -76,6 +76,27 @@ enum OneRMCalculator {
         }
     }
 
+    struct GuidedSuggestion: Identifiable {
+        let id = UUID()
+        let weight: Double
+        let reps: Int
+        let label: String
+    }
+
+    static func guidedBodyweightSuggestions(
+        maxLoggedWeight: Double,
+        increment: Double,
+        repRange: ClosedRange<Int>
+    ) -> [GuidedSuggestion] {
+        let nextWeight = maxLoggedWeight > 0 ? maxLoggedWeight + increment : increment
+        let midReps = (repRange.lowerBound + repRange.upperBound) / 2
+        return [GuidedSuggestion(
+            weight: nextWeight,
+            reps: midReps,
+            label: "Next Step"
+        )]
+    }
+
     struct EffortSuggestion: Identifiable {
         let id = UUID()
         let reps: Int
@@ -91,7 +112,7 @@ enum OneRMCalculator {
         switch loadType {
         case .barbell:
             return Set(plates.map { barWeight + $0 * 2 }).union([barWeight])
-        case .singleLoad:
+        case .singleLoad, .bodyweightPlusSingleLoad:
             return Set(plates)
         }
     }
@@ -103,7 +124,7 @@ enum OneRMCalculator {
         repRange: ClosedRange<Int>
     ) -> [EffortSuggestion] {
         guard current1RM > 0 else { return [] }
-        let increment: Double = loadType == .barbell ? 5.0 : 2.5
+        let increment: Double = loadType.isBarbell ? 5.0 : 2.5
         var seen = Set<String>()
         var results: [EffortSuggestion] = []
         for pct in targetPercent1RMs {

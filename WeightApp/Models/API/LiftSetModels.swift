@@ -46,6 +46,7 @@ struct LiftSetDTO: Codable {
 
 struct CreateLiftSetsRequest: Codable {
     let liftSets: [LiftSetDTO]
+    let isPremiumOnClient: Bool?
 }
 
 struct DeleteLiftSetsRequest: Codable {

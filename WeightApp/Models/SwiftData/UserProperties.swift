@@ -28,6 +28,8 @@ final class UserProperties {
     var stepsGoal: Int?
     var proteinGoal: Int?
     var bodyweightTarget: Double?
+    var timezoneIdentifier: String?
+    var biologicalSex: String?
 
     init() {
         self.id = UserProperties.singletonID
@@ -45,6 +47,7 @@ final class UserProperties {
         self.stepsGoal = nil
         self.proteinGoal = nil
         self.bodyweightTarget = nil
+        self.biologicalSex = nil
     }
 
     static let defaultAvailableChangePlates: [Double] = [2.5]

@@ -324,8 +324,8 @@ class APIService {
         )
     }
 
-    func createLiftSet(_ liftSets: [LiftSetDTO]) async throws -> CreateLiftSetsResponse {
-        let body = CreateLiftSetsRequest(liftSets: liftSets)
+    func createLiftSet(_ liftSets: [LiftSetDTO], isPremiumOnClient: Bool = false) async throws -> CreateLiftSetsResponse {
+        let body = CreateLiftSetsRequest(liftSets: liftSets, isPremiumOnClient: isPremiumOnClient ? true : nil)
         return try await requestWithDateDecoding(
             endpoint: "/checkin/lift-sets",
             method: "POST",
@@ -471,6 +471,16 @@ class APIService {
             endpoint: "/checkin/accessory-goal-checkins",
             method: "DELETE",
             body: body,
+            requiresAuth: true
+        )
+    }
+
+    // MARK: - Insights Endpoints
+
+    func getWeeklyInsights() async throws -> WeeklyInsightsResponse {
+        return try await request(
+            endpoint: "/insights/weekly",
+            method: "GET",
             requiresAuth: true
         )
     }

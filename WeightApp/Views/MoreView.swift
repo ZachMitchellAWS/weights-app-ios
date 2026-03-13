@@ -36,6 +36,10 @@ struct MoreView: View {
     @State private var isSeedingMissing = false
     @State private var showSeedMissingAlert = false
     @State private var seedMissingCount = 0
+    @State private var isSeedingSplits = false
+    @State private var showSeedSplitsAlert = false
+    @State private var isSeedingSetPlans = false
+    @State private var showSeedSetPlansAlert = false
     @State private var showExerciseIds = false
     @State private var showMemberSince = false
     @State private var showTokenExpiry = false
@@ -64,6 +68,7 @@ struct MoreView: View {
     @State private var showAPIValidation = false
 
     @State private var tempBodyweight: Double = 150
+    @State private var showBiologicalSexPicker = false
     @State private var repRangeDebounceTask: Task<Void, Never>?
 
     private var userProperties: UserProperties {
@@ -73,11 +78,19 @@ struct MoreView: View {
         return props
     }
 
-    private var isPremium: Bool { PremiumOverride.isEnabled || EntitlementGrant.isPremium(entitlementRecords) }
+    private var isPremium: Bool {
+        if FreeOverride.isEnabled { return false }
+        return PremiumOverride.isEnabled || EntitlementGrant.isPremium(entitlementRecords)
+    }
 
     private var isPremiumEnabled: Bool {
         get { PremiumOverride.isEnabled }
         nonmutating set { PremiumOverride.set(newValue) }
+    }
+
+    private var isFreeOverrideEnabled: Bool {
+        get { FreeOverride.isEnabled }
+        nonmutating set { FreeOverride.set(newValue) }
     }
 
     private var email: String {
@@ -430,6 +443,23 @@ struct MoreView: View {
                                     }
                                 }
                             }
+                            .sheet(isPresented: $showWeightInput) {
+                                weightInputSheet
+                            }
+
+                            Button {
+                                showBiologicalSexPicker = true
+                            } label: {
+                                HStack {
+                                    Text("Biological Sex")
+                                        .foregroundStyle(.white.opacity(0.7))
+                                        .font(.subheadline)
+                                        .padding(.leading, 40)
+                                    Spacer()
+                                    Text(userProperties.biologicalSex?.capitalized ?? "Not Set")
+                                        .foregroundStyle(.white.opacity(0.5))
+                                }
+                            }
                         }
                         .padding(.vertical, 4)
 
@@ -584,6 +614,46 @@ struct MoreView: View {
                         .disabled(isSeedingMissing)
 
                         Button {
+                            isSeedingSplits = true
+                            SeedService.seedSplits(context: modelContext)
+                            isSeedingSplits = false
+                            showSeedSplitsAlert = true
+                        } label: {
+                            HStack {
+                                Text("Seed Missing Splits")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if isSeedingSplits {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "plus.circle")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+                        }
+                        .disabled(isSeedingSplits)
+
+                        Button {
+                            isSeedingSetPlans = true
+                            SeedService.seedSetPlans(context: modelContext)
+                            isSeedingSetPlans = false
+                            showSeedSetPlansAlert = true
+                        } label: {
+                            HStack {
+                                Text("Seed Missing Set Plans")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if isSeedingSetPlans {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "plus.circle")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+                        }
+                        .disabled(isSeedingSetPlans)
+
+                        Button {
                             Task {
                                 await updateUserProperties()
                             }
@@ -696,6 +766,18 @@ struct MoreView: View {
                             ))
                             .labelsHidden()
                             .tint(Color.appAccent)
+                        }
+
+                        HStack {
+                            Text("Force Local Free")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Toggle("", isOn: Binding(
+                                get: { isFreeOverrideEnabled },
+                                set: { isFreeOverrideEnabled = $0 }
+                            ))
+                            .labelsHidden()
+                            .tint(.red)
                         }
 
                         Button {
@@ -1024,8 +1106,20 @@ struct MoreView: View {
                 #endif
             }
             .navigationBarTitleDisplayMode(.inline)
-            .sheet(isPresented: $showWeightInput) {
-                weightInputSheet
+            .confirmationDialog("Biological Sex", isPresented: $showBiologicalSexPicker) {
+                Button("Male") {
+                    userProperties.biologicalSex = "male"
+                    Task { await SyncService.shared.updateBiologicalSex("male") }
+                }
+                Button("Female") {
+                    userProperties.biologicalSex = "female"
+                    Task { await SyncService.shared.updateBiologicalSex("female") }
+                }
+                Button("Clear", role: .destructive) {
+                    userProperties.biologicalSex = nil
+                    Task { await SyncService.shared.updateBiologicalSex(nil) }
+                }
+                Button("Cancel", role: .cancel) {}
             }
             .fullScreenCover(isPresented: $showPlateSelection) {
                 AvailableChangePlatesView()
@@ -1068,6 +1162,16 @@ struct MoreView: View {
                 Text(seedMissingCount > 0
                      ? "Added \(seedMissingCount) new exercise\(seedMissingCount == 1 ? "" : "s")."
                      : "All exercises already exist — nothing to add.")
+            }
+            .alert("Seed Missing Splits", isPresented: $showSeedSplitsAlert) {
+                Button("OK") { }
+            } message: {
+                Text("Default splits have been seeded.")
+            }
+            .alert("Seed Missing Set Plans", isPresented: $showSeedSetPlansAlert) {
+                Button("OK") { }
+            } message: {
+                Text("Default set plans have been seeded.")
             }
             .alert("User Properties", isPresented: $showUserPropertiesAlert) {
                 Button("OK") { }
@@ -1650,7 +1754,7 @@ struct MoreView: View {
 
         for exercise in exercises {
             let loadType = exercise.exerciseLoadType
-            let increment: Double = loadType == .barbell ? 5.0 : 2.5
+            let increment: Double = loadType.isBarbell ? 5.0 : 2.5
 
             // Get this exercise's existing best 1RM
             let exerciseId = exercise.id
@@ -2190,6 +2294,7 @@ private struct EntitlementDetailsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             row("isPremium", value: "\(PremiumOverride.isEnabled || EntitlementGrant.isPremium(grants))")
+            row("freeOverride", value: "\(FreeOverride.isEnabled)")
             row("count", value: "\(grants.count)")
 
             ForEach(Array(grants.enumerated()), id: \.offset) { index, grant in

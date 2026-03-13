@@ -10,11 +10,19 @@ import SwiftData
 import StoreKit
 
 struct UpsellView: View {
+    let initialPage: Int
     let onComplete: (Bool) -> Void  // Bool indicates whether user subscribed
+
+    init(initialPage: Int = 0, onComplete: @escaping (Bool) -> Void) {
+        self.initialPage = initialPage
+        self.onComplete = onComplete
+        self._currentPage = State(initialValue: initialPage)
+    }
 
     @Environment(\.modelContext) private var modelContext
     @StateObject private var purchaseService = PurchaseService.shared
     @State private var selectedPlan: SubscriptionPlan = .yearly
+    @State private var currentPage: Int
     @State private var isProcessing = false
     @State private var errorMessage: String?
 
@@ -22,6 +30,7 @@ struct UpsellView: View {
     @State private var logoScale: CGFloat = 0.5
     @State private var logoOpacity: Double = 0
     @State private var titleOpacity: Double = 0
+    @State private var badgeGlow: Double = 0
     @State private var carouselOpacity: Double = 0
     @State private var pricingOpacity: Double = 0
     @State private var ctaOpacity: Double = 0
@@ -44,21 +53,20 @@ struct UpsellView: View {
             VStack(spacing: 0) {
                 // Header Section
                 headerSection
-                    .padding(.top, 60)
+                    .padding(.top, 52)
                     .task {
                         await purchaseService.loadProducts()
                     }
 
                 Spacer()
-                    .frame(height: 28)
+                    .frame(height: 20)
 
                 // Benefits Carousel
                 benefitsCarousel
-                    .padding(.horizontal, 20)
                     .opacity(carouselOpacity)
 
                 Spacer()
-                    .frame(height: 28)
+                    .frame(height: 20)
 
                 // Pricing Section
                 pricingSection
@@ -66,17 +74,22 @@ struct UpsellView: View {
                     .opacity(pricingOpacity)
 
                 Spacer()
+                    .frame(minHeight: 8)
 
                 // Subscribe Button
                 subscribeButton
                     .padding(.horizontal, 24)
-                    .padding(.bottom, 8)
+                    .padding(.top, 8)
+                    .padding(.bottom, 10)
                     .opacity(ctaOpacity)
 
-                // Cancel anytime text
-                Text(SubscriptionConfig.cancelAnytimeText)
+                // Plan-specific subtitle
+                Text(selectedPlan == .yearly
+                     ? "7 days free, then \(SubscriptionConfig.yearlyDisplayPrice)/year. Cancel anytime."
+                     : "\(SubscriptionConfig.monthlyDisplayPrice)/month. Cancel anytime.")
                     .font(.inter(size: 12))
                     .foregroundStyle(.white.opacity(0.5))
+                    .multilineTextAlignment(.center)
                     .padding(.bottom, 16)
                     .opacity(ctaOpacity)
 
@@ -84,12 +97,11 @@ struct UpsellView: View {
                 footerLinks
                     .padding(.bottom, 16)
                     .opacity(ctaOpacity)
-
-                // Skip option
-                skipButton
-                    .padding(.bottom, 50)
-                    .opacity(ctaOpacity)
             }
+
+            // X dismiss button (top-right overlay)
+            dismissButton
+                .opacity(ctaOpacity)
         }
         .onAppear {
             // 0.0s — Logo springs in
@@ -98,9 +110,14 @@ struct UpsellView: View {
                 logoOpacity = 1.0
             }
 
-            // 0.2s — Title fades in
+            // 0.2s — Badge fades in
             withAnimation(.easeOut(duration: 0.4).delay(0.2)) {
                 titleOpacity = 1.0
+            }
+
+            // 0.5s — Badge glow pulses
+            withAnimation(.easeInOut(duration: 1.2).delay(0.5).repeatForever(autoreverses: true)) {
+                badgeGlow = 1.0
             }
 
             // 0.4s — Carousel container fades in
@@ -113,17 +130,35 @@ struct UpsellView: View {
                 pricingOpacity = 1.0
             }
 
-            // 1.0s — Subscribe button fades in
+            // 1.0s — Subscribe button + X fades in
             withAnimation(.easeOut(duration: 0.4).delay(1.0)) {
                 ctaOpacity = 1.0
             }
         }
     }
 
+    // MARK: - Dismiss Button
+
+    private var dismissButton: some View {
+        Button {
+            onComplete(false)
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 20, weight: .regular))
+                .foregroundStyle(.white.opacity(0.4))
+                .padding(14)
+        }
+        .buttonStyle(.plain)
+        .disabled(isProcessing)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        .padding(.trailing, 8)
+        .padding(.top, 24)
+    }
+
     // MARK: - Header Section
 
     private var headerSection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
             // App logo
             Image("LiftTheBullIcon")
                 .resizable()
@@ -133,62 +168,87 @@ struct UpsellView: View {
                 .scaleEffect(logoScale)
                 .opacity(logoOpacity)
 
-            VStack(spacing: 4) {
-                Text(SubscriptionConfig.upsellTitle)
-                    .font(.bebasNeue(size: 36))
-                    .foregroundStyle(.white)
-
-                Text(SubscriptionConfig.upsellSubtitle)
-                    .font(.inter(size: 15))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .multilineTextAlignment(.center)
-            }
-            .opacity(titleOpacity)
+            // "GO PREMIUM" badge
+            Text("GO PREMIUM")
+                .font(.system(size: 13, weight: .semibold))
+                .tracking(3)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 22)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(.white.opacity(0.5), lineWidth: 1)
+                )
+                .shadow(color: Color.appAccent.opacity(badgeGlow * 0.3), radius: 10, x: 0, y: 0)
+                .opacity(titleOpacity)
         }
     }
 
     // MARK: - Benefits Carousel
 
     private var benefitsCarousel: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
+        ZStack(alignment: .bottom) {
+            TabView(selection: $currentPage) {
                 ForEach(0..<SubscriptionConfig.premiumFeatures.count, id: \.self) { index in
                     let feature = SubscriptionConfig.premiumFeatures[index]
                     FeatureCard(
                         icon: feature.icon,
                         title: feature.title,
-                        description: feature.description,
-                        animationDelay: 0.6 + Double(index) * 0.1
+                        description: feature.description
                     )
+                    .padding(.horizontal, 20)
+                    .tag(index)
                 }
             }
-            .padding(.horizontal, 4)
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(height: 310)
+
+            // Page indicators overlaid at the bottom of the cards
+            HStack(spacing: 8) {
+                ForEach(0..<SubscriptionConfig.premiumFeatures.count, id: \.self) { index in
+                    Circle()
+                        .fill(index == currentPage ? Color.appAccent : Color.white.opacity(0.25))
+                        .frame(width: 7, height: 7)
+                }
+            }
+            .padding(.bottom, 12)
         }
     }
 
     // MARK: - Pricing Section
 
     private var pricingSection: some View {
-        VStack(spacing: 12) {
-            // Yearly plan (emphasized)
-            PlanCard(
-                isSelected: selectedPlan == .yearly,
-                badge: SubscriptionConfig.bestValueBadge,
-                title: "Yearly",
-                price: SubscriptionConfig.yearlyDisplayPrice,
-                priceSubtitle: "(\(SubscriptionConfig.yearlyPerMonthPrice)/month)",
-                trialText: SubscriptionConfig.freeTrialBadge,
-                onTap: { selectedPlan = .yearly }
-            )
+        VStack(spacing: 16) {
+            // Yearly plan with "7 DAYS FREE" notch
+            VStack(alignment: .leading, spacing: 0) {
+                // Notch tab — left-aligned
+                Text("7 DAYS FREE")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .background(Color.appAccent)
+                    .clipShape(UnevenRoundedRectangle(topLeadingRadius: 6, topTrailingRadius: 6))
+                    .padding(.leading, 24)
+
+                // Yearly plan card
+                PlanCard(
+                    isSelected: selectedPlan == .yearly,
+                    title: "Yearly",
+                    price: SubscriptionConfig.yearlyDisplayPrice,
+                    priceSubtitle: "(\(SubscriptionConfig.yearlyPerMonthPrice)/mo)",
+                    badge: SubscriptionConfig.bestValueBadge,
+                    onTap: { selectedPlan = .yearly }
+                )
+            }
 
             // Monthly plan
             PlanCard(
                 isSelected: selectedPlan == .monthly,
-                badge: nil,
                 title: "Monthly",
                 price: SubscriptionConfig.monthlyDisplayPrice,
                 priceSubtitle: nil,
-                trialText: nil,
+                badge: nil,
                 onTap: { selectedPlan = .monthly }
             )
         }
@@ -208,15 +268,15 @@ struct UpsellView: View {
                         ProgressView()
                             .tint(.black)
                     } else {
-                        Text("Subscribe Now")
-                            .font(.interSemiBold(size: 14))
+                        Text(selectedPlan == .yearly ? "Start Free Trial" : "Subscribe Now")
+                            .font(.system(size: 16, weight: .semibold))
                     }
                 }
                 .foregroundStyle(.black)
                 .frame(maxWidth: .infinity)
                 .frame(height: 40)
                 .background(Color.appAccent)
-                .cornerRadius(10)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
             }
             .buttonStyle(.plain)
             .disabled(isProcessing)
@@ -296,25 +356,6 @@ struct UpsellView: View {
                 .foregroundStyle(.white.opacity(0.5))
         }
     }
-
-    // MARK: - Skip Button
-
-    private var skipButton: some View {
-        Button {
-            onComplete(false)
-        } label: {
-            HStack(spacing: 4) {
-                Text("Continue with Free")
-                    .font(.inter(size: 14))
-                    .foregroundStyle(.white.opacity(0.5))
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.5))
-            }
-        }
-        .buttonStyle(.plain)
-        .disabled(isProcessing)
-    }
 }
 
 // MARK: - Feature Card
@@ -323,44 +364,35 @@ private struct FeatureCard: View {
     let icon: String
     let title: String
     let description: String
-    let animationDelay: Double
-
-    @State private var isVisible = false
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 14) {
             Image(systemName: icon)
-                .font(.system(size: 24))
+                .font(.system(size: 28))
                 .foregroundStyle(Color.appAccent)
 
             Text(title)
-                .font(.interSemiBold(size: 13))
+                .font(.interSemiBold(size: 15))
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
 
             Text(description)
-                .font(.inter(size: 11))
+                .font(.inter(size: 13))
                 .foregroundStyle(.white.opacity(0.6))
                 .multilineTextAlignment(.center)
-                .lineLimit(3)
+                .lineLimit(4)
         }
-        .frame(width: 130, height: 140)
-        .padding(14)
+        .frame(maxWidth: .infinity)
+        .frame(height: 276)
+        .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: 16)
                 .fill(Color(white: 0.12))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 14)
+                    RoundedRectangle(cornerRadius: 16)
                         .stroke(Color.white.opacity(0.1), lineWidth: 1)
                 )
         )
-        .scaleEffect(isVisible ? 1.0 : 0.9)
-        .opacity(isVisible ? 1.0 : 0)
-        .onAppear {
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.7).delay(animationDelay)) {
-                isVisible = true
-            }
-        }
     }
 }
 
@@ -368,67 +400,61 @@ private struct FeatureCard: View {
 
 private struct PlanCard: View {
     let isSelected: Bool
-    let badge: String?
     let title: String
     let price: String
     let priceSubtitle: String?
-    let trialText: String?
+    let badge: String?
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    // Badge (if any)
-                    if let badge = badge {
-                        Text(badge)
-                            .font(.interSemiBold(size: 10))
-                            .foregroundStyle(.black)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(
-                                Capsule()
-                                    .fill(Color.appAccent)
-                            )
-                    }
+            HStack(spacing: 12) {
+                // Selection indicator
+                Circle()
+                    .strokeBorder(isSelected ? Color.appAccent : Color.white.opacity(0.5), lineWidth: 2)
+                    .frame(width: 22, height: 22)
+                    .overlay(
+                        Circle()
+                            .fill(isSelected ? Color.appAccent : Color.clear)
+                            .frame(width: 12, height: 12)
+                    )
 
-                    Spacer()
+                // Price (prominent)
+                Text(price)
+                    .font(.bebasNeue(size: 22))
+                    .foregroundStyle(.white)
 
-                    // Selection indicator
-                    Circle()
-                        .strokeBorder(isSelected ? Color.appAccent : Color.white.opacity(0.5), lineWidth: 2)
-                        .frame(width: 24, height: 24)
-                        .overlay(
-                            Circle()
-                                .fill(isSelected ? Color.appAccent : Color.clear)
-                                .frame(width: 14, height: 14)
-                        )
-                }
-
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                // Title + per-month subtitle
+                VStack(alignment: .leading, spacing: 1) {
                     Text(title)
-                        .font(.interSemiBold(size: 17))
+                        .font(.interSemiBold(size: 14))
                         .foregroundStyle(.white)
 
-                    Text(price)
-                        .font(.bebasNeue(size: 24))
-                        .foregroundStyle(.white)
-
-                    if let priceSubtitle = priceSubtitle {
+                    if let priceSubtitle {
                         Text(priceSubtitle)
-                            .font(.inter(size: 12))
+                            .font(.inter(size: 11))
                             .foregroundStyle(.white.opacity(0.5))
                     }
                 }
 
-                if let trialText = trialText {
-                    Text(trialText)
-                        .font(.inter(size: 12))
-                        .foregroundStyle(Color.appAccent)
+                Spacer()
+
+                // Badge (right side)
+                if let badge {
+                    Text(badge)
+                        .font(.interSemiBold(size: 9))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(
+                            Capsule()
+                                .fill(Color.appAccent)
+                        )
                 }
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 14)
                     .fill(Color(white: 0.12))

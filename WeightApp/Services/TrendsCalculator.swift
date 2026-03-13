@@ -461,6 +461,79 @@ struct TrendsCalculator {
         return parts.joined(separator: ", ") + "."
     }
 
+    // MARK: - Strength Tier Assessment
+
+    struct StrengthTierResult {
+        let overallTier: StrengthTier
+        let exerciseTiers: [(exercise: FundamentalExercise, e1rm: Double?, tier: StrengthTier)]
+        let limitingExercise: FundamentalExercise
+    }
+
+    static func strengthTierAssessment(
+        from estimated1RMs: [Estimated1RM],
+        bodyweight: Double,
+        biologicalSex: String
+    ) -> StrengthTierResult {
+        guard let sex = BiologicalSex(rawValue: biologicalSex) else {
+            // Unknown sex — default everything to rookie
+            let tiers = fundamentalExercises.map { ($0, nil as Double?, StrengthTier.rookie) }
+            return StrengthTierResult(
+                overallTier: .rookie,
+                exerciseTiers: tiers,
+                limitingExercise: fundamentalExercises[0]
+            )
+        }
+
+        let fundamentalIds = Set(fundamentalExercises.map(\.id))
+
+        // Group by exercise, take most recent e1RM for each
+        let grouped = Dictionary(grouping: estimated1RMs.filter { rec in
+            guard let eid = rec.exercise?.id else { return false }
+            return fundamentalIds.contains(eid)
+        }) { $0.exercise!.id }
+
+        var latestByExercise: [UUID: Double] = [:]
+        for (exerciseId, records) in grouped {
+            if let mostRecent = records.max(by: { $0.createdAt < $1.createdAt }) {
+                latestByExercise[exerciseId] = mostRecent.value
+            }
+        }
+
+        // Determine tier for each exercise
+        var exerciseTiers: [(exercise: FundamentalExercise, e1rm: Double?, tier: StrengthTier)] = []
+        var lowestTier: StrengthTier = .legend
+        var limitingExercise = fundamentalExercises[0]
+
+        for exercise in fundamentalExercises {
+            if let e1rm = latestByExercise[exercise.id] {
+                let tier = StrengthTierData.tierForExercise(
+                    name: exercise.name,
+                    e1rm: e1rm,
+                    bodyweight: bodyweight,
+                    sex: sex
+                )
+                exerciseTiers.append((exercise, e1rm, tier))
+                if tier < lowestTier {
+                    lowestTier = tier
+                    limitingExercise = exercise
+                }
+            } else {
+                // No data = Rookie
+                exerciseTiers.append((exercise, nil, .rookie))
+                if StrengthTier.rookie < lowestTier {
+                    lowestTier = .rookie
+                    limitingExercise = exercise
+                }
+            }
+        }
+
+        return StrengthTierResult(
+            overallTier: lowestTier,
+            exerciseTiers: exerciseTiers,
+            limitingExercise: limitingExercise
+        )
+    }
+
     // MARK: - Exercise Recency
 
     struct ExerciseRecency: Identifiable {

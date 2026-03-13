@@ -33,15 +33,15 @@ struct ContentView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             LazyView(TrendsView(selectedSetData: selectedSetData, selectedTab: $selectedTab))
-                .tabItem { Label("Trends", systemImage: "chart.line.uptrend.xyaxis") }
+                .tabItem { Label("Progress", systemImage: "chart.line.uptrend.xyaxis") }
                 .tag(0)
 
             CheckInView(selectedSetData: selectedSetData, initialExerciseId: initialExerciseId)
-                .tabItem { Label("Log Set", systemImage: "plus.circle") }
+                .tabItem { Label("Lift", systemImage: "plus.circle") }
                 .tag(1)
 
             MoreView(authViewModel: authViewModel)
-                .tabItem { Label("More", systemImage: "ellipsis.circle") }
+                .tabItem { Label("More", systemImage: "arrow.forward.square") }
                 .tag(2)
         }
         .tint(Color.appAccent)

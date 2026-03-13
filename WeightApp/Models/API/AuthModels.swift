@@ -78,6 +78,8 @@ struct UserPropertiesRequest: Codable {
     var hardMinReps: Int?
     var hardMaxReps: Int?
     var clearBodyweight: Bool = false
+    var biologicalSex: String?
+    var clearBiologicalSex: Bool = false
     var activeSetPlanId: String?
     var clearActiveSetPlan: Bool = false
     var activeSplitId: String?
@@ -85,6 +87,7 @@ struct UserPropertiesRequest: Codable {
     var stepsGoal: Int?
     var proteinGoal: Int?
     var bodyweightTarget: Double?
+    var timezone: String?
     var clearStepsGoal: Bool = false
     var clearProteinGoal: Bool = false
     var clearBodyweightTarget: Bool = false
@@ -92,9 +95,11 @@ struct UserPropertiesRequest: Codable {
     private enum CodingKeys: String, CodingKey {
         case bodyweight, availableChangePlates, minReps, maxReps
         case easyMinReps, easyMaxReps, moderateMinReps, moderateMaxReps, hardMinReps, hardMaxReps
+        case biologicalSex
         case activeSetPlanId = "activeSetPlanTemplateId"
         case activeSplitId
         case stepsGoal, proteinGoal, bodyweightTarget
+        case timezone
     }
 
     func encode(to encoder: Encoder) throws {
@@ -131,6 +136,11 @@ struct UserPropertiesRequest: Codable {
         if let hardMaxReps = hardMaxReps {
             try container.encode(hardMaxReps, forKey: .hardMaxReps)
         }
+        if clearBiologicalSex {
+            try container.encodeNil(forKey: .biologicalSex)
+        } else if let biologicalSex = biologicalSex {
+            try container.encode(biologicalSex, forKey: .biologicalSex)
+        }
         if clearActiveSetPlan {
             try container.encodeNil(forKey: .activeSetPlanId)
         } else if let activeSetPlanId = activeSetPlanId {
@@ -156,6 +166,9 @@ struct UserPropertiesRequest: Codable {
         } else if let bodyweightTarget = bodyweightTarget {
             try container.encode(bodyweightTarget, forKey: .bodyweightTarget)
         }
+        if let timezone = timezone {
+            try container.encode(timezone, forKey: .timezone)
+        }
     }
 }
 
@@ -171,20 +184,23 @@ struct UserPropertiesResponse: Codable {
     let moderateMaxReps: Int?
     let hardMinReps: Int?
     let hardMaxReps: Int?
+    let biologicalSex: String?
     let activeSetPlanId: String?
     let activeSplitId: String?
     let stepsGoal: Int?
     let proteinGoal: Int?
     let bodyweightTarget: Double?
+    let timezone: String?
     let createdDatetime: String
     let lastModifiedDatetime: String
 
     private enum CodingKeys: String, CodingKey {
         case userId, bodyweight, availableChangePlates, minReps, maxReps
         case easyMinReps, easyMaxReps, moderateMinReps, moderateMaxReps, hardMinReps, hardMaxReps
+        case biologicalSex
         case activeSetPlanId = "activeSetPlanTemplateId"
         case activeSplitId
-        case stepsGoal, proteinGoal, bodyweightTarget
+        case stepsGoal, proteinGoal, bodyweightTarget, timezone
         case createdDatetime, lastModifiedDatetime
     }
 }

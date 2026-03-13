@@ -8,17 +8,15 @@
 import SwiftUI
 
 enum TrendsTab: Int, CaseIterable {
-    case balance = 0
-    case analytics = 1
-    case history = 2
-    case insights = 3
+    case narratives = 0
+    case strength = 1
+    case analytics = 2
 
     var title: String {
         switch self {
-        case .balance: return "Balance"
+        case .narratives: return "Narratives"
+        case .strength: return "Strength"
         case .analytics: return "Analytics"
-        case .history: return "History"
-        case .insights: return "Insights"
         }
     }
 }

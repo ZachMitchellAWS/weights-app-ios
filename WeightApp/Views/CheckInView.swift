@@ -13,8 +13,14 @@ struct CheckInView: View {
 
     @Query(filter: #Predicate<Exercise> { !$0.deleted }, sort: \Exercise.createdAt) private var exercises: [Exercise]
     @Query private var userPropertiesItems: [UserProperties]
-    @Query(filter: #Predicate<WorkoutSplit> { !$0.deleted }) private var allSplits: [WorkoutSplit]
+    @Query(filter: #Predicate<WorkoutSplit> { !$0.deleted }, sort: \WorkoutSplit.createdAt) private var allSplits: [WorkoutSplit]
     @Query(filter: #Predicate<SetPlan> { !$0.deleted }) private var allTemplates: [SetPlan]
+    @Query private var entitlementRecords: [EntitlementGrant]
+
+    private var isPremium: Bool {
+        if FreeOverride.isEnabled { return false }
+        return PremiumOverride.isEnabled || EntitlementGrant.isPremium(entitlementRecords)
+    }
 
     @State private var setsForExercise: [LiftSet] = []
     @State private var estimated1RMsForExercise: [Estimated1RM] = []
@@ -58,6 +64,8 @@ struct CheckInView: View {
     @State private var selectedSquareId: UUID? = nil
     @State private var sessionScrollTarget: UUID? = nil
     @State private var showNoExercisesAlert = false
+    @State private var showNoSplitsAlert = false
+    @State private var showNoSetPlansAlert = false
     @State private var isRetryingSync = false
     @State private var showIncrementSelection = false
     @State private var showExpandedProgressOptions = false
@@ -75,6 +83,7 @@ struct CheckInView: View {
     @State private var activeDayId: UUID? = WorkoutSplitStore.activeDayId()
     @State private var repRangeDebounceTask: Task<Void, Never>?
     @State private var showE1RMPopup = false
+    @State private var effortScrollToTop: Int = 0
     @State private var showCalibrationAlert = false
     @State private var pendingCalibrationSet: LiftSet? = nil
     @State private var pendingCalibrationEstimated: Estimated1RM? = nil
@@ -154,6 +163,24 @@ struct CheckInView: View {
             case .moderate: return .setModerate
             case .hard: return .setHard
             case .progress: return .setPR
+            }
+        }
+
+        var defaultMinReps: Int {
+            switch self {
+            case .easy: return UserProperties.defaultEasyMinReps
+            case .moderate: return UserProperties.defaultModerateMinReps
+            case .hard: return UserProperties.defaultHardMinReps
+            case .progress: return UserProperties.defaultMinReps
+            }
+        }
+
+        var defaultMaxReps: Int {
+            switch self {
+            case .easy: return UserProperties.defaultEasyMaxReps
+            case .moderate: return UserProperties.defaultModerateMaxReps
+            case .hard: return UserProperties.defaultHardMaxReps
+            case .progress: return UserProperties.defaultMaxReps
             }
         }
 
@@ -487,7 +514,7 @@ struct CheckInView: View {
         // For barbell: plate × 2 (both sides)
         // For single load / bodyweight+single load: plate × 1 (one side only)
         let smallestPlate = availablePlates.min() ?? 2.5
-        let multiplier = selectedExercises?.exerciseLoadType == .barbell ? 2.0 : 1.0
+        let multiplier = selectedExercises?.exerciseLoadType.plateMultiplier ?? 2.0
         return smallestPlate * multiplier
     }
 
@@ -496,12 +523,16 @@ struct CheckInView: View {
         // For barbell: plate × 2 (both sides)
         // For single load / bodyweight+single load: plate × 1 (one side only)
         var deltas = Set<Double>()
-        let multiplier = selectedExercises?.exerciseLoadType == .barbell ? 2.0 : 1.0
+        let multiplier = selectedExercises?.exerciseLoadType.plateMultiplier ?? 2.0
         for plateWeight in availablePlates {
             let increment = plateWeight * multiplier
             if increment <= 5.0 {
                 deltas.insert(increment)
             }
+        }
+        // For single load types, 2.5 lb is a standard plate weight usable as an increment
+        if multiplier == 1.0 {
+            deltas.insert(2.5)
         }
         // Always include 5.0 as an option
         deltas.insert(5.0)
@@ -566,6 +597,22 @@ struct CheckInView: View {
 
     private var allEffortTiersReady: Bool {
         effortTierHasSuggestions(.easy) && effortTierHasSuggestions(.moderate) && effortTierHasSuggestions(.hard)
+    }
+
+    private var bodyweightStage: BodyweightProgressionStage {
+        guard let exercise = selectedExercises else { return .organic }
+        return exercise.bodyweightStage(sets: setsForSelected, allEffortTiersReady: allEffortTiersReady)
+    }
+
+    private var guidedSuggestions: [OneRMCalculator.GuidedSuggestion] {
+        guard bodyweightStage == .guidedLoad,
+              let mode = effortMode else { return [] }
+        switch mode {
+        case .easy:     return [OneRMCalculator.GuidedSuggestion(weight: 10, reps: 2, label: "Easy")]
+        case .moderate: return [OneRMCalculator.GuidedSuggestion(weight: 10, reps: 3, label: "Moderate")]
+        case .hard:     return [OneRMCalculator.GuidedSuggestion(weight: 10, reps: 4, label: "Hard")]
+        case .progress: return [OneRMCalculator.GuidedSuggestion(weight: 10, reps: 5, label: "Progress")]
+        }
     }
 
     private var effortSuggestions: [OneRMCalculator.EffortSuggestion] {
@@ -668,6 +715,12 @@ struct CheckInView: View {
                 validateWeightDelta()
                 if exercises.isEmpty {
                     showNoExercisesAlert = true
+                }
+                if allSplits.isEmpty {
+                    showNoSplitsAlert = true
+                }
+                if allTemplates.isEmpty {
+                    showNoSetPlansAlert = true
                 }
                 // Apply initial exercise from onboarding (only once)
                 if let initialId = initialExerciseId, !hasAppliedInitialExercise {
@@ -841,6 +894,30 @@ struct CheckInView: View {
                 } message: {
                     Text("Unable to load your exercises. You can retry or start with default exercises.")
                 }
+                .alert("No Splits Found", isPresented: $showNoSplitsAlert) {
+                    Button("Try Again") {
+                        retryFetchSplits()
+                    }
+                    .disabled(isRetryingSync)
+                    Button("Use Defaults") {
+                        useDefaultSplits()
+                    }
+                    Button("Dismiss", role: .cancel) { }
+                } message: {
+                    Text("Unable to load your workout splits. You can retry or start with defaults.")
+                }
+                .alert("No Set Plans Found", isPresented: $showNoSetPlansAlert) {
+                    Button("Try Again") {
+                        retryFetchSetPlans()
+                    }
+                    .disabled(isRetryingSync)
+                    Button("Use Defaults") {
+                        useDefaultSetPlans()
+                    }
+                    Button("Dismiss", role: .cancel) { }
+                } message: {
+                    Text("Unable to load your set plans. You can retry or start with defaults.")
+                }
                 .alert("How did that feel?", isPresented: $showCalibrationAlert) {
                     Button("Easy") { applyCalibration(effort: .easy) }
                     Button("Moderate") { applyCalibration(effort: .moderate) }
@@ -962,7 +1039,7 @@ struct CheckInView: View {
                 let result = evaluateCalculator()
                 // Allow zero for single load (bodyweight) exercises
                 let loadType = selectedExercises?.exerciseLoadType
-                let minWeight = (loadType == .singleLoad) ? 0.0 : 0.01
+                let minWeight = (loadType?.allowsZeroWeight == true) ? 0.0 : 0.01
                 if result >= minWeight && result <= 1000 {
                     weight = result
                     hasSetInitialValues = true
@@ -1988,25 +2065,38 @@ struct CheckInView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 10)
-                .opacity(selectedExercises != nil && !setsForSelected.isEmpty ? 1 : 0)
-                .allowsHitTesting(selectedExercises != nil && !setsForSelected.isEmpty)
+                .opacity(selectedExercises != nil && !setsForSelected.isEmpty
+                    && !(selectedExercises?.exerciseLoadType == .bodyweightPlusSingleLoad && bodyweightStage == .foundation) ? 1 : 0)
+                .allowsHitTesting(selectedExercises != nil && !setsForSelected.isEmpty
+                    && !(selectedExercises?.exerciseLoadType == .bodyweightPlusSingleLoad && bodyweightStage == .foundation))
 
                 // Options section
                 optionsSection
 
                 // Legend
-                HStack(spacing: 10) {
-                    LegendItem(color: .setEasy, label: "Easy")
-                    LegendItem(color: .setModerate, label: "Moderate")
-                    LegendItem(color: .setHard, label: "Hard")
-                    LegendItem(color: .setNearMax, label: "Redline")
-                    LegendItem(color: .setPR, label: "e1RM ↑")
+                if selectedExercises?.exerciseLoadType == .bodyweightPlusSingleLoad && bodyweightStage == .foundation {
+                    HStack(spacing: 10) {
+                        LegendItem(color: .white.opacity(0.7), label: "Bodyweight")
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 2)
+                    .padding(.bottom, 12)
+                    .opacity(!setsForSelected.isEmpty ? 1 : 0)
+                    .layoutPriority(1)
+                } else {
+                    HStack(spacing: 10) {
+                        LegendItem(color: .setEasy, label: "Easy")
+                        LegendItem(color: .setModerate, label: "Moderate")
+                        LegendItem(color: .setHard, label: "Hard")
+                        LegendItem(color: .setNearMax, label: "Redline")
+                        LegendItem(color: .setPR, label: "e1RM ↑")
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 2)
+                    .padding(.bottom, 12)
+                    .opacity(!setsForSelected.isEmpty ? 1 : 0)
+                    .layoutPriority(1)
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 2)
-                .padding(.bottom, 12)
-                .opacity(!setsForSelected.isEmpty ? 1 : 0)
-                .layoutPriority(1)
             }
             .frame(maxHeight: .infinity)
             .background {
@@ -2061,12 +2151,21 @@ struct CheckInView: View {
                 },
                 hasWeightDeltaChanges: hasWeightDeltaChanges,
                 onSaveWeightDelta: { saveWeightDelta() },
-                isBarbell: selectedExercises?.exerciseLoadType == .barbell,
+                isBarbell: selectedExercises?.exerciseLoadType.isBarbell == true,
                 barbellWeight: Binding(
                     get: { selectedExercises?.barbellWeight },
                     set: { selectedExercises?.barbellWeight = $0 }
                 ),
-                onSaveBarbellWeight: { saveBarbellWeight() }
+                onSaveBarbellWeight: { saveBarbellWeight() },
+                guidedSuggestions: bodyweightStage == .guidedLoad ? guidedSuggestions : nil,
+                onSelectGuided: { suggestion in
+                    weight = suggestion.weight
+                    reps = suggestion.reps
+                    hasSetInitialValues = true
+                    hasSetWeight = true
+                    hasSetReps = true
+                    hasSelectedOption = true
+                }
             )
             .presentationDetents([.large])
             .presentationContentInteraction(.scrolls)
@@ -2132,12 +2231,21 @@ struct CheckInView: View {
                         }
                     }
                 },
-                isBarbell: selectedExercises?.exerciseLoadType == .barbell,
+                isBarbell: selectedExercises?.exerciseLoadType.isBarbell == true,
                 barbellWeight: Binding(
                     get: { selectedExercises?.barbellWeight },
                     set: { selectedExercises?.barbellWeight = $0 }
                 ),
-                onSaveBarbellWeight: { saveBarbellWeight() }
+                onSaveBarbellWeight: { saveBarbellWeight() },
+                guidedSuggestions: bodyweightStage == .guidedLoad ? guidedSuggestions : nil,
+                onSelectGuided: { suggestion in
+                    weight = suggestion.weight
+                    reps = suggestion.reps
+                    hasSetInitialValues = true
+                    hasSetWeight = true
+                    hasSetReps = true
+                    hasSelectedOption = true
+                }
             )
             .presentationDetents([.large])
             .presentationContentInteraction(.scrolls)
@@ -2384,8 +2492,9 @@ struct CheckInView: View {
 
                         Spacer()
 
-                        // Set plan menu — only shown when viewing today
-                        if isViewingToday {
+                        // Set plan menu — hidden during bodyweight foundation stage
+                        let isBodyweightFoundation = selectedExercises?.exerciseLoadType == .bodyweightPlusSingleLoad && bodyweightStage == .foundation
+                        if isViewingToday && !isBodyweightFoundation {
 
                             Menu {
                                 Button {
@@ -2435,18 +2544,20 @@ struct CheckInView: View {
                             }
                         }
 
-                        // Edit button → opens Hub Set Plans tab
-                        Button {
-                            hapticFeedback.impactOccurred()
-                            hubSection = .setPlans
-                            hubDeepLinkExerciseId = nil
-                            showHub = true
-                        } label: {
-                            Image(systemName: "square.stack")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.35))
+                        // Edit button → opens Hub Set Plans tab (hidden during foundation)
+                        if !isBodyweightFoundation {
+                            Button {
+                                hapticFeedback.impactOccurred()
+                                hubSection = .setPlans
+                                hubDeepLinkExerciseId = nil
+                                showHub = true
+                            } label: {
+                                Image(systemName: "square.stack")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(.white.opacity(0.35))
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                     .frame(height: 22)
 
@@ -2502,7 +2613,9 @@ struct CheckInView: View {
                                                 selectedSquareId = set.id
 
                                                 // Update effort mode from plan if this set's index maps to a plan entry
-                                                if index < displaySetPlan.count {
+                                                // (skip during bodyweight foundation — effort system isn't active)
+                                                let isFoundation = selectedExercises?.exerciseLoadType == .bodyweightPlusSingleLoad && bodyweightStage == .foundation
+                                                if !isFoundation, index < displaySetPlan.count {
                                                     let effortKey = displaySetPlan[index]
                                                     withAnimation { effortMode = EffortMode.from(effort: effortKey) }
                                                 }
@@ -2520,11 +2633,13 @@ struct CheckInView: View {
 
                                         if isViewingToday {
                                             // Plan-aware placeholder tiles
+                                            // Hide for bodyweight exercises during foundation stage (effort system isn't active yet)
+                                            let showPlanTiles = selectedExercises?.exerciseLoadType != .bodyweightPlusSingleLoad || bodyweightStage != .foundation
                                             let completedCount = todaysSets.count
                                             let planCount = displaySetPlan.count
                                             let remaining = planCount - completedCount
 
-                                            if remaining > 0 {
+                                            if remaining > 0 && showPlanTiles {
                                                 ForEach(0..<remaining, id: \.self) { i in
                                                     let planIndex = completedCount + i
                                                     let effortKey = planIndex < displaySetPlan.count ? displaySetPlan[planIndex] : "easy"
@@ -2700,6 +2815,58 @@ struct CheckInView: View {
     private var progressOptionsContent: some View {
         VStack(spacing: 8) {
             if filteredSuggestions.isEmpty {
+                if bodyweightStage == .foundation {
+                    ZStack {
+                        RadialGradient(
+                            colors: [Color.setPR.opacity(0.08), Color.clear],
+                            center: .center, startRadius: 0, endRadius: 80
+                        )
+                        VStack(spacing: 14) {
+                            Image("LiftTheBullIcon")
+                                .resizable().scaledToFit()
+                                .frame(width: 72, height: 72)
+                                .foregroundStyle(Color.setPR)
+                                .shadow(color: Color.setPR.opacity(0.3), radius: 14)
+                            Text("Complete 10 reps at bodyweight (0 lbs) to unlock options")
+                                .font(.interSemiBold(size: 14))
+                                .italic()
+                                .foregroundStyle(.white.opacity(0.8))
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: 240)
+                                .padding(.top, 6)
+                        }
+                        .offset(y: 10)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if bodyweightStage == .guidedLoad {
+                    VStack(spacing: 8) {
+                        // Header
+                        HStack(spacing: 0) {
+                            Text("WEIGHT").font(.caption2.weight(.semibold)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity)
+                            Text("REPS").font(.caption2.weight(.semibold)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity)
+                            Text("e1RM %").font(.caption2.weight(.semibold)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity)
+                        }
+                        .frame(height: 24)
+                        .padding(.horizontal, 12)
+
+                        ForEach(guidedSuggestions) { suggestion in
+                            EffortOptionCard(
+                                suggestion: OneRMCalculator.EffortSuggestion(reps: suggestion.reps, weight: suggestion.weight, percent1RM: -1),
+                                isSelected: weight == suggestion.weight && reps == suggestion.reps
+                            )
+                            .onTapGesture {
+                                hapticFeedback.impactOccurred()
+                                selectEffortOption(OneRMCalculator.EffortSuggestion(reps: suggestion.reps, weight: suggestion.weight, percent1RM: -1))
+                            }
+                        }
+                        Spacer()
+                        Text("Log 10 lbs for at least 5 reps to unlock full options")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.4))
+                            .padding(.top, 2)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
                 ZStack {
                     RadialGradient(
                         colors: [
@@ -2730,6 +2897,7 @@ struct CheckInView: View {
                     .offset(y: 10)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             } else {
             // Fixed header row with labels
             HStack(spacing: 12) {
@@ -2935,6 +3103,9 @@ struct CheckInView: View {
                         .onChange(of: effortSortAscending) { _, _ in
                             withAnimation { proxy.scrollTo("effortTop", anchor: .top) }
                         }
+                        .onChange(of: effortScrollToTop) { _, _ in
+                            withAnimation { proxy.scrollTo("effortTop", anchor: .top) }
+                        }
                     }
 
                     LinearGradient(
@@ -2982,38 +3153,85 @@ struct CheckInView: View {
             case .progress: return "Progress"
             }
         }()
-        return ZStack {
-            RadialGradient(
-                colors: [
-                    accentColor.opacity(0.08),
-                    Color.clear
-                ],
-                center: .center,
-                startRadius: 0,
-                endRadius: 80
-            )
+        let stage = bodyweightStage
+        return VStack(spacing: 8) {
+            if stage == .foundation {
+                // Stage 1: Foundation message
+                ZStack {
+                    RadialGradient(
+                        colors: [accentColor.opacity(0.08), Color.clear],
+                        center: .center, startRadius: 0, endRadius: 80
+                    )
+                    VStack(spacing: 14) {
+                        Image("LiftTheBullIcon")
+                            .resizable().scaledToFit()
+                            .frame(width: 72, height: 72)
+                            .foregroundStyle(accentColor)
+                            .shadow(color: accentColor.opacity(0.3), radius: 14)
+                        Text("Complete 10 Reps at Bodyweight (0 lbs) to Unlock \(modeName) Options")
+                            .font(.bebasNeue(size: 20))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .padding(.top, 6)
+                    }
+                    .offset(y: 10)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if stage == .guidedLoad {
+                // Stage 2: Guided suggestion tiles (same layout as normal effort options)
+                HStack(spacing: 0) {
+                    Text("WEIGHT").font(.caption2.weight(.semibold)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity)
+                    Text("REPS").font(.caption2.weight(.semibold)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity)
+                    Text("e1RM %").font(.caption2.weight(.semibold)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity)
+                }
+                .frame(height: 24)
+                .padding(.horizontal, 12)
 
-            VStack(spacing: 14) {
-                Image("LiftTheBullIcon")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 72, height: 72)
-                    .foregroundStyle(accentColor)
-                    .shadow(color: accentColor.opacity(0.3), radius: 14, x: 0, y: 0)
-
-                Text(setsForSelected.isEmpty
-                    ? "Log a Set to Unlock \(modeName) Options"
-                    : current1RM > 0
-                        ? "Lift with More Load to Unlock \(modeName) Options"
-                        : "Lift with Load to Unlock \(modeName) Options")
-                    .font(.bebasNeue(size: 20))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 6)
+                ForEach(guidedSuggestions) { suggestion in
+                    EffortOptionCard(
+                        suggestion: OneRMCalculator.EffortSuggestion(reps: suggestion.reps, weight: suggestion.weight, percent1RM: -1),
+                        isSelected: weight == suggestion.weight && reps == suggestion.reps,
+                        accentColor: accentColor
+                    )
+                    .onTapGesture {
+                        hapticFeedback.impactOccurred()
+                        selectEffortOption(OneRMCalculator.EffortSuggestion(reps: suggestion.reps, weight: suggestion.weight, percent1RM: -1))
+                    }
+                }
+                Spacer()
+                // Stage 2 footer
+                Text("Log 10 lbs for at least 5 reps to unlock full options")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.4))
+                    .padding(.top, 2)
+            } else {
+                // Organic fallback (non-bodyweight exercises)
+                ZStack {
+                    RadialGradient(
+                        colors: [accentColor.opacity(0.08), Color.clear],
+                        center: .center, startRadius: 0, endRadius: 80
+                    )
+                    VStack(spacing: 14) {
+                        Image("LiftTheBullIcon")
+                            .resizable().scaledToFit()
+                            .frame(width: 72, height: 72)
+                            .foregroundStyle(accentColor)
+                            .shadow(color: accentColor.opacity(0.3), radius: 14)
+                        Text(setsForSelected.isEmpty
+                            ? "Log a Set to Unlock \(modeName) Options"
+                            : current1RM > 0
+                                ? "Lift with More Load to Unlock \(modeName) Options"
+                                : "Lift with Load to Unlock \(modeName) Options")
+                            .font(.bebasNeue(size: 20))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .padding(.top, 6)
+                    }
+                    .offset(y: 10)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .offset(y: 10)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var logSetSection: some View {
@@ -3027,7 +3245,7 @@ struct CheckInView: View {
                             return
                         }
                         if !hasSetWeight {
-                            weight = selectedExercises?.exerciseLoadType == .barbell ? 45.0 : 0.0
+                            weight = selectedExercises?.exerciseLoadType.isBarbell == true ? 45.0 : 0.0
                         } else {
                             weight = max(0, weight - smallestPlateIncrement)
                         }
@@ -3067,7 +3285,7 @@ struct CheckInView: View {
                             return
                         }
                         if !hasSetWeight {
-                            weight = selectedExercises?.exerciseLoadType == .barbell ? 45.0 : 0.0
+                            weight = selectedExercises?.exerciseLoadType.isBarbell == true ? 45.0 : 0.0
                         } else {
                             weight = min(1000, weight + smallestPlateIncrement)
                         }
@@ -3527,6 +3745,10 @@ struct CheckInView: View {
         }
     }
 
+    private func formatWeight(_ weight: Double) -> String {
+        weight.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(weight))" : weight.formatted(.number.precision(.fractionLength(1)))
+    }
+
     private func saveBarbellWeight() {
         guard let exercise = selectedExercises else { return }
         try? modelContext.save()
@@ -3739,15 +3961,28 @@ struct CheckInView: View {
         // Create a new Estimated1RM record for every set, storing the running max
         let estimated = Estimated1RM(exercise: ex, value: after, setId: set.id)
         modelContext.insert(estimated)
+        try? modelContext.save()
 
         // Sync lift set and estimated 1RM to backend
         Task {
-            await SyncService.shared.syncLiftSet(set)
+            await SyncService.shared.syncLiftSet(set, isPremiumOnClient: isPremium)
             await SyncService.shared.syncEstimated1RM(estimated)
         }
 
         // First weighted set: defer data refresh until calibration is applied
         if isFirstWeightedSet {
+            // Bodyweight+single load in guided stage: auto-calibrate sub-threshold sets,
+            // only ask "How did that feel?" once they hit 10 lbs for 5+ reps
+            if ex.exerciseLoadType == .bodyweightPlusSingleLoad && weight <= 10 && reps < 5 {
+                pendingCalibrationSet = set
+                pendingCalibrationEstimated = estimated
+                let autoEffort: EffortMode
+                if reps <= 2 { autoEffort = .easy }
+                else if reps == 3 { autoEffort = .moderate }
+                else { autoEffort = .hard }
+                applyCalibration(effort: autoEffort)
+                return
+            }
             pendingCalibrationSet = set
             pendingCalibrationEstimated = estimated
             showCalibrationAlert = true
@@ -3771,21 +4006,9 @@ struct CheckInView: View {
             overlayIntensityColor = .setPR
             overlayIntensityLabel = "PR"
         } else if weight == 0 {
-            // Zero-weight sets: never show PR, color by reps
-            switch reps {
-            case 12...:
-                overlayIntensityColor = .setNearMax
-                overlayIntensityLabel = "Redline"
-            case 9..<12:
-                overlayIntensityColor = .setHard
-                overlayIntensityLabel = "Hard"
-            case 6..<9:
-                overlayIntensityColor = .setModerate
-                overlayIntensityLabel = "Moderate"
-            default:
-                overlayIntensityColor = .setEasy
-                overlayIntensityLabel = "Easy"
-            }
+            // Zero-weight (bodyweight) sets: white tile, "Bodyweight" label
+            overlayIntensityColor = .white
+            overlayIntensityLabel = "Bodyweight"
         } else {
             // Weighted exercise - color by percent1RM
             let percent1RM = before > 0 ? OneRMCalculator.estimate1RM(weight: weight, reps: reps) / before : 0
@@ -3815,6 +4038,7 @@ struct CheckInView: View {
                 if let next = nextPlannedEffortMode {
                     let mode = (next != .progress && !allEffortTiersReady) ? .progress : next
                     withAnimation { effortMode = mode }
+                    effortScrollToTop += 1
                 }
             }
         }
@@ -3877,6 +4101,7 @@ struct CheckInView: View {
                 if let next = nextPlannedEffortMode {
                     let mode = (next != .progress && !allEffortTiersReady) ? .progress : next
                     withAnimation { effortMode = mode }
+                    effortScrollToTop += 1
                 }
             }
         }
@@ -3932,6 +4157,41 @@ struct CheckInView: View {
             }
             // Assign default exercises to days now that exercises exist
             WorkoutSplitStore.assignDefaultExercisesToDays(context: modelContext)
+        }
+    }
+
+    private func retryFetchSplits() {
+        isRetryingSync = true
+        Task {
+            let success = await SyncService.shared.retryFetchSplits()
+            isRetryingSync = false
+            if !success && allSplits.isEmpty {
+                showNoSplitsAlert = true
+            }
+        }
+    }
+
+    private func useDefaultSplits() {
+        Task {
+            await SyncService.shared.createDefaultSplitsAndSync()
+            WorkoutSplitStore.assignDefaultExercisesToDays(context: modelContext)
+        }
+    }
+
+    private func retryFetchSetPlans() {
+        isRetryingSync = true
+        Task {
+            let success = await SyncService.shared.retryFetchSetPlans()
+            isRetryingSync = false
+            if !success && allTemplates.isEmpty {
+                showNoSetPlansAlert = true
+            }
+        }
+    }
+
+    private func useDefaultSetPlans() {
+        Task {
+            await SyncService.shared.createDefaultSetPlansAndSync()
         }
     }
 }
@@ -4285,7 +4545,7 @@ struct EditExerciseFormView: View {
                     }
 
                     // Bar Weight (barbell exercises only)
-                    if exercise.exerciseLoadType == .barbell {
+                    if exercise.exerciseLoadType.isBarbell {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Bar Weight")
                                 .font(.subheadline.weight(.semibold))
@@ -4895,16 +5155,8 @@ struct SetSquareView: View {
         if isPR {
             color = .setPR
         } else if set.weight == 0 {
-            switch set.reps {
-            case 12...:
-                color = .setNearMax
-            case 9..<12:
-                color = .setHard
-            case 6..<9:
-                color = .setModerate
-            default:
-                color = .setEasy
-            }
+            // Zero-weight → neutral white (no effort coloring)
+            color = .white
         } else {
             // percent1RM-based effort coloring
             let percent1RM = currentMax > 0 ? setEstimated1RM / currentMax : 0
@@ -4922,20 +5174,21 @@ struct SetSquareView: View {
     }
 
     var body: some View {
+        let isZeroWeight = set.weight == 0
         VStack(spacing: 2) {
             Text("\(Int(set.weight))")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(isZeroWeight ? .black : .white)
             Text("\(set.reps)")
                 .font(.caption2)
-                .foregroundStyle(.white.opacity(0.8))
+                .foregroundStyle(isZeroWeight ? .black.opacity(0.8) : .white.opacity(0.8))
         }
         .frame(width: 42, height: 42)
-        .background(colorAndPR.color.opacity(0.3))
-        .cornerRadius(6)
+        .background(isZeroWeight ? Color.white.opacity(0.7) : colorAndPR.color.opacity(0.3))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(colorAndPR.color, lineWidth: 1.5)
+                .stroke(isZeroWeight ? Color.white.opacity(0.2) : colorAndPR.color, lineWidth: 1.5)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 6)
@@ -5155,6 +5408,8 @@ struct ExpandedProgressOptionsSheet: View {
     var isBarbell: Bool = false
     @Binding var barbellWeight: Double?
     var onSaveBarbellWeight: (() -> Void)? = nil
+    var guidedSuggestions: [OneRMCalculator.GuidedSuggestion]? = nil
+    var onSelectGuided: ((OneRMCalculator.GuidedSuggestion) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var columnHighlighted = false
@@ -5319,6 +5574,21 @@ struct ExpandedProgressOptionsSheet: View {
                         .foregroundStyle(Color.setPR)
                         .font(.caption)
                     Spacer()
+                    if minReps != UserProperties.defaultMinReps || maxReps != UserProperties.defaultMaxReps {
+                        Button {
+                            minReps = UserProperties.defaultMinReps
+                            maxReps = UserProperties.defaultMaxReps
+                            onRepRangeChanged()
+                        } label: {
+                            Text("Reset to Default")
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(0.4))
+                        }
+                        .buttonStyle(.plain)
+                        Text("|")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.2))
+                    }
                     Text("\(minReps)–\(maxReps) reps")
                         .foregroundStyle(.white.opacity(0.5))
                         .font(.caption)
@@ -5343,6 +5613,57 @@ struct ExpandedProgressOptionsSheet: View {
             .padding(.vertical, 14)
             .padding(.top, 8)
 
+            if let guided = guidedSuggestions, !guided.isEmpty {
+                // Guided (Stage 2) view — same layout as normal options
+                VStack(spacing: 8) {
+                    Text("Getting Started")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.top, 16)
+
+                    HStack(spacing: 0) {
+                        Text("WEIGHT").font(.caption2.weight(.semibold)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity)
+                        Text("REPS").font(.caption2.weight(.semibold)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity)
+                        Text("e1RM %").font(.caption2.weight(.semibold)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity)
+                    }
+                    .frame(height: 24)
+                    .padding(.horizontal, 12)
+
+                    ForEach(guided) { suggestion in
+                        EffortOptionCard(
+                            suggestion: OneRMCalculator.EffortSuggestion(reps: suggestion.reps, weight: suggestion.weight, percent1RM: -1),
+                            isSelected: false
+                        )
+                        .onTapGesture {
+                            onSelectGuided?(suggestion)
+                            dismiss()
+                        }
+                    }
+
+                    Text("Log 10 lbs for at least 5 reps to unlock full options")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.4))
+                        .padding(.top, 8)
+
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+
+                Button {
+                    dismiss()
+                } label: {
+                    Text("Done")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.appAccent)
+                        .cornerRadius(10)
+                }
+                .padding(.horizontal, 40)
+                .padding(.top, 24)
+                .padding(.bottom, 16)
+            } else {
             // Header row with column labels
             HStack(spacing: 12) {
                 columnButton(title: "WEIGHT", column: .weight, width: 80)
@@ -5415,6 +5736,7 @@ struct ExpandedProgressOptionsSheet: View {
             .padding(.horizontal, 40)
             .padding(.top, 24)
             .padding(.bottom, 16)
+            }
         }
         .background(
             LinearGradient(
@@ -5503,6 +5825,8 @@ struct ExpandedEffortOptionsSheet: View {
     var isBarbell: Bool = false
     @Binding var barbellWeight: Double?
     var onSaveBarbellWeight: (() -> Void)? = nil
+    var guidedSuggestions: [OneRMCalculator.GuidedSuggestion]? = nil
+    var onSelectGuided: ((OneRMCalculator.GuidedSuggestion) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedSuggestion: OneRMCalculator.EffortSuggestion?
@@ -5623,6 +5947,21 @@ struct ExpandedEffortOptionsSheet: View {
                         .foregroundStyle(effortMode.tileColor)
                         .font(.caption)
                     Spacer()
+                    if repRangeMin != effortMode.defaultMinReps || repRangeMax != effortMode.defaultMaxReps {
+                        Button {
+                            repRangeMin = effortMode.defaultMinReps
+                            repRangeMax = effortMode.defaultMaxReps
+                            onRepRangeChanged()
+                        } label: {
+                            Text("Reset to Default")
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(0.4))
+                        }
+                        .buttonStyle(.plain)
+                        Text("|")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.2))
+                    }
                     Text("\(repRangeMin)–\(repRangeMax) reps")
                         .foregroundStyle(.white.opacity(0.5))
                         .font(.caption)
@@ -5670,6 +6009,58 @@ struct ExpandedEffortOptionsSheet: View {
             .padding(.vertical, 14)
             .padding(.top, 8)
 
+            if let guided = guidedSuggestions, !guided.isEmpty {
+                // Guided (Stage 2) view — same layout as normal options
+                VStack(spacing: 8) {
+                    Text("Getting Started")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.top, 16)
+
+                    HStack(spacing: 0) {
+                        Text("WEIGHT").font(.caption2.weight(.semibold)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity)
+                        Text("REPS").font(.caption2.weight(.semibold)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity)
+                        Text("e1RM %").font(.caption2.weight(.semibold)).foregroundStyle(.white.opacity(0.4)).frame(maxWidth: .infinity)
+                    }
+                    .frame(height: 24)
+                    .padding(.horizontal, 12)
+
+                    ForEach(guided) { suggestion in
+                        EffortOptionCard(
+                            suggestion: OneRMCalculator.EffortSuggestion(reps: suggestion.reps, weight: suggestion.weight, percent1RM: -1),
+                            isSelected: false,
+                            accentColor: effortMode.tileColor
+                        )
+                        .onTapGesture {
+                            onSelectGuided?(suggestion)
+                            dismiss()
+                        }
+                    }
+
+                    Text("Log 10 lbs for at least 5 reps to unlock full options")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.4))
+                        .padding(.top, 8)
+
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+
+                Button {
+                    dismiss()
+                } label: {
+                    Text("Done")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.appAccent)
+                        .cornerRadius(10)
+                }
+                .padding(.horizontal, 40)
+                .padding(.top, 12)
+                .padding(.bottom, 16)
+            } else {
             // Sortable header row
             HStack(spacing: 0) {
                 sheetColumnButton(title: "WEIGHT", column: .weight)
@@ -5752,6 +6143,7 @@ struct ExpandedEffortOptionsSheet: View {
             }
             .foregroundStyle(.white.opacity(0.4))
             .padding(.bottom, 8)
+            }
         }
         .background(
             LinearGradient(

@@ -12,44 +12,108 @@ struct TrendsView: View {
     @ObservedObject var selectedSetData: SelectedSetData
     @ObservedObject private var syncService = SyncService.shared
     @Binding var selectedTab: Int
-    @State private var trendsTab: TrendsTab = .balance
+    @State private var trendsTab: TrendsTab = .narratives
+    @State private var showHistory = false
+    @State private var isDeleteModeActive = false
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Segmented picker
-                TrendsPicker(selectedTab: $trendsTab)
-                    .padding(.top, 8)
-                    .padding(.bottom, 12)
+                if showHistory {
+                    // History header with back chevron, title, and edit toggle
+                    HStack {
+                        Button {
+                            isDeleteModeActive = false
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                showHistory = false
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.left")
+                                    .font(.body.weight(.semibold))
+                                Text("Back")
+                                    .font(.body)
+                            }
+                            .foregroundStyle(Color.appAccent)
+                        }
+                        .buttonStyle(.plain)
 
-                // Content based on selected tab
-                // AnalyticsView: only rendered when selected (avoids expensive widget recomputation while on other tabs)
-                // HistoryView: always in tree (preserves scroll position, delete mode state) but hidden via opacity
-                ZStack {
-                    if trendsTab == .balance {
-                        BalanceView()
-                    }
+                        Spacer()
 
-                    if trendsTab == .analytics {
-                        AnalyticsView()
+                        Text("History")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+
+                        Spacer()
+
+                        Button {
+                            isDeleteModeActive.toggle()
+                        } label: {
+                            Image(systemName: isDeleteModeActive ? "minus.circle.fill" : "minus.circle")
+                                .font(.title3)
+                                .foregroundStyle(isDeleteModeActive ? .red : Color.appAccent)
+                        }
+                        .buttonStyle(.plain)
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
 
                     HistoryView(
                         selectedSetData: selectedSetData,
                         selectedTab: $selectedTab,
-                        isVisible: trendsTab == .history
+                        isVisible: true,
+                        isDeleteModeActive: $isDeleteModeActive
                     )
-                    .opacity(trendsTab == .history ? 1 : 0)
-                    .allowsHitTesting(trendsTab == .history)
-
-                    if trendsTab == .insights {
-                        InsightsView()
+                    .transition(.move(edge: .trailing))
+                } else {
+                    // History icon row
+                    HStack {
+                        Spacer()
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                showHistory = true
+                            }
+                        } label: {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .font(.title3)
+                                .foregroundStyle(Color.appAccent)
+                        }
+                        .buttonStyle(.plain)
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+                    .padding(.bottom, 6)
+
+                    // Segmented picker
+                    TrendsPicker(selectedTab: $trendsTab)
+                        .padding(.top, 4)
+                        .padding(.bottom, 12)
+
+                    // Content based on selected tab
+                    ZStack {
+                        if trendsTab == .strength {
+                            BalanceView()
+                        }
+
+                        if trendsTab == .analytics {
+                            AnalyticsView()
+                        }
+
+                        if trendsTab == .narratives {
+                            InsightsView()
+                        }
+                    }
+                    .transition(.move(edge: .leading))
                 }
             }
             .background(Color.black)
-            .navigationTitle("Trends")
             .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: selectedTab) { _, newTab in
+                if newTab == 0 && showHistory {
+                    isDeleteModeActive = false
+                    showHistory = false
+                }
+            }
             .safeAreaInset(edge: .bottom) {
                 if syncService.isSyncingLiftSet {
                     HStack(spacing: 8) {
