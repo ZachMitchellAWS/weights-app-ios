@@ -43,6 +43,10 @@ enum StrengthTier: Int, CaseIterable, Comparable {
         }
     }
 
+    var next: StrengthTier? {
+        StrengthTier(rawValue: rawValue + 1)
+    }
+
     static func < (lhs: StrengthTier, rhs: StrengthTier) -> Bool {
         lhs.rawValue < rhs.rawValue
     }
@@ -94,7 +98,7 @@ struct StrengthTierData {
     static let thresholds: [String: [BiologicalSex: [StrengthTier: TierThreshold]]] = [
         "Squats": [
             .male: [
-                .rookie:       TierThreshold(isAbsolute: true,  min: 45,   max: 135),
+                .rookie:       TierThreshold(isAbsolute: false, min: 0,    max: 0.75),
                 .beginner:     TierThreshold(isAbsolute: false, min: 0.75, max: 1.25),
                 .intermediate: TierThreshold(isAbsolute: false, min: 1.25, max: 1.75),
                 .advanced:     TierThreshold(isAbsolute: false, min: 1.75, max: 2.5),
@@ -102,7 +106,7 @@ struct StrengthTierData {
                 .legend:       TierThreshold(isAbsolute: false, min: 3.0,  max: nil),
             ],
             .female: [
-                .rookie:       TierThreshold(isAbsolute: true,  min: 45,  max: 95),
+                .rookie:       TierThreshold(isAbsolute: false, min: 0,   max: 0.5),
                 .beginner:     TierThreshold(isAbsolute: false, min: 0.5, max: 1.0),
                 .intermediate: TierThreshold(isAbsolute: false, min: 1.0, max: 1.5),
                 .advanced:     TierThreshold(isAbsolute: false, min: 1.5, max: 1.75),
@@ -112,7 +116,7 @@ struct StrengthTierData {
         ],
         "Bench Press": [
             .male: [
-                .rookie:       TierThreshold(isAbsolute: true,  min: 45,  max: 95),
+                .rookie:       TierThreshold(isAbsolute: false, min: 0,   max: 0.5),
                 .beginner:     TierThreshold(isAbsolute: false, min: 0.5, max: 1.0),
                 .intermediate: TierThreshold(isAbsolute: false, min: 1.0, max: 1.5),
                 .advanced:     TierThreshold(isAbsolute: false, min: 1.5, max: 2.0),
@@ -120,7 +124,7 @@ struct StrengthTierData {
                 .legend:       TierThreshold(isAbsolute: false, min: 2.25, max: nil),
             ],
             .female: [
-                .rookie:       TierThreshold(isAbsolute: true,  min: 0,   max: 45),
+                .rookie:       TierThreshold(isAbsolute: false, min: 0,    max: 0.25),
                 .beginner:     TierThreshold(isAbsolute: false, min: 0.25, max: 0.5),
                 .intermediate: TierThreshold(isAbsolute: false, min: 0.5, max: 0.75),
                 .advanced:     TierThreshold(isAbsolute: false, min: 0.75, max: 1.0),
@@ -130,7 +134,7 @@ struct StrengthTierData {
         ],
         "Deadlifts": [
             .male: [
-                .rookie:       TierThreshold(isAbsolute: true,  min: 135, max: 225),
+                .rookie:       TierThreshold(isAbsolute: false, min: 0,   max: 1.0),
                 .beginner:     TierThreshold(isAbsolute: false, min: 1.0, max: 1.5),
                 .intermediate: TierThreshold(isAbsolute: false, min: 1.5, max: 2.25),
                 .advanced:     TierThreshold(isAbsolute: false, min: 2.25, max: 3.0),
@@ -138,7 +142,7 @@ struct StrengthTierData {
                 .legend:       TierThreshold(isAbsolute: false, min: 3.5, max: nil),
             ],
             .female: [
-                .rookie:       TierThreshold(isAbsolute: true,  min: 45,  max: 135),
+                .rookie:       TierThreshold(isAbsolute: false, min: 0,   max: 0.5),
                 .beginner:     TierThreshold(isAbsolute: false, min: 0.5, max: 1.0),
                 .intermediate: TierThreshold(isAbsolute: false, min: 1.0, max: 1.75),
                 .advanced:     TierThreshold(isAbsolute: false, min: 1.75, max: 2.25),
@@ -148,7 +152,7 @@ struct StrengthTierData {
         ],
         "Barbell Row": [
             .male: [
-                .rookie:       TierThreshold(isAbsolute: true,  min: 45,   max: 135),
+                .rookie:       TierThreshold(isAbsolute: false, min: 0,    max: 0.50),
                 .beginner:     TierThreshold(isAbsolute: false, min: 0.50, max: 0.75),
                 .intermediate: TierThreshold(isAbsolute: false, min: 0.75, max: 1.0),
                 .advanced:     TierThreshold(isAbsolute: false, min: 1.0,  max: 1.5),
@@ -156,7 +160,7 @@ struct StrengthTierData {
                 .legend:       TierThreshold(isAbsolute: false, min: 1.75, max: nil),
             ],
             .female: [
-                .rookie:       TierThreshold(isAbsolute: true,  min: 0,    max: 45),
+                .rookie:       TierThreshold(isAbsolute: false, min: 0,    max: 0.25),
                 .beginner:     TierThreshold(isAbsolute: false, min: 0.25, max: 0.40),
                 .intermediate: TierThreshold(isAbsolute: false, min: 0.40, max: 0.65),
                 .advanced:     TierThreshold(isAbsolute: false, min: 0.65, max: 0.90),
@@ -166,7 +170,7 @@ struct StrengthTierData {
         ],
         "Overhead Press": [
             .male: [
-                .rookie:       TierThreshold(isAbsolute: true,  min: 45,   max: 85),
+                .rookie:       TierThreshold(isAbsolute: false, min: 0,    max: 0.40),
                 .beginner:     TierThreshold(isAbsolute: false, min: 0.40, max: 0.55),
                 .intermediate: TierThreshold(isAbsolute: false, min: 0.55, max: 0.80),
                 .advanced:     TierThreshold(isAbsolute: false, min: 0.80, max: 1.05),
@@ -174,7 +178,7 @@ struct StrengthTierData {
                 .legend:       TierThreshold(isAbsolute: false, min: 1.35, max: nil),
             ],
             .female: [
-                .rookie:       TierThreshold(isAbsolute: true,  min: 0,    max: 45),
+                .rookie:       TierThreshold(isAbsolute: false, min: 0,    max: 0.20),
                 .beginner:     TierThreshold(isAbsolute: false, min: 0.20, max: 0.35),
                 .intermediate: TierThreshold(isAbsolute: false, min: 0.35, max: 0.55),
                 .advanced:     TierThreshold(isAbsolute: false, min: 0.55, max: 0.75),

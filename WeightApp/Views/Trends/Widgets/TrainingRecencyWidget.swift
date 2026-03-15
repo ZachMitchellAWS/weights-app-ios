@@ -45,51 +45,24 @@ struct TrainingRecencyWidget: View {
     // MARK: - Locked (Free) Content
 
     private var lockedContent: some View {
-        ZStack {
-            // Blurred fake content
-            VStack(spacing: 6) {
-                exerciseRow(name: "Bench Press", days: 1)
-                exerciseRow(name: "Squat", days: 4)
-                exerciseRow(name: "Deadlift", days: 8)
-                exerciseRow(name: "Overhead Press", days: 14)
-                exerciseRow(name: "Barbell Row", days: 22)
-                exerciseRow(name: "Barbell Curl", days: 30)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .blur(radius: 2)
-            .allowsHitTesting(false)
-
-            // Overlay
-            Color.black.opacity(0.3)
-
-            VStack(spacing: 12) {
-                Image(systemName: "lock.fill")
-                    .font(.system(size: 24))
-                    .foregroundStyle(Color.appAccent)
-
-                Text("Unlock Exercise Activity")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-
-                Text("Track how recently you trained each exercise")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .multilineTextAlignment(.center)
-
-                Text("Go Premium")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 8)
-                    .background(Color.appAccent, in: Capsule())
-            }
-            .padding(.horizontal, 16)
+        VStack(spacing: 6) {
+            exerciseRow(name: "Bench Press", days: 1)
+            exerciseRow(name: "Squat", days: 4)
+            exerciseRow(name: "Deadlift", days: 8)
+            exerciseRow(name: "Overhead Press", days: 14)
+            exerciseRow(name: "Barbell Row", days: 22)
+            exerciseRow(name: "Barbell Curl", days: 30)
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .premiumLocked(
+            title: "Unlock Exercise Activity",
+            subtitle: "Track how recently you trained each exercise",
+            blurRadius: 2,
+            showUpsell: $showUpsell
+        )
         .background(Color(white: 0.14))
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        .contentShape(Rectangle())
-        .onTapGesture { showUpsell = true }
     }
 
     // MARK: - Shared Components

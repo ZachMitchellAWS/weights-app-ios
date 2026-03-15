@@ -65,89 +65,74 @@ struct StrengthTierWidget: View {
     // MARK: - Locked Content (Free Users)
 
     private var lockedContent: some View {
-        ZStack {
-            // Fake results view — static, non-interactive
-            VStack(spacing: 16) {
-                // Header
-                VStack(spacing: 4) {
-                    Text("STRENGTH TIER")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.4))
-                        .tracking(1.2)
-                    HStack(spacing: 10) {
-                        Image("LiftTheBullIcon")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 30, height: 30)
-                            .foregroundStyle(StrengthTier.elite.color)
-                        Text("Advanced")
-                            .font(.title.weight(.bold))
-                            .foregroundStyle(StrengthTier.advanced.color)
-                    }
-                    RoundedRectangle(cornerRadius: 0.5)
-                        .fill(.white.opacity(0.15))
-                        .frame(width: 180, height: 1)
-                        .padding(.top, 8)
+        // Fake results view — static, non-interactive
+        VStack(spacing: 16) {
+            // Header
+            VStack(spacing: 4) {
+                Text("STRENGTH TIER")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .tracking(1.2)
+                HStack(spacing: 10) {
+                    Image("LiftTheBullIcon")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 30, height: 30)
+                        .foregroundStyle(StrengthTier.elite.color)
+                    Text("Advanced")
+                        .font(.title.weight(.bold))
+                        .foregroundStyle(StrengthTier.advanced.color)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 4)
-
-                // Fake exercise rows — each a different tier for maximum color variety
-                VStack(spacing: 0) {
-                    fakeExerciseRow(name: "Squat", lbs: 315, tier: .elite)
-                    Divider().background(.white.opacity(0.1))
-                    fakeExerciseRow(name: "Bench Press", lbs: 225, tier: .advanced)
-                    Divider().background(.white.opacity(0.1))
-                    fakeExerciseRow(name: "Deadlift", lbs: 405, tier: .legend)
-                    Divider().background(.white.opacity(0.1))
-                    fakeExerciseRow(name: "Overhead Press", lbs: 135, tier: .intermediate)
-                    Divider().background(.white.opacity(0.1))
-                    fakeExerciseRow(name: "Barbell Row", lbs: 185, tier: .beginner)
-                }
-
-                // Tier legend
-                tierLegendBar
+                RoundedRectangle(cornerRadius: 0.5)
+                    .fill(.white.opacity(0.15))
+                    .frame(width: 180, height: 1)
+                    .padding(.top, 8)
             }
-            .padding()
-            .blur(radius: 4)
-            .allowsHitTesting(false)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
 
-            // Dark overlay
-            Color.black.opacity(0.3)
-
-            // Lock UI — blended layout
-            VStack(spacing: 14) {
-                // Lock icon
-                Image(systemName: "lock.fill")
-                    .font(.system(size: 22))
-                    .foregroundStyle(Color.appAccent)
-
-                // Title + subtitle
-                VStack(spacing: 4) {
-                    Text("Your Strength Tier")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(.white)
-                    Text("Discover your strength level across your lifts")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.white.opacity(0.6))
-                        .multilineTextAlignment(.center)
+            // Fake progress bar
+            VStack(spacing: 4) {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color.white.opacity(0.1))
+                            .frame(height: 6)
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color.appAccent)
+                            .frame(width: geo.size.width * 0.72, height: 6)
+                    }
                 }
+                .frame(height: 6)
 
-                // CTA capsule
-                Text("Go Premium")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 8)
-                    .background(Color.appAccent, in: Capsule())
+                Text("72% to Elite")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.4))
             }
             .padding(.horizontal, 16)
+
+            // Fake exercise rows — each a different tier for maximum color variety
+            VStack(spacing: 0) {
+                fakeExerciseRow(name: "Squat", lbs: 315, tier: .elite)
+                Divider().background(.white.opacity(0.1))
+                fakeExerciseRow(name: "Bench Press", lbs: 225, tier: .advanced)
+                Divider().background(.white.opacity(0.1))
+                fakeExerciseRow(name: "Deadlift", lbs: 405, tier: .legend)
+                Divider().background(.white.opacity(0.1))
+                fakeExerciseRow(name: "Overhead Press", lbs: 135, tier: .intermediate)
+                Divider().background(.white.opacity(0.1))
+                fakeExerciseRow(name: "Barbell Row", lbs: 185, tier: .beginner)
+            }
+
         }
+        .padding()
+        .premiumLocked(
+            title: "Unlock Strength Tiers",
+            subtitle: "Discover your strength level across your lifts",
+            showUpsell: $showUpsell
+        )
         .background(Color(white: 0.14))
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        // .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.4), lineWidth: 1.5))
-        .contentShape(Rectangle())
-        .onTapGesture { showUpsell = true }
     }
 
     private func fakeExerciseRow(name: String, lbs: Int, tier: StrengthTier) -> some View {
@@ -338,13 +323,32 @@ struct StrengthTierWidget: View {
                         .foregroundStyle(result.overallTier.color)
                 }
 
-                RoundedRectangle(cornerRadius: 0.5)
-                    .fill(.white.opacity(0.15))
-                    .frame(width: 180, height: 1)
-                    .padding(.top, 8)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
+
+            // Overall tier progress bar
+            if result.overallTier != .legend {
+                let overallProgress = overallTierProgress(result)
+                VStack(spacing: 4) {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.white.opacity(0.1))
+                                .frame(height: 6)
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.appAccent)
+                                .frame(width: geo.size.width * overallProgress, height: 6)
+                        }
+                    }
+                    .frame(height: 6)
+
+                    Text("\(Int(overallProgress * 100))% to \(result.overallTier.next?.title ?? "next tier")")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.4))
+                }
+                .padding(.horizontal, 16)
+            }
 
             // Exercise rows
             VStack(spacing: 0) {
@@ -539,6 +543,41 @@ struct StrengthTierWidget: View {
     }
 
     // MARK: - Progress Calculation
+
+    private func overallTierProgress(_ result: TrendsCalculator.StrengthTierResult) -> Double {
+        guard let bw = bodyweight, let sex = biologicalSex.flatMap({ BiologicalSex(rawValue: $0) }) else { return 0 }
+        guard let nextTier = result.overallTier.next else { return 0 }
+
+        // For each exercise, calculate progress toward the next overall tier
+        // Exercises already at or above the target tier count as 100%
+        var progresses: [Double] = []
+        for item in result.exerciseTiers {
+            if item.tier >= nextTier {
+                progresses.append(1.0)
+                continue
+            }
+            guard let e1rm = item.e1rm else {
+                progresses.append(0)
+                continue
+            }
+            let currentMin = StrengthTierData.currentTierMinimum(
+                name: item.exercise.name, tier: item.tier, bodyweight: bw, sex: sex
+            )
+            guard let targetMin = StrengthTierData.nextTierMinimum(
+                name: item.exercise.name, currentTier: item.tier, bodyweight: bw, sex: sex
+            ) else {
+                progresses.append(0)
+                continue
+            }
+            let range = targetMin - currentMin
+            guard range > 0 else { progresses.append(1.0); continue }
+            progresses.append(min(max((e1rm - currentMin) / range, 0), 1.0))
+        }
+
+        guard !progresses.isEmpty else { return 0 }
+        // Average across all exercises — reflects overall completion toward next tier
+        return progresses.reduce(0, +) / Double(progresses.count)
+    }
 
     private func progressToNextTier(item: (exercise: TrendsCalculator.FundamentalExercise, e1rm: Double?, tier: StrengthTier)) -> Double? {
         guard let bw = bodyweight, let sex = biologicalSex.flatMap({ BiologicalSex(rawValue: $0) }) else { return nil }

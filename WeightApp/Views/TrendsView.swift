@@ -12,7 +12,7 @@ struct TrendsView: View {
     @ObservedObject var selectedSetData: SelectedSetData
     @ObservedObject private var syncService = SyncService.shared
     @Binding var selectedTab: Int
-    @State private var trendsTab: TrendsTab = .narratives
+    @State private var trendsTab: TrendsTab = .strength
     @State private var showHistory = false
     @State private var isDeleteModeActive = false
 
@@ -113,6 +113,17 @@ struct TrendsView: View {
                     isDeleteModeActive = false
                     showHistory = false
                 }
+                if newTab == 0 {
+                    consumePendingTrendsTab()
+                }
+            }
+            .onAppear {
+                consumePendingTrendsTab()
+            }
+            .onChange(of: selectedSetData.pendingTrendsTab) {
+                if selectedTab == 0 {
+                    consumePendingTrendsTab()
+                }
             }
             .safeAreaInset(edge: .bottom) {
                 if syncService.isSyncingLiftSet {
@@ -132,6 +143,13 @@ struct TrendsView: View {
                     .background(Color(white: 0.1))
                 }
             }
+        }
+    }
+
+    private func consumePendingTrendsTab() {
+        if let tab = selectedSetData.pendingTrendsTab {
+            trendsTab = tab
+            selectedSetData.pendingTrendsTab = nil
         }
     }
 }

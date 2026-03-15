@@ -59,6 +59,8 @@ struct AnalyticsView: View {
                         WeeklyVolumeWidget(allSets: allSets)
 
                         SetIntensityWidget(allSets: allSets, allEstimated1RM: allEstimated1RM)
+
+                        PRTimelineWidget(allEstimated1RM: allEstimated1RM, isPremium: isPremium, showUpsell: $showUpsell)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)

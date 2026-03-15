@@ -191,6 +191,79 @@ struct TrendsCalculator {
         return events.sorted { $0.date > $1.date }
     }
 
+    // MARK: - PR Leaderboard
+
+    struct ExercisePRSummary: Identifiable {
+        let id: UUID           // exercise id
+        let exerciseName: String
+        let prCount: Int       // number of PR events in period
+        let totalGain: Double  // e1RM at end of period minus e1RM at start of period
+        let latestE1RM: Double // current e1RM value
+    }
+
+    static func prLeaderboard(from estimated1RMs: [Estimated1RM], days: Int = 90) -> [ExercisePRSummary] {
+        let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: Date())!
+
+        // Group by exercise
+        let byExercise = Dictionary(grouping: estimated1RMs.filter { $0.exercise != nil }) {
+            $0.exercise!.id
+        }
+
+        var results: [ExercisePRSummary] = []
+
+        for (exerciseId, records) in byExercise {
+            let sorted = records.sorted { $0.createdAt < $1.createdAt }
+            guard let exerciseName = sorted.first?.exercise?.name else { continue }
+
+            // Find baseline: the record at or just before the cutoff
+            var baseline: Double? = nil
+            var recordsInPeriod: [Estimated1RM] = []
+
+            for record in sorted {
+                if record.createdAt < cutoff {
+                    baseline = record.value
+                } else {
+                    recordsInPeriod.append(record)
+                }
+            }
+
+            guard !recordsInPeriod.isEmpty else { continue }
+
+            // Count PRs: value increases over running max within the period
+            var runningMax = baseline ?? 0
+            var prCount = 0
+
+            for record in recordsInPeriod {
+                if record.value > runningMax {
+                    prCount += 1
+                    runningMax = record.value
+                }
+            }
+
+            guard prCount > 0 else { continue }
+
+            let baselineValue = baseline ?? recordsInPeriod.first!.value
+            let finalValue = recordsInPeriod.last!.value
+            let totalGain = finalValue - baselineValue
+
+            results.append(ExercisePRSummary(
+                id: exerciseId,
+                exerciseName: exerciseName,
+                prCount: prCount,
+                totalGain: totalGain,
+                latestE1RM: finalValue
+            ))
+        }
+
+        // Sort by prCount desc, tiebreak by totalGain desc
+        results.sort {
+            if $0.prCount != $1.prCount { return $0.prCount > $1.prCount }
+            return $0.totalGain > $1.totalGain
+        }
+
+        return Array(results.prefix(10))
+    }
+
     // MARK: - Best Lifts
 
     struct BestLift: Identifiable {
@@ -354,6 +427,99 @@ struct TrendsCalculator {
         FundamentalExercise(id: Exercise.overheadPressId, name: "Overhead Press", icon: "OverheadPressIcon", ratioCoefficient: 0.625),
     ]
 
+    // MARK: - Balance Category
+
+    enum BalanceCategory: Int, CaseIterable, Comparable {
+        case lopsided = 0
+        case skewed = 1
+        case uneven = 2
+        case balanced = 3
+        case symmetrical = 4
+
+        var title: String {
+            switch self {
+            case .lopsided: return "Lopsided"
+            case .skewed: return "Skewed"
+            case .uneven: return "Uneven"
+            case .balanced: return "Balanced"
+            case .symmetrical: return "Symmetrical"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .lopsided: return Color("setNearMax")
+            case .skewed: return .balanceWeak
+            case .uneven: return .balanceMild
+            case .balanced: return .balanceCoolMild
+            case .symmetrical: return .balanceGood
+            }
+        }
+
+        static func < (lhs: BalanceCategory, rhs: BalanceCategory) -> Bool {
+            lhs.rawValue < rhs.rawValue
+        }
+    }
+
+    static func balanceCategory(from balances: [ExerciseBalance]) -> BalanceCategory? {
+        let scored = balances.compactMap { $0.balanceScore }
+        guard scored.count >= 2 else { return nil }
+
+        let maxDeviation = scored.map { abs($0 - 1.0) }.max()!
+
+        switch maxDeviation {
+        case _ where maxDeviation > 0.22: return .lopsided
+        case 0.15...0.22: return .skewed
+        case 0.08..<0.15: return .uneven
+        case 0.04..<0.08: return .balanced
+        default: return .symmetrical
+        }
+    }
+
+    // MARK: - Balance Trend
+
+    enum BalanceTrend {
+        case declining, dipping, stable, rising, surging
+
+        static func from(delta: Double) -> BalanceTrend {
+            switch delta {
+            case ...(-0.05): return .declining
+            case -0.05 ..< -0.02: return .dipping
+            case -0.02 ..< 0.02: return .stable
+            case 0.02 ..< 0.05: return .rising
+            default: return .surging
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .declining, .dipping: return "arrowtriangle.down.fill"
+            case .stable: return "minus"
+            case .rising, .surging: return "arrowtriangle.up.fill"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .declining: return .trendDeclining
+            case .dipping: return .trendDipping
+            case .stable: return .trendStable
+            case .rising: return .trendRising
+            case .surging: return .trendSurging
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .declining: return "Declining"
+            case .dipping: return "Dipping"
+            case .stable: return "Stable"
+            case .rising: return "Rising"
+            case .surging: return "Surging"
+            }
+        }
+    }
+
     struct ExerciseBalance: Identifiable {
         let id: UUID
         let exerciseName: String
@@ -361,6 +527,7 @@ struct TrendsCalculator {
         let current1RM: Double?
         let balanceScore: Double?
         let balanceColor: Color
+        let trendDelta: Double?
     }
 
     static func strengthBalance(from estimated1RMs: [Estimated1RM]) -> [ExerciseBalance] {
@@ -397,7 +564,8 @@ struct TrendsCalculator {
                     icon: ex.icon,
                     current1RM: raw,
                     balanceScore: nil,
-                    balanceColor: .gray
+                    balanceColor: .gray,
+                    trendDelta: nil
                 )
             }
         }
@@ -414,7 +582,8 @@ struct TrendsCalculator {
                     icon: ex.icon,
                     current1RM: e1rm,
                     balanceScore: score,
-                    balanceColor: Color.balanceColor(for: score)
+                    balanceColor: Color.balanceColor(for: score),
+                    trendDelta: nil
                 )
             } else {
                 return ExerciseBalance(
@@ -423,7 +592,8 @@ struct TrendsCalculator {
                     icon: ex.icon,
                     current1RM: nil,
                     balanceScore: nil,
-                    balanceColor: .gray
+                    balanceColor: .gray,
+                    trendDelta: nil
                 )
             }
         }
@@ -459,6 +629,84 @@ struct TrendsCalculator {
         }
 
         return parts.joined(separator: ", ") + "."
+    }
+
+    // MARK: - Strength Balance With Trend
+
+    struct BalanceTrendResult {
+        let balances: [ExerciseBalance]
+        let trendDaysUsed: Int?
+    }
+
+    static func strengthBalanceWithTrend(from estimated1RMs: [Estimated1RM], trendDays: Int = 30, fallbackDays: Int = 7) -> BalanceTrendResult {
+        let current = strengthBalance(from: estimated1RMs)
+
+        let primaryCutoff = Calendar.current.date(byAdding: .day, value: -trendDays, to: Date())!
+        let primaryRecords = estimated1RMs.filter { $0.createdAt <= primaryCutoff }
+        let primaryHistorical = strengthBalance(from: primaryRecords)
+        let hasPrimaryData = primaryHistorical.contains { $0.balanceScore != nil }
+
+        let historical: [ExerciseBalance]
+        let daysUsed: Int?
+
+        if hasPrimaryData {
+            historical = primaryHistorical
+            daysUsed = trendDays
+        } else {
+            let fallbackCutoff = Calendar.current.date(byAdding: .day, value: -fallbackDays, to: Date())!
+            let fallbackRecords = estimated1RMs.filter { $0.createdAt <= fallbackCutoff }
+            let fallbackHistorical = strengthBalance(from: fallbackRecords)
+            if fallbackHistorical.contains(where: { $0.balanceScore != nil }) {
+                historical = fallbackHistorical
+                daysUsed = fallbackDays
+            } else {
+                historical = []
+                daysUsed = nil
+            }
+        }
+
+        // Build lookup of historical scores by exercise id
+        let historicalById = Dictionary(uniqueKeysWithValues: historical.compactMap { ex -> (UUID, Double)? in
+            guard let score = ex.balanceScore else { return nil }
+            return (ex.id, score)
+        })
+
+        let balances = current.map { exercise in
+            let trendDelta: Double?
+            if let currentScore = exercise.balanceScore, let historicalScore = historicalById[exercise.id] {
+                trendDelta = currentScore - historicalScore
+            } else {
+                trendDelta = nil
+            }
+            return ExerciseBalance(
+                id: exercise.id,
+                exerciseName: exercise.exerciseName,
+                icon: exercise.icon,
+                current1RM: exercise.current1RM,
+                balanceScore: exercise.balanceScore,
+                balanceColor: exercise.balanceColor,
+                trendDelta: trendDelta
+            )
+        }
+
+        return BalanceTrendResult(balances: balances, trendDaysUsed: daysUsed)
+    }
+
+    static func balanceTrendInsight(from balances: [ExerciseBalance], trendDays: Int?) -> String? {
+        let withTrend = balances.filter { $0.trendDelta != nil }
+        guard !withTrend.isEmpty, let days = trendDays else { return nil }
+
+        let period = days >= 30 ? "the past 30 days" : "the past week"
+
+        let allStable = withTrend.allSatisfy { abs($0.trendDelta!) < 0.02 }
+        if allStable {
+            return "Your balance has been stable over \(period)."
+        }
+
+        // Find biggest mover by absolute delta
+        let biggestMover = withTrend.max(by: { abs($0.trendDelta!) < abs($1.trendDelta!) })!
+        let direction = biggestMover.trendDelta! > 0 ? "improved" : "declined"
+        return "Over \(period), \(biggestMover.exerciseName) has \(direction) the most in balance."
     }
 
     // MARK: - Strength Tier Assessment
@@ -531,6 +779,147 @@ struct TrendsCalculator {
             overallTier: lowestTier,
             exerciseTiers: exerciseTiers,
             limitingExercise: limitingExercise
+        )
+    }
+
+    // MARK: - Strength Milestones (Tier-Based)
+
+    struct TierMilestone: Identifiable {
+        let id = UUID()
+        let exerciseName: String
+        let exerciseIcon: String
+        let targetLbs: Double
+        let targetLabel: String
+        let currentE1RM: Double
+        let achieved: Bool
+        let progress: Double
+    }
+
+    struct TierMilestoneBatch: Identifiable {
+        let id: Int
+        let tier: StrengthTier
+        let milestones: [TierMilestone]
+        let allAchieved: Bool
+        let achievedCount: Int
+    }
+
+    struct MilestoneResult {
+        let batches: [TierMilestoneBatch]
+        let currentTier: StrengthTier
+        let achievedCount: Int
+        let totalCount: Int
+    }
+
+    static func strengthMilestones(
+        from estimated1RMs: [Estimated1RM],
+        bodyweight: Double,
+        biologicalSex: String
+    ) -> MilestoneResult? {
+        guard let sex = BiologicalSex(rawValue: biologicalSex) else { return nil }
+
+        let fundamentalIds = Set(fundamentalExercises.map(\.id))
+
+        // Get latest e1RM per fundamental exercise
+        let grouped = Dictionary(grouping: estimated1RMs.filter { rec in
+            guard let eid = rec.exercise?.id else { return false }
+            return fundamentalIds.contains(eid)
+        }) { $0.exercise!.id }
+
+        var latestByExercise: [UUID: Double] = [:]
+        for (exerciseId, records) in grouped {
+            if let mostRecent = records.max(by: { $0.createdAt < $1.createdAt }) {
+                latestByExercise[exerciseId] = mostRecent.value
+            }
+        }
+
+        // All tiers including Rookie (easy starter milestones)
+        let tiers: [StrengthTier] = [.rookie, .beginner, .intermediate, .advanced, .elite, .legend]
+
+        var batches: [TierMilestoneBatch] = []
+        var overallAchieved = 0
+        var overallTotal = 0
+
+        for tier in tiers {
+            var milestones: [TierMilestone] = []
+
+            for exercise in fundamentalExercises {
+                guard let threshold = StrengthTierData.thresholds[exercise.name]?[sex]?[tier] else { continue }
+
+                let targetLbs: Double
+                let targetLabel: String
+
+                if tier == .rookie {
+                    // Rookie milestone = midpoint of rookie range (half of beginner min)
+                    // This prevents starting with all rookie milestones already achieved
+                    let beginnerMin = StrengthTierData.thresholds[exercise.name]?[sex]?[.beginner]?.min ?? 0
+                    let milestoneMultiplier = beginnerMin / 2.0
+                    targetLbs = milestoneMultiplier * bodyweight
+                    if milestoneMultiplier == floor(milestoneMultiplier) {
+                        targetLabel = "\(Int(milestoneMultiplier))× BW"
+                    } else {
+                        targetLabel = "\(String(format: "%g", milestoneMultiplier))× BW"
+                    }
+                } else if threshold.isAbsolute {
+                    targetLbs = threshold.min
+                    targetLabel = "\(Int(threshold.min)) lbs"
+                } else {
+                    targetLbs = threshold.min * bodyweight
+                    // Format multiplier: "1× BW", "1.25× BW", "0.5× BW"
+                    if threshold.min == floor(threshold.min) {
+                        targetLabel = "\(Int(threshold.min))× BW"
+                    } else {
+                        targetLabel = "\(String(format: "%g", threshold.min))× BW"
+                    }
+                }
+
+                let current = latestByExercise[exercise.id] ?? 0
+                let achieved = targetLbs > 0 && current >= targetLbs
+                let progress = targetLbs > 0 ? min(current / targetLbs, 1.0) : 0
+
+                milestones.append(TierMilestone(
+                    exerciseName: exercise.name,
+                    exerciseIcon: exercise.icon,
+                    targetLbs: targetLbs,
+                    targetLabel: targetLabel,
+                    currentE1RM: current,
+                    achieved: achieved,
+                    progress: progress
+                ))
+            }
+
+            let batchAchieved = milestones.filter(\.achieved).count
+            overallAchieved += batchAchieved
+            overallTotal += milestones.count
+
+            batches.append(TierMilestoneBatch(
+                id: tier.rawValue,
+                tier: tier,
+                milestones: milestones,
+                allAchieved: batchAchieved == milestones.count,
+                achievedCount: batchAchieved
+            ))
+        }
+
+        // Overall tier = lowest tier across all 5 exercises (same as StrengthTierWidget logic)
+        var lowestTier: StrengthTier = .legend
+        for exercise in fundamentalExercises {
+            let current = latestByExercise[exercise.id] ?? 0
+            let exerciseTier = StrengthTierData.tierForExercise(
+                name: exercise.name,
+                e1rm: current,
+                bodyweight: bodyweight,
+                sex: sex
+            )
+            if exerciseTier < lowestTier {
+                lowestTier = exerciseTier
+            }
+        }
+
+        return MilestoneResult(
+            batches: batches,
+            currentTier: lowestTier,
+            achievedCount: overallAchieved,
+            totalCount: overallTotal
         )
     }
 

@@ -14,6 +14,7 @@ class SelectedSetData: ObservableObject {
     @Published var reps: Int?
     @Published var weight: Double?
     @Published var shouldPopulate: Bool = false
+    @Published var pendingTrendsTab: TrendsTab? = nil
 }
 
 struct LazyView<Content: View>: View {
@@ -36,7 +37,7 @@ struct ContentView: View {
                 .tabItem { Label("Progress", systemImage: "chart.line.uptrend.xyaxis") }
                 .tag(0)
 
-            CheckInView(selectedSetData: selectedSetData, initialExerciseId: initialExerciseId)
+            CheckInView(selectedSetData: selectedSetData, initialExerciseId: initialExerciseId, selectedTab: $selectedTab)
                 .tabItem { Label("Lift", systemImage: "plus.circle") }
                 .tag(1)
 

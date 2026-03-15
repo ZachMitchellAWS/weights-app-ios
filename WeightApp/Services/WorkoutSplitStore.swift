@@ -76,7 +76,7 @@ enum WorkoutSplitStore {
 
     // MARK: - Smart Day/Exercise Selection
 
-    static var smartExerciseSelectionEnabled = true
+    static var smartExerciseSelectionEnabled = false
 
     /// Determines which workout day to auto-select based on today's activity or rotation.
     /// Returns the day ID to select, or nil if no split/days available.

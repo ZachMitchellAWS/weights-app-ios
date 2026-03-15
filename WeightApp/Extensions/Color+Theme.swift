@@ -71,6 +71,23 @@ extension Color {
     /// Cool blue — relative strength (score > 1.15)
     static let balanceStrong = Color(red: 0x4A/255, green: 0x90/255, blue: 0xD9/255) // #4A90D9
 
+    // MARK: - Balance Trend Colors
+
+    /// Declining — delta ≤ -0.05
+    static let trendDeclining = Color(red: 0xE5/255, green: 0x3E/255, blue: 0x3E/255) // #E53E3E
+
+    /// Dipping — delta -0.05 to -0.02
+    static let trendDipping = Color(red: 0xED/255, green: 0x89/255, blue: 0x36/255) // #ED8936
+
+    /// Stable — delta -0.02 to +0.02
+    static let trendStable = Color(red: 0xA0/255, green: 0xAE/255, blue: 0xC0/255) // #A0AEC0
+
+    /// Rising — delta +0.02 to +0.05
+    static let trendRising = Color(red: 0x68/255, green: 0xD3/255, blue: 0x91/255) // #68D391
+
+    /// Surging — delta ≥ +0.05
+    static let trendSurging = Color(red: 0x38/255, green: 0xA1/255, blue: 0x69/255) // #38A169
+
     /// Interpolate balance score to a color on the warm-to-cool spectrum
     static func balanceColor(for score: Double) -> Color {
         switch score {

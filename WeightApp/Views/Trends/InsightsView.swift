@@ -107,43 +107,18 @@ struct InsightsView: View {
     // MARK: - Locked State
 
     private var lockedContent: some View {
-        ZStack {
-            VStack(spacing: 12) {
-                ForEach(InsightSectionStyle.allCases) { style in
-                    placeholderCard(style: style)
-                }
+        VStack(spacing: 12) {
+            ForEach(InsightSectionStyle.allCases) { style in
+                placeholderCard(style: style)
             }
-            .blur(radius: 6)
-            .allowsHitTesting(false)
-
-            VStack(spacing: 16) {
-                Image(systemName: "lock.fill")
-                    .font(.largeTitle)
-                    .foregroundStyle(Color.appAccent)
-
-                Text("Premium Feature")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-
-                Text("Unlock AI-powered weekly training insights with Premium.")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .multilineTextAlignment(.center)
-
-                Button {
-                    showUpsell = true
-                } label: {
-                    Text("Learn More")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.black)
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 10)
-                        .background(Color.appAccent)
-                        .clipShape(Capsule())
-                }
-            }
-            .padding(32)
         }
+        .premiumLocked(
+            title: "Premium Feature",
+            subtitle: "Unlock AI-powered weekly training insights with Premium.",
+            ctaText: "Learn More",
+            blurRadius: 6,
+            showUpsell: $showUpsell
+        )
     }
 
     // MARK: - Loading State

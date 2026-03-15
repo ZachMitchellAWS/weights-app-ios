@@ -29,6 +29,7 @@ struct CheckInView: View {
 
     @ObservedObject var selectedSetData: SelectedSetData
     var initialExerciseId: UUID? = nil
+    @Binding var selectedTab: Int
 
     @State private var selectedExercisesId: UUID?
     @State private var hasAppliedInitialExercise = false
@@ -48,6 +49,11 @@ struct CheckInView: View {
     @State private var overlayNew1RM: Double = 0
     @State private var overlayIntensityColor: Color = .setEasy
     @State private var overlayIntensityLabel: String = "Easy"
+    @State private var overlayIsMilestone = false
+    @State private var overlayMilestoneTier: StrengthTier = .rookie
+    @State private var overlayMilestoneExerciseIcon: String = ""
+    @State private var overlayMilestoneExerciseName: String = ""
+    @State private var overlayMilestoneTargetLabel: String = ""
 
     @State private var showWeightPicker = false
     @State private var weightInput: String = ""
@@ -1715,18 +1721,41 @@ struct CheckInView: View {
                 }
                 .zIndex(9)
 
-            SubmitOverlayView(
-                didIncrease: overlayDidIncrease,
-                delta: overlayDelta,
-                new1RM: overlayNew1RM,
-                intensityLabel: overlayIntensityLabel,
-                intensityColor: overlayIntensityColor
-            )
-            .transition(.opacity.combined(with: .scale(scale: 0.98)))
-            .zIndex(10)
-            .onTapGesture {
-                withAnimation(.easeOut(duration: 0.18)) {
-                    showSubmitOverlay = false
+            if overlayIsMilestone {
+                MilestoneOverlayView(
+                    tier: overlayMilestoneTier,
+                    exerciseIcon: overlayMilestoneExerciseIcon,
+                    exerciseName: overlayMilestoneExerciseName,
+                    targetLabel: overlayMilestoneTargetLabel,
+                    onDismiss: {
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            showSubmitOverlay = false
+                        }
+                    },
+                    onSeeMilestones: {
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            showSubmitOverlay = false
+                        }
+                        selectedSetData.pendingTrendsTab = .strength
+                        selectedTab = 0
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                .zIndex(10)
+            } else {
+                SubmitOverlayView(
+                    didIncrease: overlayDidIncrease,
+                    delta: overlayDelta,
+                    new1RM: overlayNew1RM,
+                    intensityLabel: overlayIntensityLabel,
+                    intensityColor: overlayIntensityColor
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                .zIndex(10)
+                .onTapGesture {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        showSubmitOverlay = false
+                    }
                 }
             }
         }
@@ -3512,6 +3541,166 @@ struct CheckInView: View {
         }
     }
 
+    private struct MilestoneOverlayView: View {
+        let tier: StrengthTier
+        let exerciseIcon: String
+        let exerciseName: String
+        let targetLabel: String
+        let onDismiss: () -> Void
+        let onSeeMilestones: () -> Void
+
+        @State private var pulse = false
+        @State private var badgeScale: CGFloat = 0.5
+        @State private var badgeOpacity: Double = 0
+        @State private var startDate = Date()
+
+        private let badgeSize: CGFloat = 72
+        private let cycleDuration: Double = 4.0
+        private let sweepFraction: Double = 0.4 // sweep takes 40%, rest is pause
+
+        private func shimmerOpacityAndPosition(at date: Date) -> (CGFloat, Double) {
+            let elapsed = date.timeIntervalSince(startDate)
+            let cycleProgress = (elapsed.truncatingRemainder(dividingBy: cycleDuration)) / cycleDuration
+            if cycleProgress < sweepFraction {
+                // Sweeping: map 0..sweepFraction → position -1.0..2.0
+                let t = cycleProgress / sweepFraction
+                let smoothT = t * t * (3.0 - 2.0 * t) // smoothstep for ease in/out
+                let pos = -1.0 + CGFloat(smoothT) * 3.0
+                return (pos, 1.0)
+            } else {
+                // Paused off-screen
+                return (3.0, 0.0)
+            }
+        }
+
+        var body: some View {
+            ZStack {
+                Color.black.opacity(0.15)
+                    .ignoresSafeArea()
+
+                TimelineView(.animation) { context in
+                    let (offset, opacity) = shimmerOpacityAndPosition(at: context.date)
+                    cardContent
+                        .overlay(
+                            LinearGradient(
+                                stops: [
+                                    .init(color: .clear, location: 0),
+                                    .init(color: .white.opacity(0.04 * opacity), location: 0.25),
+                                    .init(color: .white.opacity(0.08 * opacity), location: 0.5),
+                                    .init(color: .white.opacity(0.04 * opacity), location: 0.75),
+                                    .init(color: .clear, location: 1),
+                                ],
+                                startPoint: UnitPoint(x: offset - 0.8, y: 0),
+                                endPoint: UnitPoint(x: offset + 0.8, y: 1)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .allowsHitTesting(false)
+                        )
+                }
+                .scaleEffect(pulse ? 1.02 : 1.0)
+                .onAppear {
+                    startDate = Date()
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.6)) {
+                        badgeScale = 1.0
+                        badgeOpacity = 1.0
+                    }
+                    withAnimation(.easeInOut(duration: 0.3).repeatCount(3, autoreverses: true).delay(0.4)) {
+                        pulse = true
+                    }
+                }
+            }
+        }
+
+        private var cardContent: some View {
+            VStack(spacing: 12) {
+                // X dismiss button
+                HStack {
+                    Button {
+                        onDismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.5))
+                            .frame(width: 28, height: 28)
+                            .background(Color.white.opacity(0.1), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                }
+                .padding(.horizontal, 4)
+
+                Text("Milestone Achieved")
+                    .font(.bebasNeue(size: 24))
+                    .foregroundStyle(tier.color)
+
+                // Circular milestone badge
+                ZStack {
+                    Circle()
+                        .fill(tier.color.opacity(0.2))
+                        .frame(width: badgeSize, height: badgeSize)
+
+                    Circle()
+                        .stroke(tier.color.opacity(0.7), lineWidth: 3)
+                        .frame(width: badgeSize, height: badgeSize)
+
+                    if tier == .legend {
+                        Image(systemName: "crown.fill")
+                            .font(.system(size: 32, weight: .bold))
+                            .foregroundStyle(tier.color)
+                    } else {
+                        Image(exerciseIcon)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 40, height: 40)
+                            .foregroundStyle(tier.color)
+                    }
+                }
+                .scaleEffect(badgeScale)
+                .opacity(badgeOpacity)
+
+                Text(exerciseName)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.85))
+
+                Text(targetLabel)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.65))
+
+                Button {
+                    onSeeMilestones()
+                } label: {
+                    Text("See Milestones")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 8)
+                        .background(tier.color, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
+            }
+            .padding(16)
+            .frame(width: 220)
+            .background(Color(white: 0.12), in: RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                VStack {
+                    LinearGradient(
+                        colors: [.clear, tier.color.opacity(0.6), .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(height: 2)
+                    Spacer()
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(tier.color.opacity(0.5), lineWidth: 1.5)
+            )
+        }
+    }
+
     private struct ConfirmationOverlayView: View {
         let exercise: Exercise?
         let reps: Int
@@ -3958,6 +4147,39 @@ struct CheckInView: View {
         let d = after - before
         let increased = d > 0.0001
 
+        // Milestone detection: check if e1RM PR crosses a strength tier threshold
+        var isMilestone = false
+        var milestoneTier: StrengthTier = .rookie
+        var milestoneIcon: String = ""
+        var milestoneName: String = ""
+        var milestoneTargetLabel: String = ""
+        if increased,
+           let fundamental = TrendsCalculator.fundamentalExercises.first(where: { $0.id == ex.id }) {
+            let bw = userProperties.bodyweight ?? 200.0
+            let sex: BiologicalSex = userProperties.biologicalSex == "female" ? .female : .male
+            let oldTier = StrengthTierData.tierForExercise(name: fundamental.name, e1rm: before, bodyweight: bw, sex: sex)
+            let newTier = StrengthTierData.tierForExercise(name: fundamental.name, e1rm: after, bodyweight: bw, sex: sex)
+            if newTier > oldTier {
+                isMilestone = true
+                milestoneTier = newTier
+                milestoneIcon = fundamental.icon
+                milestoneName = fundamental.name
+                // Compute the target label for the achieved tier threshold
+                if let threshold = StrengthTierData.thresholds[fundamental.name]?[sex]?[newTier] {
+                    if newTier == .rookie {
+                        let beginnerMin = StrengthTierData.thresholds[fundamental.name]?[sex]?[.beginner]?.min ?? 0
+                        let mult = beginnerMin / 2.0
+                        milestoneTargetLabel = mult == floor(mult) ? "\(Int(mult))× BW" : "\(String(format: "%g", mult))× BW"
+                    } else if threshold.isAbsolute {
+                        milestoneTargetLabel = "\(Int(threshold.min)) lbs"
+                    } else {
+                        let m = threshold.min
+                        milestoneTargetLabel = m == floor(m) ? "\(Int(m))× BW" : "\(String(format: "%g", m))× BW"
+                    }
+                }
+            }
+        }
+
         // Create a new Estimated1RM record for every set, storing the running max
         let estimated = Estimated1RM(exercise: ex, value: after, setId: set.id)
         modelContext.insert(estimated)
@@ -4000,6 +4222,11 @@ struct CheckInView: View {
         overlayDidIncrease = increased
         overlayDelta = d
         overlayNew1RM = after
+        overlayIsMilestone = isMilestone
+        overlayMilestoneTier = milestoneTier
+        overlayMilestoneExerciseIcon = milestoneIcon
+        overlayMilestoneExerciseName = milestoneName
+        overlayMilestoneTargetLabel = milestoneTargetLabel
 
         // Calculate intensity color and label for the overlay
         if increased {
@@ -4043,11 +4270,13 @@ struct CheckInView: View {
             }
         }
 
-        Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            await MainActor.run {
-                withAnimation(.easeOut(duration: 0.18)) {
-                    showSubmitOverlay = false
+        if !isMilestone {
+            Task {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                await MainActor.run {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        showSubmitOverlay = false
+                    }
                 }
             }
         }
