@@ -64,8 +64,6 @@ struct APIValidationView: View {
     private let testExerciseId = UUID()
     private let testLiftSetId = UUID()
     private let testE1RMId = UUID()
-    private let testSplitId = UUID()
-    private let testDayId = UUID()
 
     var passedCount: Int {
         steps.filter { if case .passed = $0.status { return true }; return false }.count
@@ -141,8 +139,6 @@ struct APIValidationView: View {
         let exerciseId = testExerciseId
         let liftSetId = testLiftSetId
         let e1rmId = testE1RMId
-        let splitId = testSplitId
-        let dayId = testDayId
 
         steps = [
             // 1
@@ -316,52 +312,6 @@ struct APIValidationView: View {
             TestStep(id: 23, name: "GET Lift Sets (verify deleted)") {
                 let response = try await api.getLiftSet()
                 guard !response.liftSets.contains(where: { $0.liftSetId == liftSetId }) else { throw ValidationError("test lift set still present") }
-            },
-            // 24
-            TestStep(id: 24, name: "POST Split (create)") {
-                let dayDTO = SplitDayDTO(dayId: dayId, name: "Test Day", exerciseIds: [exerciseId])
-                let dto = SplitDTO(
-                    splitId: splitId,
-                    name: "API Validation Test Split",
-                    days: [dayDTO],
-                    createdTimezone: TimeZone.current.identifier,
-                    createdDatetime: Date()
-                )
-                let response = try await api.upsertSplits([dto])
-                guard response.created == 1 else { throw ValidationError("expected created == 1, got \(String(describing: response.created))") }
-            },
-            // 25
-            TestStep(id: 25, name: "GET Splits (verify)") {
-                let response = try await api.getSplits()
-                guard response.splits.contains(where: { $0.splitId == splitId }) else { throw ValidationError("test split not found") }
-            },
-            // 26
-            TestStep(id: 26, name: "POST Split (update name)") {
-                let dayDTO = SplitDayDTO(dayId: dayId, name: "Test Day", exerciseIds: [exerciseId])
-                let dto = SplitDTO(
-                    splitId: splitId,
-                    name: "API Validation Updated Split",
-                    days: [dayDTO],
-                    createdTimezone: TimeZone.current.identifier,
-                    createdDatetime: Date()
-                )
-                let response = try await api.upsertSplits([dto])
-                guard response.updated == 1 else { throw ValidationError("expected updated == 1, got \(String(describing: response.updated))") }
-            },
-            // 27
-            TestStep(id: 27, name: "GET Splits (verify update)") {
-                let response = try await api.getSplits()
-                guard let split = response.splits.first(where: { $0.splitId == splitId }) else { throw ValidationError("split not found") }
-                guard split.name == "API Validation Updated Split" else { throw ValidationError("name not updated: \(split.name)") }
-            },
-            // 28
-            TestStep(id: 28, name: "DELETE Split") {
-                _ = try await api.deleteSplits([splitId])
-            },
-            // 29
-            TestStep(id: 29, name: "GET Splits (verify deleted)") {
-                let response = try await api.getSplits()
-                guard !response.splits.contains(where: { $0.splitId == splitId }) else { throw ValidationError("test split still present") }
             },
             // 30
             TestStep(id: 30, name: "DELETE Exercise") {

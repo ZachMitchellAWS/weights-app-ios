@@ -13,7 +13,6 @@ struct CheckInView: View {
 
     @Query(filter: #Predicate<Exercise> { !$0.deleted }, sort: \Exercise.createdAt) private var exercises: [Exercise]
     @Query private var userPropertiesItems: [UserProperties]
-    @Query(filter: #Predicate<WorkoutSplit> { !$0.deleted }, sort: \WorkoutSplit.createdAt) private var allSplits: [WorkoutSplit]
     @Query(filter: #Predicate<SetPlan> { !$0.deleted }) private var allTemplates: [SetPlan]
     @Query private var entitlementRecords: [EntitlementGrant]
 
@@ -70,30 +69,23 @@ struct CheckInView: View {
     @State private var selectedSquareId: UUID? = nil
     @State private var sessionScrollTarget: UUID? = nil
     @State private var showNoExercisesAlert = false
-    @State private var showNoSplitsAlert = false
     @State private var showNoSetPlansAlert = false
     @State private var isRetryingSync = false
     @State private var showIncrementSelection = false
     @State private var showExpandedProgressOptions = false
     @State private var showExerciseSelectedOverlay = false
     @State private var exerciseOverlayDismissTask: Task<Void, Never>?
-    @State private var showSplitSelectedOverlay = false
-    @State private var splitOverlayDismissTask: Task<Void, Never>?
-    @State private var splitOverlayName: String?
     @State private var showSetPlanSelectedOverlay = false
     @State private var setplanOverlayDismissTask: Task<Void, Never>?
     @State private var setplanOverlayName: String?
     @State private var setplanOverlaySequence: [String]?
     @State private var previousSetPlanId: UUID?
-    @State private var activeSplitId: UUID? = WorkoutSplitStore.activeSplitId()
-    @State private var activeDayId: UUID? = WorkoutSplitStore.activeDayId()
     @State private var repRangeDebounceTask: Task<Void, Never>?
     @State private var showE1RMPopup = false
     @State private var effortScrollToTop: Int = 0
     @State private var showCalibrationAlert = false
     @State private var pendingCalibrationSet: LiftSet? = nil
     @State private var pendingCalibrationEstimated: Estimated1RM? = nil
-    @State private var hasManuallySelectedDay = false
 
     enum EffortMode: Int, CaseIterable {
         case easy = 0, moderate = 1, hard = 2, progress = 3
@@ -210,12 +202,7 @@ struct CheckInView: View {
         }
     }
 
-    enum SortColumn {
-        case weight, reps, est1RM, gain
-    }
-    enum EffortSortColumn {
-        case weight, reps, percent1RM
-    }
+    // SortColumn and EffortSortColumn are now top-level enums in ProgressOptionCard.swift
     @State private var effortMode: EffortMode? = nil
     @State private var selectedPlanTileIndex: Int? = nil
     @State private var highlightedPlanTileIndex: Int? = nil
@@ -234,26 +221,6 @@ struct CheckInView: View {
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
     private let lastSelectedExerciseKey = "lastSelectedExerciseId"
 
-    private var sequencedExercises: [Exercise] {
-        guard let activeId = activeDayId,
-              let split = activeSplit,
-              let day = split.days.first(where: { $0.id == activeId }) else {
-            return exercises
-        }
-        let exerciseMap = Dictionary(uniqueKeysWithValues: exercises.map { ($0.id, $0) })
-        let resolved = day.exerciseIds.compactMap { exerciseMap[$0] }
-        return resolved.isEmpty ? exercises : resolved
-    }
-
-    private var activeSplit: WorkoutSplit? {
-        guard let id = activeSplitId else { return nil }
-        return allSplits.first(where: { $0.id == id })
-    }
-
-    private var daysForActiveSplit: [WorkoutDay] {
-        guard let split = activeSplit else { return [] }
-        return split.days
-    }
 
     private var userProperties: UserProperties {
         if let props = userPropertiesItems.first { return props }
@@ -290,11 +257,6 @@ struct CheckInView: View {
         return completeness * recency
     }
 
-    private func dayCheckmarkOpacity(for day: WorkoutDay) -> Double {
-        guard !day.exerciseIds.isEmpty else { return 0 }
-        let total = day.exerciseIds.reduce(0.0) { $0 + exerciseCheckmarkOpacity(for: $1) }
-        return total / Double(day.exerciseIds.count)
-    }
 
     private var estimated1RMsForSelected: [Estimated1RM] {
         estimated1RMsForExercise
@@ -722,9 +684,6 @@ struct CheckInView: View {
                 if exercises.isEmpty {
                     showNoExercisesAlert = true
                 }
-                if allSplits.isEmpty {
-                    showNoSplitsAlert = true
-                }
                 if allTemplates.isEmpty {
                     showNoSetPlansAlert = true
                 }
@@ -746,24 +705,6 @@ struct CheckInView: View {
                 refreshTodaySetCounts()
                 refreshExerciseRecency()
 
-                // Smart exercise selection (every launch when a split is active)
-                if WorkoutSplitStore.smartExerciseSelectionEnabled && activeSplit != nil {
-                    hasManuallySelectedDay = false
-                    if let dayId = WorkoutSplitStore.autoSelectDay(days: daysForActiveSplit, context: modelContext) {
-                        activeDayId = dayId
-                        WorkoutSplitStore.setActiveDayId(dayId)
-                    }
-                    // Prefer last-viewed exercise if it belongs to this day; otherwise first exercise
-                    if let dayId = activeDayId,
-                       let day = daysForActiveSplit.first(where: { $0.id == dayId }) {
-                        if let currentId = selectedExercisesId, day.exerciseIds.contains(currentId) {
-                            fetchDataForExercise(currentId)
-                        } else if let firstExerciseId = day.exerciseIds.first {
-                            selectedExercisesId = firstExerciseId
-                            fetchDataForExercise(firstExerciseId)
-                        }
-                    }
-                }
 
                 previousSetPlanId = userProperties.activeSetPlanId
             }
@@ -771,13 +712,6 @@ struct CheckInView: View {
                 viewingDate = actualToday
                 if let newId {
                     fetchDataForExercise(newId)
-                    // Auto-select the day that contains this exercise
-                    if let matchingDay = daysForActiveSplit.first(where: { $0.exerciseIds.contains(newId) }) {
-                        activeDayId = matchingDay.id
-                        WorkoutSplitStore.setActiveDayId(matchingDay.id)
-                    } else {
-                        activeDayId = nil
-                    }
                 }
                 resetToDefaults()
                 validateWeightDelta()
@@ -858,7 +792,6 @@ struct CheckInView: View {
                     .presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showHub, onDismiss: {
-                activeSplitId = WorkoutSplitStore.activeSplitId()
                 hubDeepLinkExerciseId = nil
                 hubSection = .exercises  // Reset so next open detects the change
             }) {
@@ -899,18 +832,6 @@ struct CheckInView: View {
                     Button("Dismiss", role: .cancel) { }
                 } message: {
                     Text("Unable to load your exercises. You can retry or start with default exercises.")
-                }
-                .alert("No Splits Found", isPresented: $showNoSplitsAlert) {
-                    Button("Try Again") {
-                        retryFetchSplits()
-                    }
-                    .disabled(isRetryingSync)
-                    Button("Use Defaults") {
-                        useDefaultSplits()
-                    }
-                    Button("Dismiss", role: .cancel) { }
-                } message: {
-                    Text("Unable to load your workout splits. You can retry or start with defaults.")
                 }
                 .alert("No Set Plans Found", isPresented: $showNoSetPlansAlert) {
                     Button("Try Again") {
@@ -1392,116 +1313,6 @@ struct CheckInView: View {
 
     private var programWidget: some View {
         VStack(spacing: 0) {
-            // Section 1 — Day pills (compact)
-            HStack(spacing: 6) {
-                // Split-editor button (stationary)
-                Button {
-                    hapticFeedback.impactOccurred()
-                    hubSection = .splits
-                    hubDeepLinkExerciseId = nil
-                    showHub = true
-                } label: {
-                    HStack(spacing: 6) {
-                        Image("LiftTheBullIcon")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 18, height: 18)
-                        Text("Splits")
-                            .font(.bebasNeue(size: 14))
-                            .kerning(1.5)
-                            .lineLimit(1)
-                    }
-                    .foregroundStyle(Color.appAccent)
-                    .padding(.horizontal, 8)
-                    .frame(height: 26)
-                    .frame(minWidth: 76)
-                    .background(
-                        RoundedRectangle(cornerRadius: 7)
-                            .fill(Color.appAccent.opacity(0.15))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 7)
-                            .stroke(Color.appAccent.opacity(0.3), lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
-                .padding(.leading, 12)
-                .padding(.trailing, 4)
-
-                // Day chips
-                if daysForActiveSplit.isEmpty {
-                    Spacer()
-                } else {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                        ForEach(daysForActiveSplit) { day in
-                            let isSelected = activeDayId == day.id
-                            Button {
-                                hapticFeedback.impactOccurred()
-                                hasManuallySelectedDay = true
-                                if isSelected {
-                                    activeDayId = nil
-                                    WorkoutSplitStore.setActiveDayId(nil)
-                                    selectedExercisesId = nil
-                                } else {
-                                    activeDayId = day.id
-                                    WorkoutSplitStore.setActiveDayId(day.id)
-                                    // Select the first exercise of this day
-                                    let exerciseMap = Dictionary(uniqueKeysWithValues: exercises.map { ($0.id, $0) })
-                                    if let firstId = day.exerciseIds.first(where: { exerciseMap[$0] != nil }) {
-                                        selectedExercisesId = firstId
-                                    }
-                                }
-                            } label: {
-                                Text("\(day.name) Day")
-                                    .font(.bebasNeue(size: 14))
-                                    .kerning(1.5)
-                                    .foregroundStyle(isSelected ? .white : .white.opacity(0.4))
-                                    .lineLimit(1)
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 4)
-                                    .frame(height: 26)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 7)
-                                            .fill(isSelected ? Color.appAccent.opacity(0.2) : Color(white: 0.10))
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 7)
-                                            .stroke(isSelected ? Color.appAccent : Color.clear, lineWidth: 1)
-                                    )
-                                    .overlay(alignment: .bottomTrailing) {
-                                        let opacity = dayCheckmarkOpacity(for: day)
-                                        if opacity > 0.05 {
-                                            Image(systemName: "checkmark.circle.fill")
-                                                .font(.system(size: 9, weight: .bold))
-                                                .foregroundStyle(.green)
-                                                .background(Circle().fill(Color(white: 0.10)))
-                                                .opacity(opacity)
-                                                .offset(x: 3, y: 3)
-                                        }
-                                    }
-                            }
-                            .buttonStyle(.plain)
-                            .animation(.easeInOut(duration: 0.15), value: activeDayId)
-                        }
-                        }
-                        .padding(.leading, 4)
-                        .padding(.trailing, 12)
-                        .padding(.vertical, 6)
-                    }
-                }
-            }
-            .frame(height: 42)
-            .overlay {
-                if daysForActiveSplit.isEmpty {
-                    Text("Free Training")
-                        .font(.bebasNeue(size: 14))
-                        .kerning(1.5)
-                        .foregroundStyle(.white.opacity(0.25))
-                        .allowsHitTesting(false)
-                }
-            }
-
             // Separator
             Rectangle()
                 .fill(Color.white.opacity(0.06))
@@ -1543,7 +1354,7 @@ struct CheckInView: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        ForEach(sequencedExercises) { exercise in
+                        ForEach(exercises) { exercise in
                             let isSelected = selectedExercisesId == exercise.id
                             Button {
                                 hapticFeedback.impactOccurred()
@@ -1602,7 +1413,6 @@ struct CheckInView: View {
                     .padding(.vertical, 5)
                 }
                 .scrollTargetBehavior(.viewAligned)
-                .id(activeDayId)
                 .onChange(of: selectedExercisesId) { _, newId in
                     guard let newId else { return }
                     withAnimation {
@@ -1633,37 +1443,6 @@ struct CheckInView: View {
                 .allowsHitTesting(false)
         )
         .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
-        .onChange(of: activeSplitId) { oldValue, _ in
-            WorkoutSplitStore.setActiveSplitId(activeSplitId)
-            Task { await SyncService.shared.updateActiveSplit(activeSplitId) }
-            if let firstDay = daysForActiveSplit.first {
-                // When split changes, auto-select first day
-                activeDayId = firstDay.id
-                WorkoutSplitStore.setActiveDayId(firstDay.id)
-            } else {
-                // No split selected — clear day selection, show all exercises
-                activeDayId = nil
-                WorkoutSplitStore.setActiveDayId(nil)
-                selectedExercisesId = nil
-            }
-            // Show split selected overlay (skip initial load)
-            if oldValue != nil || activeSplitId != nil {
-                splitOverlayName = activeSplit?.name ?? "Free Training"
-                splitOverlayDismissTask?.cancel()
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
-                    showSplitSelectedOverlay = true
-                }
-                splitOverlayDismissTask = Task {
-                    try? await Task.sleep(nanoseconds: 2_500_000_000)
-                    guard !Task.isCancelled else { return }
-                    await MainActor.run {
-                        withAnimation(.easeOut(duration: 0.25)) {
-                            showSplitSelectedOverlay = false
-                        }
-                    }
-                }
-            }
-        }
     }
 
     @ViewBuilder
@@ -1671,7 +1450,6 @@ struct CheckInView: View {
         Group {
             submitOverlaySection
             exerciseSelectedOverlay
-            splitSelectedOverlay
             setPlanSelectedOverlay
             logConfirmationOverlay
             e1rmPopupOverlay
@@ -1792,37 +1570,6 @@ struct CheckInView: View {
         }
     }
 
-    @ViewBuilder
-    private var splitSelectedOverlay: some View {
-        if showSplitSelectedOverlay, let name = splitOverlayName {
-            VStack(spacing: 14) {
-                Image(systemName: name == "Free Training" ? "figure.walk" : "rectangle.3.group")
-                    .font(.system(size: 48))
-                    .foregroundStyle(Color.appAccent)
-
-                Text(name)
-                    .font(.bebasNeue(size: 24))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.5)
-                    .padding(.horizontal, 12)
-            }
-            .frame(width: 200, height: 160)
-            .background(
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(Color(white: 0.12))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 20)
-                    .stroke(Color.appLogoColor.opacity(0.5), lineWidth: 2)
-            )
-            .shadow(color: .black.opacity(0.5), radius: 20, y: 5)
-            .transition(.opacity.combined(with: .scale(scale: 0.9)))
-            .zIndex(10)
-            .allowsHitTesting(false)
-        }
-    }
 
     @ViewBuilder
     private var setPlanSelectedOverlay: some View {
@@ -4384,26 +4131,6 @@ struct CheckInView: View {
                 userProperties.availableChangePlates = UserProperties.defaultAvailableChangePlates
                 try? modelContext.save()
             }
-            // Assign default exercises to days now that exercises exist
-            WorkoutSplitStore.assignDefaultExercisesToDays(context: modelContext)
-        }
-    }
-
-    private func retryFetchSplits() {
-        isRetryingSync = true
-        Task {
-            let success = await SyncService.shared.retryFetchSplits()
-            isRetryingSync = false
-            if !success && allSplits.isEmpty {
-                showNoSplitsAlert = true
-            }
-        }
-    }
-
-    private func useDefaultSplits() {
-        Task {
-            await SyncService.shared.createDefaultSplitsAndSync()
-            WorkoutSplitStore.assignDefaultExercisesToDays(context: modelContext)
         }
     }
 
@@ -5621,7 +5348,7 @@ struct WeightPlateIcon: View {
 
 struct ExpandedProgressOptionsSheet: View {
     let suggestions: [OneRMCalculator.Suggestion]
-    @Binding var sortColumn: CheckInView.SortColumn
+    @Binding var sortColumn: SortColumn
     @Binding var sortAscending: Bool
     @Binding var weightDelta: Double
     let availableWeightDeltas: [Double]
@@ -5685,18 +5412,7 @@ struct ExpandedProgressOptionsSheet: View {
             // Title header with mode navigation
             VStack(spacing: 8) {
                 HStack {
-                    // Left chevron (Hard is previous mode)
-                    Button {
-                        hapticFeedback.impactOccurred()
-                        onSwitchMode?(.hard)
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.4))
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+                    Spacer().frame(width: 44)
 
                     Spacer()
 
@@ -5989,7 +5705,7 @@ struct ExpandedProgressOptionsSheet: View {
         }
     }
 
-    private func columnButton(title: String, column: CheckInView.SortColumn, width: CGFloat) -> some View {
+    private func columnButton(title: String, column: SortColumn, width: CGFloat) -> some View {
         Button {
             if sortColumn == column {
                 sortAscending.toggle()
@@ -6059,7 +5775,7 @@ struct ExpandedEffortOptionsSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedSuggestion: OneRMCalculator.EffortSuggestion?
-    @State private var sortColumn: CheckInView.EffortSortColumn = .weight
+    @State private var sortColumn: EffortSortColumn = .weight
     @State private var sortAscending: Bool = true
     @State private var columnHighlighted = false
     @State private var sheetSortUserModified: Bool = false
@@ -6402,7 +6118,7 @@ struct ExpandedEffortOptionsSheet: View {
         return cases[idx + 1]
     }
 
-    private func sheetColumnButton(title: String, column: CheckInView.EffortSortColumn) -> some View {
+    private func sheetColumnButton(title: String, column: EffortSortColumn) -> some View {
         Button {
             hapticFeedback.impactOccurred()
             sheetSortUserModified = true

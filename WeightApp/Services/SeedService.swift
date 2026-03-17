@@ -51,50 +51,6 @@ enum SeedService {
         return inserted
     }
 
-    // MARK: - Default Splits (upsert-based seeding)
-
-    @MainActor
-    static func seedSplits(context: ModelContext) {
-        let existing = (try? context.fetch(FetchDescriptor<WorkoutSplit>())) ?? []
-        let existingById = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
-
-        var inserted: [WorkoutSplit] = []
-        let baseDate = Date()
-
-        for (index, def) in WorkoutSplit.builtInTemplates.enumerated() {
-            if let split = existingById[def.id] {
-                split.name = def.name
-                split.days = def.days
-            } else {
-                let split = WorkoutSplit(
-                    id: def.id,
-                    name: def.name,
-                    days: def.days,
-                    createdAt: baseDate.addingTimeInterval(Double(index)),
-                    createdTimezone: TimeZone.current.identifier
-                )
-                context.insert(split)
-                inserted.append(split)
-            }
-        }
-
-        try? context.save()
-
-        // Set default active split if none is set
-        if WorkoutSplitStore.activeSplitId() == nil {
-            WorkoutSplitStore.setActiveSplitId(WorkoutSplit.pplId)
-            WorkoutSplitStore.setActiveDayId(WorkoutSplit.pushDayId)
-            Task { await SyncService.shared.updateActiveSplit(WorkoutSplit.pplId) }
-        }
-
-        if !inserted.isEmpty {
-            Task {
-                for split in inserted {
-                    await SyncService.shared.syncSplit(split)
-                }
-            }
-        }
-    }
 
     // MARK: - Built-in Set Plans
 

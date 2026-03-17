@@ -155,22 +155,12 @@ struct AccountDetailView: View {
             modelContext.delete(properties)
         }
 
-        // Hard delete all WorkoutSplits
-        let allSplits = (try? modelContext.fetch(FetchDescriptor<WorkoutSplit>())) ?? []
-        for split in allSplits {
-            modelContext.delete(split)
-        }
-
         // Hard delete EntitlementGrants
         let allEntitlements = (try? modelContext.fetch(FetchDescriptor<EntitlementGrant>())) ?? []
         for grant in allEntitlements {
             modelContext.delete(grant)
         }
 
-        // Clear active day/split preferences and seed flags
-        WorkoutSplitStore.setActiveDayId(nil)
-        WorkoutSplitStore.setActiveSplitId(nil)
-        UserDefaults.standard.removeObject(forKey: "workoutSplitsSeeded")
 
         try? modelContext.save()
     }

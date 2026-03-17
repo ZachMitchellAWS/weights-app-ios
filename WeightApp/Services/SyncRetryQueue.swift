@@ -51,19 +51,6 @@ struct PendingLiftSetOperation: Codable, Equatable {
     }
 }
 
-struct PendingSplitOperation: Codable, Equatable {
-    let splitId: UUID
-    let operationType: PendingOperationType
-    var retryCount: Int
-    let createdAt: Date
-
-    init(splitId: UUID, operationType: PendingOperationType) {
-        self.splitId = splitId
-        self.operationType = operationType
-        self.retryCount = 0
-        self.createdAt = Date()
-    }
-}
 
 struct PendingEstimated1RMOperation: Codable, Equatable {
     let estimated1RMId: UUID
@@ -116,7 +103,6 @@ class SyncRetryQueue {
     private let userPropertiesKey = "SyncRetryQueue.PendingUserPropertiesSync"
     private let liftSetOperationsKey = "SyncRetryQueue.PendingLiftSetOperations"
     private let estimated1RMOperationsKey = "SyncRetryQueue.PendingEstimated1RMOperations"
-    private let splitOperationsKey = "SyncRetryQueue.PendingSplitOperations"
     private let templateOperationsKey = "SyncRetryQueue.PendingSetPlanOperations"
     private let accessoryGoalCheckinOperationsKey = "SyncRetryQueue.PendingAccessoryGoalCheckinOperations"
     private let maxRetries = 10
@@ -163,13 +149,12 @@ class SyncRetryQueue {
         UserDefaults.standard.removeObject(forKey: userPropertiesKey)
         UserDefaults.standard.removeObject(forKey: liftSetOperationsKey)
         UserDefaults.standard.removeObject(forKey: estimated1RMOperationsKey)
-        UserDefaults.standard.removeObject(forKey: splitOperationsKey)
         UserDefaults.standard.removeObject(forKey: templateOperationsKey)
         UserDefaults.standard.removeObject(forKey: accessoryGoalCheckinOperationsKey)
     }
 
     func hasPendingOperations() -> Bool {
-        return !loadOperations().isEmpty || !loadLiftSetOperations().isEmpty || !loadEstimated1RMOperations().isEmpty || !loadSplitOperations().isEmpty || !loadTemplateOperations().isEmpty || !loadAccessoryGoalCheckinOperations().isEmpty
+        return !loadOperations().isEmpty || !loadLiftSetOperations().isEmpty || !loadEstimated1RMOperations().isEmpty || !loadTemplateOperations().isEmpty || !loadAccessoryGoalCheckinOperations().isEmpty
     }
 
     // MARK: - User Properties Sync Methods
@@ -403,78 +388,6 @@ class SyncRetryQueue {
         }
     }
 
-    // MARK: - Split Operations
-
-    func addPendingSplitUpsert(splitId: UUID) {
-        SyncLogger.retry.debug("Queuing split upsert: \(splitId)")
-        addSplitOperation(PendingSplitOperation(splitId: splitId, operationType: .upsert))
-    }
-
-    func addPendingSplitDelete(splitId: UUID) {
-        SyncLogger.retry.debug("Queuing split delete: \(splitId)")
-        addSplitOperation(PendingSplitOperation(splitId: splitId, operationType: .delete))
-    }
-
-    func removePendingSplitOperation(splitId: UUID) {
-        SyncLogger.retry.debug("Removing split operation: \(splitId)")
-        var operations = loadSplitOperations()
-        operations.removeAll { $0.splitId == splitId }
-        saveSplitOperations(operations)
-    }
-
-    func getPendingSplitOperations() -> [PendingSplitOperation] {
-        return loadSplitOperations()
-    }
-
-    func incrementSplitRetryCount(for splitId: UUID) {
-        var operations = loadSplitOperations()
-        if let index = operations.firstIndex(where: { $0.splitId == splitId }) {
-            operations[index].retryCount += 1
-            if operations[index].retryCount >= maxRetries {
-                SyncLogger.retry.info("Split \(splitId) dropped after \(self.maxRetries) retries")
-                operations.remove(at: index)
-            }
-        }
-        saveSplitOperations(operations)
-    }
-
-    func hasSplitPendingOperations() -> Bool {
-        return !loadSplitOperations().isEmpty
-    }
-
-    private func addSplitOperation(_ operation: PendingSplitOperation) {
-        var operations = loadSplitOperations()
-
-        if let existingIndex = operations.firstIndex(where: { $0.splitId == operation.splitId }) {
-            operations[existingIndex] = operation
-        } else {
-            operations.append(operation)
-        }
-
-        saveSplitOperations(operations)
-    }
-
-    private func loadSplitOperations() -> [PendingSplitOperation] {
-        guard let data = UserDefaults.standard.data(forKey: splitOperationsKey) else {
-            return []
-        }
-
-        do {
-            return try JSONDecoder().decode([PendingSplitOperation].self, from: data)
-        } catch {
-            SyncLogger.retry.error("Failed to decode pending split operations: \(error)")
-            return []
-        }
-    }
-
-    private func saveSplitOperations(_ operations: [PendingSplitOperation]) {
-        do {
-            let data = try JSONEncoder().encode(operations)
-            UserDefaults.standard.set(data, forKey: splitOperationsKey)
-        } catch {
-            SyncLogger.retry.error("Failed to encode pending split operations: \(error)")
-        }
-    }
 
     // MARK: - Set Plan Template Operations
 
@@ -621,4 +534,5 @@ class SyncRetryQueue {
             SyncLogger.retry.error("Failed to encode pending accessory goal checkin operations: \(error)")
         }
     }
+
 }

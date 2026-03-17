@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import SwiftData
 import Combine
 
 class SelectedSetData: ObservableObject {
@@ -37,7 +36,13 @@ struct ContentView: View {
                 .tabItem { Label("Progress", systemImage: "chart.line.uptrend.xyaxis") }
                 .tag(0)
 
-            CheckInView(selectedSetData: selectedSetData, initialExerciseId: initialExerciseId, selectedTab: $selectedTab)
+            Group {
+                if UITestMode.isEnabled {
+                    ExperimentalCheckInView(selectedSetData: selectedSetData, selectedTab: $selectedTab)
+                } else {
+                    CheckInView(selectedSetData: selectedSetData, initialExerciseId: initialExerciseId, selectedTab: $selectedTab)
+                }
+            }
                 .tabItem { Label("Lift", systemImage: "plus.circle") }
                 .tag(1)
 

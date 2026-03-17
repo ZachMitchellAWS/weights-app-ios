@@ -448,7 +448,7 @@ struct TrendsCalculator {
 
         var color: Color {
             switch self {
-            case .lopsided: return Color("setNearMax")
+            case .lopsided: return .setNearMax
             case .skewed: return .balanceWeak
             case .uneven: return .balanceMild
             case .balanced: return .balanceCoolMild
@@ -461,18 +461,29 @@ struct TrendsCalculator {
         }
     }
 
-    static func balanceCategory(from balances: [ExerciseBalance]) -> BalanceCategory? {
-        let scored = balances.compactMap { $0.balanceScore }
-        guard scored.count >= 2 else { return nil }
+    static func balanceCategory(from balances: [ExerciseBalance], bodyweight: Double, sex: BiologicalSex) -> BalanceCategory? {
+        let exercisesWithData = balances.filter { $0.current1RM != nil }
+        guard exercisesWithData.count >= 2 else { return nil }
 
-        let maxDeviation = scored.map { abs($0 - 1.0) }.max()!
+        let tiers = exercisesWithData.compactMap { exercise -> StrengthTier? in
+            guard let e1rm = exercise.current1RM else { return nil }
+            return StrengthTierData.tierForExercise(
+                name: exercise.exerciseName,
+                e1rm: e1rm,
+                bodyweight: bodyweight,
+                sex: sex
+            )
+        }
+        guard tiers.count >= 2 else { return nil }
 
-        switch maxDeviation {
-        case _ where maxDeviation > 0.22: return .lopsided
-        case 0.15...0.22: return .skewed
-        case 0.08..<0.15: return .uneven
-        case 0.04..<0.08: return .balanced
-        default: return .symmetrical
+        let spread = (tiers.max()?.rawValue ?? 0) - (tiers.min()?.rawValue ?? 0)
+
+        switch spread {
+        case 0: return .symmetrical
+        case 1: return .balanced
+        case 2: return .uneven
+        case 3: return .skewed
+        default: return .lopsided
         }
     }
 
@@ -780,6 +791,75 @@ struct TrendsCalculator {
             exerciseTiers: exerciseTiers,
             limitingExercise: limitingExercise
         )
+    }
+
+    // MARK: - Next Focus Exercise
+
+    /// Returns the fundamental exercise the user should train next, based on tier progress and recency.
+    /// Returns nil if all exercises are at Legend tier.
+    static func nextFocusExercise(
+        exerciseTiers: [(exercise: FundamentalExercise, e1rm: Double?, tier: StrengthTier)],
+        lastTrainedDates: [UUID: Date],
+        bodyweight: Double,
+        sex: BiologicalSex
+    ) -> FundamentalExercise? {
+        // If all at Legend, nothing to suggest
+        guard !exerciseTiers.allSatisfy({ $0.tier == .legend }) else { return nil }
+
+        let now = Date()
+        var bestExercise: FundamentalExercise?
+        var bestScore = -1.0
+
+        for entry in exerciseTiers {
+            let exercise = entry.exercise
+            let tier = entry.tier
+
+            // tierScore: base from tier rank, refined by within-tier progress
+            let tierBase: Double
+            switch tier {
+            case .rookie:       tierBase = 1.0
+            case .beginner:     tierBase = 0.8
+            case .intermediate: tierBase = 0.6
+            case .advanced:     tierBase = 0.4
+            case .elite:        tierBase = 0.2
+            case .legend:       tierBase = 0.0
+            }
+
+            var withinTierProgress = 0.0
+            if let e1rm = entry.e1rm, tier != .legend {
+                let currentMin = StrengthTierData.currentTierMinimum(
+                    name: exercise.name, tier: tier, bodyweight: bodyweight, sex: sex
+                )
+                if let nextMin = StrengthTierData.nextTierMinimum(
+                    name: exercise.name, currentTier: tier, bodyweight: bodyweight, sex: sex
+                ) {
+                    let range = nextMin - currentMin
+                    if range > 0 {
+                        withinTierProgress = min(1.0, max(0.0, (e1rm - currentMin) / range))
+                    }
+                }
+            }
+
+            let tierScore = max(0.0, tierBase - withinTierProgress * 0.2)
+
+            // recencyScore: days since last trained, /14, capped at 1.0
+            let recencyScore: Double
+            if let lastDate = lastTrainedDates[exercise.id] {
+                let daysSince = now.timeIntervalSince(lastDate) / 86400.0
+                recencyScore = min(1.0, max(0.0, daysSince / 14.0))
+            } else {
+                recencyScore = 1.0
+            }
+
+            let score = 0.7 * tierScore + 0.3 * recencyScore
+
+            if score > bestScore {
+                bestScore = score
+                bestExercise = exercise
+            }
+        }
+
+        return bestExercise
     }
 
     // MARK: - Strength Milestones (Tier-Based)

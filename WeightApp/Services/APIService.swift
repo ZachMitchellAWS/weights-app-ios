@@ -378,35 +378,6 @@ class APIService {
         )
     }
 
-    // MARK: - Split Sync Endpoints
-
-    func getSplits() async throws -> GetSplitsResponse {
-        return try await requestWithDateDecoding(
-            endpoint: "/checkin/splits",
-            method: "GET",
-            requiresAuth: true
-        )
-    }
-
-    func upsertSplits(_ splits: [SplitDTO]) async throws -> UpsertSplitsResponse {
-        let body = UpsertSplitsRequest(splits: splits)
-        return try await requestWithDateDecoding(
-            endpoint: "/checkin/splits",
-            method: "POST",
-            body: body,
-            requiresAuth: true
-        )
-    }
-
-    func deleteSplits(_ splitIds: [UUID]) async throws -> DeleteSplitsResponse {
-        let body = DeleteSplitsRequest(splitIds: splitIds)
-        return try await requestWithDateDecoding(
-            endpoint: "/checkin/splits",
-            method: "DELETE",
-            body: body,
-            requiresAuth: true
-        )
-    }
 
     // MARK: - Set Plan Templates
 

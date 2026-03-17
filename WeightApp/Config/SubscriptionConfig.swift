@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 enum SubscriptionConfig {
     // MARK: - Product IDs (configure in App Store Connect)
@@ -33,11 +34,21 @@ enum SubscriptionConfig {
     static let freeTrialBadge = "7-day free trial"
 
     // MARK: - Premium Features (for carousel display)
-    static let premiumFeatures: [(icon: String, title: String, description: String)] = [
-        ("chart.line.uptrend.xyaxis", "Advanced Analytics", "Track 1RM trends, volume, and frequency over time"),
-        ("clock.arrow.circlepath", "Unlimited History", "Access your complete workout history anytime"),
-        ("lightbulb.fill", "Smart Suggestions", "Get weight and rep targets to beat your personal records"),
-        ("icloud.fill", "Cloud Backup", "Keep your data safe and synced across devices"),
-        ("books.vertical.fill", "Exercise Library", "Full access to all exercises and custom additions")
+    static let premiumFeatures: [(icon: String, title: String, description: String, color: Color)] = [
+        ("text.book.closed.fill", "Weekly Progress Narratives",
+         "Get a personalized written summary of your training week — what improved, what to focus on, and how you're trending.",
+         .setEasy),
+        ("scale.3d", "Strength Balance Tracking",
+         "Continuous monitoring of your push/pull and upper/lower ratios so you can spot and correct imbalances early.",
+         .setModerate),
+        ("chart.line.uptrend.xyaxis", "Advanced Analytics",
+         "Track estimated 1RM trends, volume progression, and training frequency over time with detailed charts.",
+         .setHard),
+        ("list.clipboard.fill", "Set Plan Catalog & Custom Plans",
+         "Full access to the complete set plan library plus the ability to create and save your own custom plans.",
+         .setNearMax),
+        ("square.and.arrow.up.fill", "Training Report Card",
+         "Generate a shareable visual report card of your training — PRs, consistency, balance, and progress at a glance.",
+         .setPR)
     ]
 }

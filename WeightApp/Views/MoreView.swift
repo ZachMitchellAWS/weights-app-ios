@@ -36,8 +36,6 @@ struct MoreView: View {
     @State private var isSeedingMissing = false
     @State private var showSeedMissingAlert = false
     @State private var seedMissingCount = 0
-    @State private var isSeedingSplits = false
-    @State private var showSeedSplitsAlert = false
     @State private var isSeedingSetPlans = false
     @State private var showSeedSetPlansAlert = false
     @State private var showExerciseIds = false
@@ -91,6 +89,11 @@ struct MoreView: View {
     private var isFreeOverrideEnabled: Bool {
         get { FreeOverride.isEnabled }
         nonmutating set { FreeOverride.set(newValue) }
+    }
+
+    private var isUITestModeEnabled: Bool {
+        get { UITestMode.isEnabled }
+        nonmutating set { UITestMode.set(newValue) }
     }
 
     private var email: String {
@@ -613,25 +616,6 @@ struct MoreView: View {
                         }
                         .disabled(isSeedingMissing)
 
-                        Button {
-                            isSeedingSplits = true
-                            SeedService.seedSplits(context: modelContext)
-                            isSeedingSplits = false
-                            showSeedSplitsAlert = true
-                        } label: {
-                            HStack {
-                                Text("Seed Missing Splits")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                if isSeedingSplits {
-                                    ProgressView()
-                                } else {
-                                    Image(systemName: "plus.circle")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-                        }
-                        .disabled(isSeedingSplits)
 
                         Button {
                             isSeedingSetPlans = true
@@ -778,6 +762,18 @@ struct MoreView: View {
                             ))
                             .labelsHidden()
                             .tint(.red)
+                        }
+
+                        HStack {
+                            Text("UI Test Mode")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Toggle("", isOn: Binding(
+                                get: { isUITestModeEnabled },
+                                set: { isUITestModeEnabled = $0 }
+                            ))
+                            .labelsHidden()
+                            .tint(.purple)
                         }
 
                         Button {
@@ -1162,11 +1158,6 @@ struct MoreView: View {
                 Text(seedMissingCount > 0
                      ? "Added \(seedMissingCount) new exercise\(seedMissingCount == 1 ? "" : "s")."
                      : "All exercises already exist — nothing to add.")
-            }
-            .alert("Seed Missing Splits", isPresented: $showSeedSplitsAlert) {
-                Button("OK") { }
-            } message: {
-                Text("Default splits have been seeded.")
             }
             .alert("Seed Missing Set Plans", isPresented: $showSeedSetPlansAlert) {
                 Button("OK") { }
@@ -1896,22 +1887,12 @@ struct MoreView: View {
             modelContext.delete(properties)
         }
 
-        // Hard delete all WorkoutSplits
-        let allSplits = (try? modelContext.fetch(FetchDescriptor<WorkoutSplit>())) ?? []
-        for split in allSplits {
-            modelContext.delete(split)
-        }
-
         // Hard delete EntitlementGrants
         let allEntitlements = (try? modelContext.fetch(FetchDescriptor<EntitlementGrant>())) ?? []
         for grant in allEntitlements {
             modelContext.delete(grant)
         }
 
-        // Clear active day/split preferences and seed flags
-        WorkoutSplitStore.setActiveDayId(nil)
-        WorkoutSplitStore.setActiveSplitId(nil)
-        UserDefaults.standard.removeObject(forKey: "workoutSplitsSeeded")
 
         try? modelContext.save()
     }

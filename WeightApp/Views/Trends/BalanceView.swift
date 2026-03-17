@@ -80,6 +80,13 @@ struct BalanceView: View {
                 }
 
                 // BestLiftsWidget(allSets: allSets)
+
+                Text("Strength estimates are approximations based on your logged sets and standard formulas. Always train within your limits and consult a qualified professional before beginning any exercise program.")
+                    .font(.inter(size: 12))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 20)
@@ -92,8 +99,16 @@ struct BalanceView: View {
 
     // MARK: - Strength Balance Widget
 
+    private var bodyweight: Double {
+        userProperties.bodyweight ?? 200.0
+    }
+
+    private var sex: BiologicalSex {
+        BiologicalSex(rawValue: userProperties.biologicalSex ?? "male") ?? .male
+    }
+
     private var balanceCategory: TrendsCalculator.BalanceCategory? {
-        TrendsCalculator.balanceCategory(from: balanceData)
+        TrendsCalculator.balanceCategory(from: balanceData, bodyweight: bodyweight, sex: sex)
     }
 
     private var strengthBalanceWidget: some View {
@@ -116,9 +131,10 @@ struct BalanceView: View {
             .padding(.vertical, 4)
 
             Chart(balanceData) { exercise in
+                let clamped = min(max(exercise.balanceScore ?? 0.7, 0.7), 1.3)
                 BarMark(
                     xStart: .value("Start", 0.7),
-                    xEnd: .value("Score", exercise.balanceScore ?? 0.7),
+                    xEnd: .value("Score", clamped),
                     y: .value("Exercise", exercise.exerciseName)
                 )
                 .foregroundStyle(exercise.balanceColor)
@@ -151,15 +167,20 @@ struct BalanceView: View {
             }
             .frame(height: CGFloat(balanceData.count) * 44)
 
-            // Balance legend
-            HStack(spacing: 16) {
-                legendDot(color: .balanceWeak, label: "Weak")
-                legendDot(color: .balanceMild, label: "Mild")
-                legendDot(color: .balanceGood, label: "Balanced")
-                legendDot(color: .balanceCoolMild, label: "Strong")
-                legendDot(color: .balanceStrong, label: "V. Strong")
-            }
-            .padding(.top, 4)
+            // Category legend (commented out)
+            // VStack(spacing: 6) {
+            //     HStack(spacing: 16) {
+            //         legendDot(color: TrendsCalculator.BalanceCategory.lopsided.color, label: "Lopsided")
+            //         legendDot(color: TrendsCalculator.BalanceCategory.skewed.color, label: "Skewed")
+            //         legendDot(color: TrendsCalculator.BalanceCategory.uneven.color, label: "Uneven")
+            //     }
+            //     HStack(spacing: 16) {
+            //         legendDot(color: TrendsCalculator.BalanceCategory.balanced.color, label: "Balanced")
+            //         legendDot(color: TrendsCalculator.BalanceCategory.symmetrical.color, label: "Symmetrical")
+            //     }
+            // }
+            // .frame(maxWidth: .infinity)
+            // .padding(.top, 4)
 
             Divider()
                 .background(.white.opacity(0.1))

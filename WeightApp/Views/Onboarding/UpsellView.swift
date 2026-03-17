@@ -186,18 +186,25 @@ struct UpsellView: View {
 
     // MARK: - Benefits Carousel
 
+    private let totalPages = SubscriptionConfig.premiumFeatures.count + 1
+
     private var benefitsCarousel: some View {
         ZStack(alignment: .bottom) {
             TabView(selection: $currentPage) {
+                OverviewFeatureCard()
+                    .padding(.horizontal, 20)
+                    .tag(0)
+
                 ForEach(0..<SubscriptionConfig.premiumFeatures.count, id: \.self) { index in
                     let feature = SubscriptionConfig.premiumFeatures[index]
                     FeatureCard(
                         icon: feature.icon,
                         title: feature.title,
-                        description: feature.description
+                        description: feature.description,
+                        accentColor: feature.color
                     )
                     .padding(.horizontal, 20)
-                    .tag(index)
+                    .tag(index + 1)
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
@@ -205,7 +212,7 @@ struct UpsellView: View {
 
             // Page indicators overlaid at the bottom of the cards
             HStack(spacing: 8) {
-                ForEach(0..<SubscriptionConfig.premiumFeatures.count, id: \.self) { index in
+                ForEach(0..<totalPages, id: \.self) { index in
                     Circle()
                         .fill(index == currentPage ? Color.appAccent : Color.white.opacity(0.25))
                         .frame(width: 7, height: 7)
@@ -358,29 +365,49 @@ struct UpsellView: View {
     }
 }
 
-// MARK: - Feature Card
+// MARK: - Overview Feature Card
 
-private struct FeatureCard: View {
-    let icon: String
-    let title: String
-    let description: String
-
+private struct OverviewFeatureCard: View {
     var body: some View {
-        VStack(spacing: 14) {
-            Image(systemName: icon)
-                .font(.system(size: 28))
+        VStack(spacing: 16) {
+            Text("WHAT YOU GET")
+                .font(.bebasNeue(size: 18))
                 .foregroundStyle(Color.appAccent)
+                .tracking(2)
 
-            Text(title)
-                .font(.interSemiBold(size: 15))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
+            Rectangle()
+                .fill(Color.appAccent)
+                .frame(width: 40, height: 2)
 
-            Text(description)
-                .font(.inter(size: 13))
-                .foregroundStyle(.white.opacity(0.6))
-                .multilineTextAlignment(.center)
-                .lineLimit(4)
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(SubscriptionConfig.premiumFeatures, id: \.title) { feature in
+                    HStack(spacing: 12) {
+                        Image(systemName: feature.icon)
+                            .font(.system(size: 14))
+                            .foregroundStyle(feature.color)
+                            .frame(width: 20, height: 20)
+                            .background(
+                                Circle()
+                                    .fill(feature.color.opacity(0.15))
+                            )
+
+                        Text(feature.title)
+                            .font(.interSemiBold(size: 14))
+                            .foregroundStyle(.white)
+                    }
+                }
+            }
+
+            Spacer()
+
+            HStack(spacing: 4) {
+                Text("Swipe to learn more")
+                    .font(.inter(size: 11))
+                    .foregroundStyle(.white.opacity(0.35))
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.white.opacity(0.35))
+            }
         }
         .frame(maxWidth: .infinity)
         .frame(height: 276)
@@ -390,7 +417,67 @@ private struct FeatureCard: View {
                 .fill(Color(white: 0.12))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                        .stroke(Color.appAccent.opacity(0.15), lineWidth: 1)
+                )
+        )
+    }
+}
+
+// MARK: - Feature Card
+
+private struct FeatureCard: View {
+    let icon: String
+    let title: String
+    let description: String
+    let accentColor: Color
+
+    var body: some View {
+        VStack(spacing: 14) {
+            // Icon with colored circle background and glow
+            Image(systemName: icon)
+                .font(.system(size: 36))
+                .foregroundStyle(accentColor)
+                .frame(width: 64, height: 64)
+                .background(
+                    Circle()
+                        .fill(accentColor.opacity(0.18))
+                )
+                .shadow(color: accentColor.opacity(0.3), radius: 12, x: 0, y: 4)
+
+            Text(title)
+                .font(.interSemiBold(size: 16))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+
+            Text(description)
+                .font(.inter(size: 13))
+                .foregroundStyle(.white.opacity(0.65))
+                .multilineTextAlignment(.center)
+                .lineLimit(4)
+
+            Spacer()
+
+            // Accent divider
+            Rectangle()
+                .fill(accentColor.opacity(0.25))
+                .frame(height: 1)
+                .padding(.horizontal, 8)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 276)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(
+                    LinearGradient(
+                        colors: [accentColor.opacity(0.08), Color(white: 0.10)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(accentColor.opacity(0.2), lineWidth: 1)
                 )
         )
     }

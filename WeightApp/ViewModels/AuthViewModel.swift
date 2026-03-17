@@ -9,7 +9,6 @@ import Foundation
 import Combine
 import SwiftData
 import AuthenticationServices
-
 enum AuthResult {
     case success
     case userAlreadyExists
@@ -192,6 +191,7 @@ class AuthViewModel: ObservableObject {
         showPostAuthFlow = true
         isAuthenticated = true
         userId = response.userId
+
         await SyncService.shared.performInitialSync(isNewUser: isNewUser)
         await EntitlementsService.shared.syncEntitlementStatus()
         isLoading = false
@@ -208,13 +208,8 @@ class AuthViewModel: ObservableObject {
             errorMessage = error.localizedDescription
         }
 
-        // Perform hard delete of all local data
         onDataCleanup()
-
-        // Clear sync retry queue
         SyncService.shared.clearOnLogout()
-
-        // Always clear tokens and log out, regardless of API success/failure
         KeychainService.shared.clearTokens()
         isAuthenticated = false
         userId = nil

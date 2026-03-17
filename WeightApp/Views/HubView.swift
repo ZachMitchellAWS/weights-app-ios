@@ -2,14 +2,14 @@ import SwiftUI
 import SwiftData
 
 enum HubSection: Int, CaseIterable {
-    case splits = 0
+    case groups = 0
     case exercises = 1
     case setPlans = 2
 
     var label: String {
         switch self {
-        case .splits: return "Splits"
-        case .exercises: return "Exercise"
+        case .groups: return "Groups"
+        case .exercises: return "Exercises"
         case .setPlans: return "Set Plans"
         }
     }
@@ -44,8 +44,8 @@ struct HubView: View {
 
             // Content
             switch selectedSection {
-            case .splits:
-                SplitEditorView(exercises: exercises)
+            case .groups:
+                VStack { Spacer(); Text("Coming soon").foregroundStyle(.white.opacity(0.3)); Spacer() }
             case .exercises:
                 ExercisesSelectionView(
                     exercises: exercises,

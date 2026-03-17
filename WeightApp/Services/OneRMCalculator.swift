@@ -117,6 +117,30 @@ enum OneRMCalculator {
         }
     }
 
+    /// Returns weights achievable using multi-plate combos (1-3 plates per side).
+    /// Barbell: barWeight + sum_of_plates * 2. Single load: sum_of_plates.
+    static func efficientPlateWeights(loadType: ExerciseLoadType, barWeight: Double = 45.0, availablePlates: [Double] = [10, 15, 25, 35, 45, 55]) -> Set<Double> {
+        var weights = Set<Double>()
+        let maxPlatesPerSide = 3
+        // Generate all combinations of 1..maxPlatesPerSide plates (with repetition)
+        func enumerate(_ remaining: Int, _ startIndex: Int, _ currentSum: Double) {
+            if remaining == 0 { return }
+            for i in startIndex..<availablePlates.count {
+                let newSum = currentSum + availablePlates[i]
+                switch loadType {
+                case .barbell:
+                    weights.insert(barWeight + newSum * 2)
+                case .singleLoad, .bodyweightPlusSingleLoad:
+                    weights.insert(newSum)
+                }
+                enumerate(remaining - 1, i, newSum)
+            }
+        }
+        enumerate(maxPlatesPerSide, 0, 0)
+        if loadType == .barbell { weights.insert(barWeight) }
+        return weights
+    }
+
     static func effortSuggestions(
         current1RM: Double,
         targetPercent1RMs: [Double],

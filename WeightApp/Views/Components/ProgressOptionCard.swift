@@ -7,10 +7,18 @@
 
 import SwiftUI
 
+enum SortColumn {
+    case weight, reps, est1RM, gain
+}
+
+enum EffortSortColumn {
+    case weight, reps, percent1RM
+}
+
 struct ProgressOptionCard: View {
     let suggestion: OneRMCalculator.Suggestion
     let isSelected: Bool
-    let sortColumn: CheckInView.SortColumn
+    let sortColumn: SortColumn
     let columnHighlighted: Bool
     var weightColumnHighlighted: Bool = false
     var accentColor: Color = .setPR
@@ -86,7 +94,7 @@ struct ProgressOptionCard: View {
 struct EffortOptionCard: View {
     let suggestion: OneRMCalculator.EffortSuggestion
     let isSelected: Bool
-    var sortColumn: CheckInView.EffortSortColumn = .weight
+    var sortColumn: EffortSortColumn = .weight
     var columnHighlighted: Bool = false
     var accentColor: Color = .setEasy
     var isLastSet: Bool = false

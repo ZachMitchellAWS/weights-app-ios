@@ -37,7 +37,7 @@ struct WeightAppApp: App {
 
         // Create the model container
         do {
-            modelContainer = try ModelContainer(for: Exercise.self, LiftSet.self, UserProperties.self, Estimated1RM.self, EntitlementGrant.self, WorkoutSplit.self, SetPlan.self, AccessoryGoalCheckin.self)
+            modelContainer = try ModelContainer(for: Exercise.self, LiftSet.self, UserProperties.self, Estimated1RM.self, EntitlementGrant.self, SetPlan.self, AccessoryGoalCheckin.self)
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
          }
@@ -140,7 +140,6 @@ struct WeightAppApp: App {
                     Task {
                         await SyncService.shared.processRetryQueue()
                         await SyncService.shared.processUserPropertiesRetryQueue()
-                        await SyncService.shared.processSplitRetryQueue()
                         await SyncService.shared.processLiftSetRetryQueue()
                         await SyncService.shared.processEstimated1RMRetryQueue()
                         await SyncService.shared.processTemplateRetryQueue()
