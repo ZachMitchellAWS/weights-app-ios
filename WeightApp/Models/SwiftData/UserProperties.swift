@@ -25,6 +25,7 @@ final class UserProperties {
     var hardMinReps: Int = 3
     var hardMaxReps: Int = 6
     var activeSetPlanId: UUID?
+    var activeGroupId: UUID?
     var stepsGoal: Int?
     var proteinGoal: Int?
     var bodyweightTarget: Double?
@@ -44,6 +45,7 @@ final class UserProperties {
         self.hardMinReps = UserProperties.defaultHardMinReps
         self.hardMaxReps = UserProperties.defaultHardMaxReps
         self.activeSetPlanId = nil
+        self.activeGroupId = nil
         self.stepsGoal = nil
         self.proteinGoal = nil
         self.bodyweightTarget = nil

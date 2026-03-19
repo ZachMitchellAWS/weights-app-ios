@@ -52,6 +52,47 @@ enum SeedService {
     }
 
 
+    // MARK: - Built-in Groups
+
+    @MainActor
+    static func seedGroups(context: ModelContext) {
+        let existingDescriptor = FetchDescriptor<ExerciseGroup>(
+            predicate: #Predicate { $0.isCustom == false }
+        )
+        let existing = (try? context.fetch(existingDescriptor)) ?? []
+        let existingIds = Set(existing.map { $0.groupId })
+
+        for def in ExerciseGroup.builtInTemplates {
+            if existingIds.contains(def.groupId) {
+                if let group = existing.first(where: { $0.groupId == def.groupId }) {
+                    group.name = def.name
+                    group.exerciseIds = def.exerciseIds
+                    group.sortOrder = def.sortOrder
+                }
+                continue
+            }
+
+            let group = ExerciseGroup(
+                groupId: def.groupId,
+                name: def.name,
+                exerciseIds: def.exerciseIds,
+                sortOrder: def.sortOrder,
+                isCustom: false
+            )
+            context.insert(group)
+        }
+
+        // Default the active group if none set
+        if let userProps = try? context.fetch(FetchDescriptor<UserProperties>()).first,
+           userProps.activeGroupId == nil {
+            userProps.activeGroupId = ExerciseGroup.tierExercisesId
+            try? context.save()
+            Task { await SyncService.shared.updateActiveGroup(ExerciseGroup.tierExercisesId) }
+        } else {
+            try? context.save()
+        }
+    }
+
     // MARK: - Built-in Set Plans
 
     @MainActor

@@ -280,6 +280,16 @@ class APIService {
         )
     }
 
+    // MARK: - Account Management
+
+    func requestAccountDeletion() async throws -> MessageResponse {
+        return try await request(
+            endpoint: "/user/delete-account",
+            method: "POST",
+            requiresAuth: true
+        )
+    }
+
     // MARK: - Exercise Sync Endpoints
 
     func getExercises() async throws -> GetExercisesResponse {
@@ -409,6 +419,36 @@ class APIService {
         )
     }
 
+    // MARK: - Groups
+
+    func getGroups() async throws -> GetGroupsResponse {
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/groups",
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+
+    func upsertGroups(_ groups: [GroupDTO]) async throws -> UpsertGroupsResponse {
+        let body = UpsertGroupsRequest(groups: groups)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/groups",
+            method: "POST",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    func deleteGroups(_ groupIds: [UUID]) async throws -> DeleteGroupsResponse {
+        let body = DeleteGroupsRequest(groupIds: groupIds)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/groups",
+            method: "DELETE",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
     // MARK: - Accessory Goal Checkin Endpoints
 
     func getAccessoryGoalCheckins(limit: Int = 100, pageToken: String? = nil, metricType: String? = nil) async throws -> GetAccessoryGoalCheckinsResponse {
@@ -442,6 +482,19 @@ class APIService {
             endpoint: "/checkin/accessory-goal-checkins",
             method: "DELETE",
             body: body,
+            requiresAuth: true
+        )
+    }
+
+    // MARK: - Push Notification Endpoints
+
+    func registerDeviceToken(_ token: String) async throws -> UserPropertiesResponse {
+        let body = ["apnsDeviceToken": token]
+        return try await request(
+            endpoint: "/user/properties",
+            method: "POST",
+            body: body,
+            headers: APIConfig.commonHeaders,
             requiresAuth: true
         )
     }

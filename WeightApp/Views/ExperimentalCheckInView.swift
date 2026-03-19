@@ -8,6 +8,7 @@ struct ExperimentalCheckInView: View {
     @Query private var userPropertiesItems: [UserProperties]
     @Query(filter: #Predicate<Estimated1RM> { !$0.deleted }, sort: \Estimated1RM.createdAt) private var allEstimated1RM: [Estimated1RM]
     @Query(filter: #Predicate<SetPlan> { !$0.deleted }) private var allTemplates: [SetPlan]
+    @Query(filter: #Predicate<ExerciseGroup> { !$0.deleted }) private var allGroups: [ExerciseGroup]
     @Query private var entitlementRecords: [EntitlementGrant]
 
     @ObservedObject var selectedSetData: SelectedSetData
@@ -28,6 +29,7 @@ struct ExperimentalCheckInView: View {
     @State private var hubSection: HubSection = .exercises
     @State private var hubDeepLinkExerciseId: UUID? = nil
     @State private var hubSelectedExerciseId: UUID? = nil
+    @State private var activeGroupId: UUID = ExerciseGroup.tierExercisesId
 
     // Weight/Reps picker state
     @State private var showWeightPicker = false
@@ -58,8 +60,15 @@ struct ExperimentalCheckInView: View {
     @State private var overlayMilestoneExerciseName: String = ""
     @State private var overlayMilestoneTargetLabel: String = ""
 
+    // Baseline calibration state
+    @State private var pendingCalibrationSet: LiftSet? = nil
+    @State private var pendingCalibrationEstimated: Estimated1RM? = nil
+    @State private var showCalibrationAlert = false
+
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
     @State private var tappedTileIndex: Int? = nil
+    @State private var scrollProxy: ScrollViewProxy?
+    @State private var progressOptionsHighlighted = false
     @State private var logSetFlashActive = false
 
     // MARK: - Computed
@@ -89,8 +98,22 @@ struct ExperimentalCheckInView: View {
         TrendsCalculator.fundamentalExercises
     }
 
-    private var selectedFundamental: TrendsCalculator.FundamentalExercise {
-        fundamentals[selectedLiftIndex]
+    private var activeGroup: ExerciseGroup? {
+        allGroups.first(where: { $0.groupId == activeGroupId })
+            ?? allGroups.first(where: { $0.groupId == ExerciseGroup.tierExercisesId })
+    }
+
+    private var activeGroupExercises: [Exercise] {
+        guard let group = activeGroup else { return [] }
+        return group.exerciseIds.compactMap { id in
+            exercises.first(where: { $0.id == id })
+        }
+    }
+
+    private var selectedGroupExercise: Exercise? {
+        let groupExercises = activeGroupExercises
+        guard selectedLiftIndex < groupExercises.count else { return groupExercises.first }
+        return groupExercises[selectedLiftIndex]
     }
 
     private var strengthTierResult: TrendsCalculator.StrengthTierResult {
@@ -102,10 +125,10 @@ struct ExperimentalCheckInView: View {
     }
 
     private var latestE1RMs: [UUID: Double] {
-        let fundamentalIds = Set(fundamentals.map(\.id))
+        let groupIds = Set(activeGroupExercises.map(\.id))
         let grouped = Dictionary(grouping: allEstimated1RM.filter { rec in
             guard let eid = rec.exercise?.id else { return false }
-            return fundamentalIds.contains(eid)
+            return groupIds.contains(eid)
         }) { $0.exercise!.id }
 
         var result: [UUID: Double] = [:]
@@ -118,10 +141,10 @@ struct ExperimentalCheckInView: View {
     }
 
     private var lastTrainedDates: [UUID: Date] {
-        let fundamentalIds = Set(fundamentals.map(\.id))
+        let groupIds = Set(activeGroupExercises.map(\.id))
         let grouped = Dictionary(grouping: allEstimated1RM.filter { rec in
             guard let eid = rec.exercise?.id else { return false }
-            return fundamentalIds.contains(eid)
+            return groupIds.contains(eid)
         }) { $0.exercise!.id }
 
         var result: [UUID: Date] = [:]
@@ -196,7 +219,7 @@ struct ExperimentalCheckInView: View {
         if isAccessoryMode, let accId = selectedAccessoryId {
             return exercises.first(where: { $0.id == accId })
         }
-        return exercises.first(where: { $0.id == selectedFundamental.id })
+        return selectedGroupExercise
     }
 
     private var datesWithSets: [Date] {
@@ -225,9 +248,9 @@ struct ExperimentalCheckInView: View {
     }
 
 
-    private var nonFundamentalExercises: [Exercise] {
-        let fundamentalIds = Set(fundamentals.map(\.id))
-        return exercises.filter { !fundamentalIds.contains($0.id) }
+    private var nonGroupExercises: [Exercise] {
+        let groupIds = Set(activeGroupExercises.map(\.id))
+        return exercises.filter { !groupIds.contains($0.id) }
     }
 
     // Set plan
@@ -242,12 +265,14 @@ struct ExperimentalCheckInView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 16) {
                     strengthHeader
-                    bigFiveSelector
+                    groupSelector
                     focusedLiftPanel
                     setsWidget
+                        .id("setsWidget")
                     progressOptionsWidget
                     // accessorySection // TODO: Re-enable when splits functionality is wired up
 
@@ -261,6 +286,8 @@ struct ExperimentalCheckInView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
                 .padding(.bottom, 120)
+            }
+            .onAppear { scrollProxy = proxy }
             }
 
             // Floating log bar
@@ -291,9 +318,15 @@ struct ExperimentalCheckInView: View {
             viewingDate = actualToday
             loadDataForSelectedLift()
         }
+        .onChange(of: activeGroupId) { _, _ in
+            selectedLiftIndex = 0
+            isAccessoryMode = false
+            selectedAccessoryId = nil
+            loadDataForSelectedLift()
+        }
         .sheet(isPresented: $showHub, onDismiss: {
             if let selectedId = hubSelectedExerciseId {
-                if let index = fundamentals.firstIndex(where: { $0.id == selectedId }) {
+                if let index = activeGroupExercises.firstIndex(where: { $0.id == selectedId }) {
                     isAccessoryMode = false
                     selectedAccessoryId = nil
                     selectedLiftIndex = index
@@ -310,6 +343,7 @@ struct ExperimentalCheckInView: View {
                 exercises: exercises,
                 selectedExercisesId: $hubSelectedExerciseId,
                 selectedSection: $hubSection,
+                activeGroupId: $activeGroupId,
                 deepLinkExerciseId: hubDeepLinkExerciseId,
                 onExerciseCreated: { name, loadType, movementType, icon in
                     createExercise(name: name, loadType: loadType, movementType: movementType, icon: icon)
@@ -342,6 +376,14 @@ struct ExperimentalCheckInView: View {
             repsPickerSheet
                 .presentationDetents([.height(480)])
                 .presentationDragIndicator(.visible)
+        }
+        .alert("How did that feel?", isPresented: $showCalibrationAlert) {
+            Button("Easy") { applyCalibration(effort: .easy) }
+            Button("Moderate") { applyCalibration(effort: .moderate) }
+            Button("Hard") { applyCalibration(effort: .hard) }
+            Button("Redline") { applyCalibration(effort: .progress) }
+        } message: {
+            Text("This helps estimate your 1RM for better suggestions.")
         }
     }
 
@@ -407,18 +449,18 @@ struct ExperimentalCheckInView: View {
         }
     }
 
-    // MARK: - Phase 1: Big Five Selector
+    // MARK: - Phase 1: Group Selector
 
-    private var bigFiveSelector: some View {
+    private var groupSelector: some View {
         VStack(spacing: 8) {
             HStack {
-                Text("TIER EXERCISES")
+                Text((activeGroup?.name ?? "TIER EXERCISES").uppercased())
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.white.opacity(0.4))
                     .tracking(1)
                 Spacer()
                 Button {
-                    hubSection = .exercises
+                    hubSection = .groups
                     showHub = true
                 } label: {
                     Image(systemName: "list.bullet")
@@ -429,83 +471,96 @@ struct ExperimentalCheckInView: View {
             }
             .padding(.leading, 4)
 
-            bigFiveSelectorContent
+            groupSelectorContent
         }
     }
 
-    private var bigFiveSelectorContent: some View {
-        GeometryReader { outerGeo in
-        let itemCount = CGFloat(fundamentals.count)
-        let totalSpacing = CGFloat(6) * (itemCount - 1)
-        let itemWidth = (outerGeo.size.width - totalSpacing) / itemCount
-        ScrollView(.horizontal, showsIndicators: false) {
-        HStack(spacing: 6) {
-            ForEach(Array(fundamentals.enumerated()), id: \.element.id) { index, exercise in
-                let isSelected = index == selectedLiftIndex && !isAccessoryMode
-                let tier = strengthTierResult.exerciseTiers.first(where: { $0.exercise.id == exercise.id })?.tier ?? .rookie
-                let highlightColor = Color.appAccent
-                let displayName = shortDisplayName(for: exercise.name)
+    private var groupSelectorContent: some View {
+        let groupExercises = activeGroupExercises
+        let fundamentalIds = Set(fundamentals.map(\.id))
 
-                Button {
-                    hapticFeedback.impactOccurred()
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        selectedLiftIndex = index
-                        isAccessoryMode = false
-                    }
-                } label: {
-                    VStack(spacing: 4) {
-                        Spacer()
+        return GeometryReader { outerGeo in
+            // Use at least 5 slots for sizing so items don't stretch when group has fewer exercises
+            let slotCount = max(CGFloat(groupExercises.count), 5)
+            let totalSpacing = CGFloat(6) * (slotCount - 1)
+            let itemWidth = (outerGeo.size.width - totalSpacing) / slotCount
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Array(groupExercises.enumerated()), id: \.element.id) { index, exercise in
+                        let isSelected = index == selectedLiftIndex && !isAccessoryMode
+                        let isFundamental = fundamentalIds.contains(exercise.id)
+                        let fundamentalExercise = isFundamental ? fundamentals.first(where: { $0.id == exercise.id }) : nil
+                        let tier = isFundamental
+                            ? (strengthTierResult.exerciseTiers.first(where: { $0.exercise.id == exercise.id })?.tier ?? .rookie)
+                            : nil
+                        let highlightColor = Color.appAccent
+                        let displayName = shortDisplayName(for: exercise.name)
 
-                        Image(exercise.icon)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 40, height: 40)
-                            .foregroundStyle(isSelected ? highlightColor : .white.opacity(0.5))
-
-                        Text(displayName)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(isSelected ? highlightColor.opacity(0.9) : .white.opacity(0.45))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-
-                        // Progress bar
-                        let progress = tierProgress(for: exercise)
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                RoundedRectangle(cornerRadius: 2)
-                                    .fill(Color.white.opacity(0.1))
-                                    .frame(height: 4)
-                                RoundedRectangle(cornerRadius: 2)
-                                    .fill(tier.color)
-                                    .frame(width: geo.size.width * (progress ?? 1.0), height: 4)
+                        Button {
+                            hapticFeedback.impactOccurred()
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedLiftIndex = index
+                                isAccessoryMode = false
                             }
-                        }
-                        .frame(height: 4)
-                        .padding(.horizontal, 8)
-                        .padding(.top, 4)
-                        .padding(.bottom, 10)
-                    }
-                    .frame(width: itemWidth)
-                    .padding(.vertical, 6)
-                    .frame(minHeight: 84)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(isSelected ? highlightColor.opacity(0.1) : Color(white: 0.12))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .strokeBorder(
-                                isSelected ? highlightColor.opacity(0.6) : Color.white.opacity(0.08),
-                                lineWidth: isSelected ? 1.5 : 1
+                        } label: {
+                            VStack(spacing: 4) {
+                                Spacer()
+
+                                Image(exercise.icon)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 40, height: 40)
+                                    .foregroundStyle(isSelected ? highlightColor : .white.opacity(0.5))
+
+                                Text(displayName)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(isSelected ? highlightColor.opacity(0.9) : .white.opacity(0.45))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
+
+                                // Progress bar (only for fundamental exercises)
+                                if let fundEx = fundamentalExercise, let tierVal = tier {
+                                    let progress = tierProgress(for: fundEx)
+                                    GeometryReader { geo in
+                                        ZStack(alignment: .leading) {
+                                            RoundedRectangle(cornerRadius: 2)
+                                                .fill(Color.white.opacity(0.1))
+                                                .frame(height: 4)
+                                            RoundedRectangle(cornerRadius: 2)
+                                                .fill(tierVal.color)
+                                                .frame(width: geo.size.width * (progress ?? 1.0), height: 4)
+                                        }
+                                    }
+                                    .frame(height: 4)
+                                    .padding(.horizontal, 8)
+                                    .padding(.top, 4)
+                                    .padding(.bottom, 10)
+                                } else {
+                                    Spacer()
+                                        .frame(height: 18)
+                                }
+                            }
+                            .frame(width: itemWidth)
+                            .padding(.vertical, 6)
+                            .frame(minHeight: 84)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(isSelected ? highlightColor.opacity(0.1) : Color(white: 0.12))
                             )
-                    )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .strokeBorder(
+                                        isSelected ? highlightColor.opacity(0.6) : Color.white.opacity(0.08),
+                                        lineWidth: isSelected ? 1.5 : 1
+                                    )
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .id(index)
+                    }
                 }
-                .buttonStyle(.plain)
-                .id(index)
             }
-        }
-        }
-        .scrollIndicators(.hidden)
+            .scrollIndicators(.hidden)
         }
         .frame(height: 84)
     }
@@ -513,23 +568,27 @@ struct ExperimentalCheckInView: View {
     // MARK: - Phase 2: Focused Lift Panel
 
     private var focusedLiftPanel: some View {
-        let exercise = selectedFundamental
-        let e1rm = isAccessoryMode ? current1RM : (latestE1RMs[exercise.id] ?? 0)
+        let groupExercise = selectedGroupExercise
+        let fundamentalIds = Set(fundamentals.map(\.id))
+        let isFundamental = groupExercise != nil && fundamentalIds.contains(groupExercise!.id)
+        let fundamentalExercise = isFundamental ? fundamentals.first(where: { $0.id == groupExercise!.id }) : nil
+
+        let e1rm = isAccessoryMode ? current1RM : (latestE1RMs[groupExercise?.id ?? UUID()] ?? 0)
         let tier = isAccessoryMode
             ? StrengthTier.rookie
-            : (strengthTierResult.exerciseTiers.first(where: { $0.exercise.id == exercise.id })?.tier ?? .rookie)
-        let exerciseName = isAccessoryMode ? (selectedExercise?.name ?? "") : exercise.name
-        let exerciseIcon = isAccessoryMode ? (selectedExercise?.icon ?? "") : exercise.icon
+            : (isFundamental ? (strengthTierResult.exerciseTiers.first(where: { $0.exercise.id == groupExercise!.id })?.tier ?? .rookie) : nil)
+        let exerciseName = isAccessoryMode ? (selectedExercise?.name ?? "") : (groupExercise?.name ?? "")
+        let exerciseIcon = isAccessoryMode ? (selectedExercise?.icon ?? "") : (groupExercise?.icon ?? "")
 
-        let nextMin = isAccessoryMode ? nil : StrengthTierData.nextTierMinimum(
-            name: exercise.name,
-            currentTier: tier,
+        let nextMin: Double? = (isAccessoryMode || !isFundamental) ? nil : StrengthTierData.nextTierMinimum(
+            name: fundamentalExercise!.name,
+            currentTier: tier!,
             bodyweight: bodyweight,
             sex: sex
         )
-        let currentMin = isAccessoryMode ? 0 : StrengthTierData.currentTierMinimum(
-            name: exercise.name,
-            tier: tier,
+        let currentMin: Double = (isAccessoryMode || !isFundamental) ? 0 : StrengthTierData.currentTierMinimum(
+            name: fundamentalExercise!.name,
+            tier: tier!,
             bodyweight: bodyweight,
             sex: sex
         )
@@ -541,7 +600,7 @@ struct ExperimentalCheckInView: View {
                     .resizable()
                     .scaledToFit()
                     .frame(width: 28, height: 28)
-                    .foregroundStyle(isAccessoryMode ? .white : tier.color)
+                    .foregroundStyle(isAccessoryMode ? .white : (tier?.color ?? .white))
 
                 Text(exerciseName)
                     .font(.bebasNeue(size: 24))
@@ -549,7 +608,7 @@ struct ExperimentalCheckInView: View {
 
                 Spacer()
 
-                if !isAccessoryMode {
+                if !isAccessoryMode, let tier {
                     Text(tier.title)
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(tier.color)
@@ -582,7 +641,7 @@ struct ExperimentalCheckInView: View {
                     // 7-day e1RM gain indicator (fixed height to prevent layout shift)
                     HStack(spacing: 4) {
                         Spacer()
-                        let exerciseId = isAccessoryMode ? selectedExercise?.id : exercise.id
+                        let exerciseId = isAccessoryMode ? selectedExercise?.id : groupExercise?.id
                         if let eid = exerciseId, let gain = e1rmGain30Day(for: eid) {
                             Text("+\(gain, specifier: "%.1f")")
                                 .font(.system(size: 11, weight: .semibold))
@@ -614,7 +673,7 @@ struct ExperimentalCheckInView: View {
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.white.opacity(0.5))
                         Spacer()
-                        if let nextTier = tier.next {
+                        if let nextTier = tier?.next {
                             Text("\(Int(distance)) lbs to \(nextTier.title)")
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.white.opacity(0.5))
@@ -626,7 +685,7 @@ struct ExperimentalCheckInView: View {
                     Spacer()
                     Image(systemName: "crown.fill")
                         .font(.system(size: 12))
-                        .foregroundStyle(tier.color)
+                        .foregroundStyle(tier?.color ?? .white)
                 }
             }
 
@@ -712,7 +771,7 @@ struct ExperimentalCheckInView: View {
                     } label: {
                         HStack(spacing: 6) {
                             Text(isViewingToday ? "Today" : viewingDate.formatted(.dateTime.month(.abbreviated).day()))
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(size: 15, weight: .semibold))
                                 .foregroundStyle(isViewingToday ? .white : .white.opacity(0.6))
                             if !isViewingToday {
                                 Image(systemName: "arrow.uturn.right")
@@ -859,8 +918,22 @@ struct ExperimentalCheckInView: View {
                                                 reps = shortcuts.hard.reps
                                                 triggerLogSetFlash()
                                                 tappedTileIndex = index
+                                            case "pr":
+                                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                                tappedTileIndex = index
+                                                withAnimation {
+                                                    scrollProxy?.scrollTo("setsWidget", anchor: .top)
+                                                }
+                                                withAnimation(.easeInOut(duration: 0.3)) {
+                                                    progressOptionsHighlighted = true
+                                                }
+                                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                                    withAnimation(.easeInOut(duration: 0.5)) {
+                                                        progressOptionsHighlighted = false
+                                                    }
+                                                }
                                             default:
-                                                break  // "pr" and unknown — no action
+                                                break
                                             }
                                             if tappedTileIndex == index {
                                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
@@ -1004,7 +1077,7 @@ struct ExperimentalCheckInView: View {
             .background(Color(white: 0.12), in: RoundedRectangle(cornerRadius: 14))
             .overlay(
                 RoundedRectangle(cornerRadius: 14)
-                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                    .strokeBorder(progressOptionsHighlighted ? Color.yellow : Color.white.opacity(0.08), lineWidth: progressOptionsHighlighted ? 2 : 1)
             )
         }
         .sheet(isPresented: $showExpandedProgressOptions) {
@@ -1702,8 +1775,10 @@ struct ExperimentalCheckInView: View {
             // Intensity label + percent of e1RM
             if current1RM > 0 {
                 let percent = projected / current1RM
+                let isProgress = (projected - current1RM) > 0.0001
                 let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: percent)
                 let bucketColor: Color = {
+                    if isProgress { return .setPR }
                     switch bucket {
                     case .easy: return .setEasy
                     case .moderate: return .setModerate
@@ -1712,6 +1787,7 @@ struct ExperimentalCheckInView: View {
                     case .pr: return .setPR
                     }
                 }()
+                let bucketLabel = isProgress ? "Progress" : bucket.rawValue
 
                 HStack(spacing: 0) {
                     // Left half: intensity info
@@ -1719,7 +1795,7 @@ struct ExperimentalCheckInView: View {
                         Circle()
                             .fill(bucketColor)
                             .frame(width: 6, height: 6)
-                        Text(bucket == .pr ? "Progress" : bucket.rawValue)
+                        Text(bucketLabel)
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(bucketColor)
                         Text("·")
@@ -1936,7 +2012,7 @@ struct ExperimentalCheckInView: View {
             .buttonStyle(.plain)
 
             if showAccessories {
-                let accessoryList = nonFundamentalExercises
+                let accessoryList = nonGroupExercises
 
                 if accessoryList.isEmpty {
                     Text("No accessories configured")
@@ -2166,7 +2242,8 @@ struct ExperimentalCheckInView: View {
     // MARK: - Actions
 
     private func loadDataForSelectedLift() {
-        loadDataForExercise(selectedFundamental.id)
+        guard let exercise = selectedExercise else { return }
+        loadDataForExercise(exercise.id)
     }
 
     private func loadDataForExercise(_ exerciseId: UUID) {
@@ -2212,8 +2289,13 @@ struct ExperimentalCheckInView: View {
         guard let ex = selectedExercise else { return }
         if !isViewingToday { viewingDate = actualToday }
 
+        let isFirstWeightedSet = !setsForExercise.contains(where: { $0.weight > 0 }) && weight > 0
+
         let before = current1RM
         let set = LiftSet(exercise: ex, reps: reps, weight: weight)
+        if isFirstWeightedSet {
+            set.isBaselineSet = true
+        }
         modelContext.insert(set)
 
         let newEstimate = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
@@ -2261,6 +2343,24 @@ struct ExperimentalCheckInView: View {
         Task {
             await SyncService.shared.syncLiftSet(set, isPremiumOnClient: isPremium)
             await SyncService.shared.syncEstimated1RM(estimated)
+        }
+
+        // First weighted set: defer data refresh until calibration is applied
+        if isFirstWeightedSet {
+            if ex.exerciseLoadType == .bodyweightPlusSingleLoad && weight <= 10 && reps < 5 {
+                pendingCalibrationSet = set
+                pendingCalibrationEstimated = estimated
+                let autoEffort: EffortMode
+                if reps <= 2 { autoEffort = .easy }
+                else if reps == 3 { autoEffort = .moderate }
+                else { autoEffort = .hard }
+                applyCalibration(effort: autoEffort)
+                return
+            }
+            pendingCalibrationSet = set
+            pendingCalibrationEstimated = estimated
+            showCalibrationAlert = true
+            return
         }
 
         // Capture logged values before refresh (which resets weight/reps)
@@ -2321,6 +2421,55 @@ struct ExperimentalCheckInView: View {
                 }
             }
         }
+    }
+
+    private func applyCalibration(effort: EffortMode) {
+        guard let set = pendingCalibrationSet,
+              let estimated = pendingCalibrationEstimated,
+              let fraction = effort.calibrationMidpoint else {
+            pendingCalibrationSet = nil
+            pendingCalibrationEstimated = nil
+            return
+        }
+
+        let calibratedValue = OneRMCalculator.calibrated1RM(
+            weight: set.weight, reps: set.reps, effortFraction: fraction
+        )
+        estimated.value = calibratedValue
+
+        Task {
+            await SyncService.shared.syncEstimated1RM(estimated)
+        }
+
+        if let exId = set.exercise?.id {
+            let loggedWeight = weight
+            let loggedReps = reps
+            loadDataForExercise(exId)
+            weight = loggedWeight
+            reps = loggedReps
+        }
+
+        // Show calibration overlay
+        overlayDidIncrease = false
+        overlayDelta = 0
+        overlayNew1RM = calibratedValue
+        overlayIntensityColor = effort == .progress ? .setNearMax : effort.tileColor
+        overlayIntensityLabel = "Calibrated"
+        overlayIsMilestone = false
+
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            showSubmitOverlay = true
+        }
+
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            await MainActor.run {
+                withAnimation(.easeOut(duration: 0.18)) { showSubmitOverlay = false }
+            }
+        }
+
+        pendingCalibrationSet = nil
+        pendingCalibrationEstimated = nil
     }
 
     private func shortDisplayName(for name: String) -> String {

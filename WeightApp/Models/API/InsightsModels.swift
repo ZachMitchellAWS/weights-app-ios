@@ -7,12 +7,13 @@
 
 import Foundation
 
-struct InsightSection: Codable {
+struct InsightSection: Codable, Equatable {
     let title: String
     let body: String
+    let audioUrl: String?
 }
 
-struct WeeklyInsightsResponse: Codable {
+struct WeeklyInsightsResponse: Codable, Equatable {
     let weekStartDate: String?
     let weekEndDate: String?
     let generatedAt: String?

@@ -66,6 +66,7 @@ struct CheckInView: View {
     @State private var showHub = false
     @State private var hubSection: HubSection = .exercises
     @State private var hubDeepLinkExerciseId: UUID?
+    @State private var activeGroupId: UUID = ExerciseGroup.tierExercisesId
     @State private var selectedSquareId: UUID? = nil
     @State private var sessionScrollTarget: UUID? = nil
     @State private var showNoExercisesAlert = false
@@ -87,120 +88,6 @@ struct CheckInView: View {
     @State private var pendingCalibrationSet: LiftSet? = nil
     @State private var pendingCalibrationEstimated: Estimated1RM? = nil
 
-    enum EffortMode: Int, CaseIterable {
-        case easy = 0, moderate = 1, hard = 2, progress = 3
-
-        var title: String {
-            switch self {
-            case .easy: return "Easy Options"
-            case .moderate: return "Moderate Options"
-            case .hard: return "Hard Options"
-            case .progress: return "Progress Options"
-            }
-        }
-
-        var chipLabel: String {
-            switch self {
-            case .easy: return "Easy Options"
-            case .moderate: return "Moderate Options"
-            case .hard: return "Hard Options"
-            case .progress: return "e1RM Progress Options"
-            }
-        }
-
-        var subtitle: String {
-            switch self {
-            case .easy: return "< 70% e1RM"
-            case .moderate: return "70-82% e1RM"
-            case .hard: return "82-92% e1RM"
-            case .progress: return "Sets to ↑ e1RM"
-            }
-        }
-
-        var targetPercent1RMs: [Double]? {
-            switch self {
-            case .easy: return [0.55, 0.60, 0.65]
-            case .moderate: return [0.73, 0.76, 0.79]
-            case .hard: return [0.84, 0.87, 0.90]
-            case .progress: return nil
-            }
-        }
-
-        func repRange(from props: UserProperties) -> ClosedRange<Int> {
-            switch self {
-            case .easy: return props.easyMinReps...props.easyMaxReps
-            case .moderate: return props.moderateMinReps...props.moderateMaxReps
-            case .hard: return props.hardMinReps...props.hardMaxReps
-            case .progress: return props.minReps...props.maxReps
-            }
-        }
-
-        /// The valid %1RM range for this effort category (values are percentages, e.g. 70 = 70%).
-        /// Suggestions whose recalculated %1RM falls outside this range are filtered out.
-        var percent1RMBounds: ClosedRange<Double>? {
-            switch self {
-            case .easy: return 0...70
-            case .moderate: return 70...82
-            case .hard: return 82...92
-            case .progress: return nil
-            }
-        }
-
-        var calibrationMidpoint: Double? {
-            switch self {
-            case .easy: return 0.60
-            case .moderate: return 0.76
-            case .hard: return 0.87
-            case .progress: return 0.96
-            }
-        }
-
-        var tileColor: Color {
-            switch self {
-            case .easy: return .setEasy
-            case .moderate: return .setModerate
-            case .hard: return .setHard
-            case .progress: return .setPR
-            }
-        }
-
-        var defaultMinReps: Int {
-            switch self {
-            case .easy: return UserProperties.defaultEasyMinReps
-            case .moderate: return UserProperties.defaultModerateMinReps
-            case .hard: return UserProperties.defaultHardMinReps
-            case .progress: return UserProperties.defaultMinReps
-            }
-        }
-
-        var defaultMaxReps: Int {
-            switch self {
-            case .easy: return UserProperties.defaultEasyMaxReps
-            case .moderate: return UserProperties.defaultModerateMaxReps
-            case .hard: return UserProperties.defaultHardMaxReps
-            case .progress: return UserProperties.defaultMaxReps
-            }
-        }
-
-        var effortKey: String {
-            switch self {
-            case .easy: return "easy"
-            case .moderate: return "moderate"
-            case .hard: return "hard"
-            case .progress: return "pr"
-            }
-        }
-
-        static func from(effort: String) -> EffortMode {
-            switch effort {
-            case "easy": return .easy
-            case "moderate": return .moderate
-            case "hard": return .hard
-            case "pr": return .progress
-            default: return .easy
-            }
-        }
-    }
 
     // SortColumn and EffortSortColumn are now top-level enums in ProgressOptionCard.swift
     @State private var effortMode: EffortMode? = nil
@@ -799,6 +686,7 @@ struct CheckInView: View {
                     exercises: exercises,
                     selectedExercisesId: $selectedExercisesId,
                     selectedSection: $hubSection,
+                    activeGroupId: $activeGroupId,
                     deepLinkExerciseId: hubDeepLinkExerciseId,
                     onExerciseCreated: { name, loadType, movementType, icon in
                         createExercise(name: name, loadType: loadType, movementType: movementType, icon: icon)
@@ -3637,16 +3525,35 @@ struct CheckInView: View {
     }
 
     private func resetToDefaults() {
-        reps = 8
-        if setsForSelected.isEmpty {
-            weight = 20.0
+        // Default to easy effort suggestion if available, otherwise 45 lbs / 5 reps
+        if let easySuggestion = firstEasySuggestion() {
+            weight = easySuggestion.weight
+            reps = easySuggestion.reps
         } else {
-            weight = (current1RM * 0.8).rounded()
+            weight = 45.0
+            reps = 8
         }
         hasSetInitialValues = false
-        hasSetWeight = false
-        hasSetReps = false
+        hasSetWeight = true
+        hasSetReps = true
         hasSelectedOption = false
+    }
+
+    private func firstEasySuggestion() -> (weight: Double, reps: Int)? {
+        guard current1RM > 0,
+              let targets = EffortMode.easy.targetPercent1RMs,
+              let loadType = selectedExercises?.exerciseLoadType else { return nil }
+        var results = OneRMCalculator.effortSuggestions(
+            current1RM: current1RM,
+            targetPercent1RMs: targets,
+            loadType: loadType,
+            repRange: EffortMode.easy.repRange(from: userProperties)
+        )
+        if let bounds = EffortMode.easy.percent1RMBounds {
+            results = results.filter { bounds.contains($0.percent1RM) }
+        }
+        guard let first = results.first else { return nil }
+        return (first.weight, first.reps)
     }
 
     private func validateWeightDelta() {
@@ -5358,7 +5265,7 @@ struct ExpandedProgressOptionsSheet: View {
     @Binding var maxReps: Int
     let onRepRangeChanged: () -> Void
     let onSelect: (OneRMCalculator.Suggestion) -> Void
-    var onSwitchMode: ((CheckInView.EffortMode) -> Void)? = nil
+    var onSwitchMode: ((EffortMode) -> Void)? = nil
     var hasWeightDeltaChanges: Bool = false
     var onSaveWeightDelta: (() -> Void)? = nil
     var isBarbell: Bool = false
@@ -5758,7 +5665,7 @@ struct ExpandedProgressOptionsSheet: View {
 // MARK: - Expanded Effort Options Sheet
 
 struct ExpandedEffortOptionsSheet: View {
-    let effortMode: CheckInView.EffortMode
+    let effortMode: EffortMode
     let suggestions: [OneRMCalculator.EffortSuggestion]
     @Binding var repRangeMin: Int
     @Binding var repRangeMax: Int
@@ -5766,7 +5673,7 @@ struct ExpandedEffortOptionsSheet: View {
     var lastSetMatch: (weight: Double, reps: Int)? = nil
     var macroPlateWeights: Set<Double> = []
     let onSelect: (OneRMCalculator.EffortSuggestion) -> Void
-    var onSwitchMode: ((CheckInView.EffortMode) -> Void)? = nil
+    var onSwitchMode: ((EffortMode) -> Void)? = nil
     var isBarbell: Bool = false
     @Binding var barbellWeight: Double?
     var onSaveBarbellWeight: (() -> Void)? = nil
@@ -6106,14 +6013,14 @@ struct ExpandedEffortOptionsSheet: View {
         }
     }
 
-    private var previousMode: CheckInView.EffortMode? {
-        let cases = CheckInView.EffortMode.allCases
+    private var previousMode: EffortMode? {
+        let cases = EffortMode.allCases
         guard let idx = cases.firstIndex(of: effortMode), idx > 0 else { return nil }
         return cases[idx - 1]
     }
 
-    private var nextMode: CheckInView.EffortMode? {
-        let cases = CheckInView.EffortMode.allCases
+    private var nextMode: EffortMode? {
+        let cases = EffortMode.allCases
         guard let idx = cases.firstIndex(of: effortMode), idx < cases.count - 1 else { return nil }
         return cases[idx + 1]
     }

@@ -29,8 +29,13 @@ struct AnalyticsView: View {
     @Query(filter: #Predicate<Exercise> { !$0.deleted }, sort: \Exercise.createdAt) private var exercises: [Exercise]
 
     @Query private var entitlementRecords: [EntitlementGrant]
+    @Query private var userPropertiesArray: [UserProperties]
     @Environment(\.modelContext) private var modelContext
     @State private var showUpsell = false
+    @State private var showReportCardUpsell = false
+    @State private var showShareSheet = false
+    @State private var reportCardImage: UIImage? = nil
+    @State private var isGenerating = false
 
     // Static flag to track if we've ever loaded (persists across view recreation)
     private static var hasEverLoaded = false
@@ -41,14 +46,31 @@ struct AnalyticsView: View {
         return PremiumOverride.isEnabled || EntitlementGrant.isPremium(entitlementRecords)
     }
 
+    private var userProperties: UserProperties? {
+        userPropertiesArray.first
+    }
+
+    private var canGenerate: Bool {
+        userProperties?.bodyweight != nil && userProperties?.biologicalSex != nil && !allSets.isEmpty
+    }
+
+    /// Page index for the Progress Card feature in the upsell carousel
+    /// (page 0 = overview, pages 1..N = features in order)
+    private var progressCardUpsellPage: Int {
+        let index = SubscriptionConfig.premiumFeatures.firstIndex { $0.title == "Progress Card" } ?? (SubscriptionConfig.premiumFeatures.count - 1)
+        return index + 1
+    }
+
     var body: some View {
         Group {
             if isLoaded {
                 ScrollView {
                     VStack(spacing: 16) {
+                        reportCardButton
+
                         MonthlySnapshotWidget(allSets: allSets)
 
-                        FrequencyCalendarWidget(allSets: allSets)
+                        FrequencyCalendarWidget(allSets: allSets, isPremium: isPremium, showUpsell: $showUpsell)
 
                         TrainingRecencyWidget(allSets: allSets, isPremium: isPremium, showUpsell: $showUpsell)
 
@@ -68,6 +90,17 @@ struct AnalyticsView: View {
                 .fullScreenCover(isPresented: $showUpsell) {
                     UpsellView { _ in showUpsell = false }
                 }
+                .fullScreenCover(isPresented: $showReportCardUpsell) {
+                    UpsellView(initialPage: progressCardUpsellPage) { _ in showReportCardUpsell = false }
+                }
+                .sheet(isPresented: $showShareSheet) {
+                    if let image = reportCardImage {
+                        ShareSheet(activityItems: [
+                            image,
+                            "Check out my Progress Card from Lift the Bull!" as String
+                        ])
+                    }
+                }
             } else {
                 VStack {
                     Spacer()
@@ -85,6 +118,60 @@ struct AnalyticsView: View {
             await MainActor.run {
                 AnalyticsView.hasEverLoaded = true
                 isLoaded = true
+            }
+        }
+    }
+
+    // MARK: - Report Card Button
+
+    private var reportCardButton: some View {
+        Button {
+            if !isPremium {
+                showReportCardUpsell = true
+            } else if canGenerate {
+                generateAndShare()
+            }
+        } label: {
+            HStack(spacing: 8) {
+                if isGenerating {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .appAccent))
+                        .scaleEffect(0.8)
+                } else {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.appAccent)
+                }
+                Text("Progress Card")
+                    .font(.interSemiBold(size: 15))
+                    .bold()
+                    .foregroundColor(.white)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
+            .background(Color.white.opacity(0.08))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.appAccent.opacity(0.4), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .disabled(isGenerating || (isPremium && !canGenerate))
+    }
+
+    private func generateAndShare() {
+        guard let bw = userProperties?.bodyweight,
+              let sex = userProperties?.biologicalSex else { return }
+        isGenerating = true
+        DispatchQueue.main.async {
+            reportCardImage = ReportCardGenerator.generate(
+                modelContext: modelContext,
+                bodyweight: bw,
+                biologicalSex: sex
+            )
+            isGenerating = false
+            if reportCardImage != nil {
+                showShareSheet = true
             }
         }
     }

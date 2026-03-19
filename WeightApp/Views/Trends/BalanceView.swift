@@ -57,7 +57,7 @@ struct BalanceView: View {
                 StrengthTierWidget(
                     allEstimated1RM: allEstimated1RM,
                     userProperties: userProperties,
-                    isPremium: isPremium,
+                    isPremium: true,
                     showUpsell: $showUpsell
                 )
 
@@ -65,7 +65,7 @@ struct BalanceView: View {
                     allEstimated1RM: allEstimated1RM,
                     bodyweight: userProperties.bodyweight,
                     biologicalSex: userProperties.biologicalSex,
-                    isPremium: isPremium,
+                    isPremium: true,
                     showUpsell: $showUpsell
                 )
 

@@ -197,14 +197,20 @@ struct UpsellView: View {
 
                 ForEach(0..<SubscriptionConfig.premiumFeatures.count, id: \.self) { index in
                     let feature = SubscriptionConfig.premiumFeatures[index]
-                    FeatureCard(
-                        icon: feature.icon,
-                        title: feature.title,
-                        description: feature.description,
-                        accentColor: feature.color
-                    )
-                    .padding(.horizontal, 20)
-                    .tag(index + 1)
+                    if feature.title == "Progress Card" {
+                        ProgressCardFeatureCard()
+                            .padding(.horizontal, 20)
+                            .tag(index + 1)
+                    } else {
+                        FeatureCard(
+                            icon: feature.icon,
+                            title: feature.title,
+                            description: feature.description,
+                            accentColor: feature.color
+                        )
+                        .padding(.horizontal, 20)
+                        .tag(index + 1)
+                    }
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
@@ -480,6 +486,98 @@ private struct FeatureCard: View {
                         .stroke(accentColor.opacity(0.2), lineWidth: 1)
                 )
         )
+    }
+}
+
+// MARK: - Progress Card Feature Card
+
+private struct ProgressCardFeatureCard: View {
+    private let accentColor: Color = .setPR
+
+    var body: some View {
+        HStack(spacing: 0) {
+            // Left side — marketing text
+            VStack(spacing: 0) {
+                // Header block — icon, premium, progress card, divider
+                // Pinned toward top, aligned with image top
+                Spacer().frame(height: 28)
+
+                Image(systemName: "square.and.arrow.up.fill")
+                    .font(.system(size: 24))
+                    .foregroundStyle(accentColor)
+                    .shadow(color: accentColor.opacity(0.4), radius: 8, x: 0, y: 2)
+
+                Spacer().frame(height: 8)
+
+                Text("PREMIUM")
+                    .font(.inter(size: 9))
+                    .tracking(3)
+                    .foregroundStyle(accentColor.opacity(0.7))
+
+                Text("Progress Card")
+                    .font(.bebasNeue(size: 26))
+                    .foregroundStyle(.white)
+
+                Spacer().frame(height: 5)
+
+                Rectangle()
+                    .fill(accentColor)
+                    .frame(width: 24, height: 2)
+
+                // Bullet points — centered in remaining space
+                Spacer()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    featureItem(icon: "trophy.fill", text: "Personal Records", color: .setPR)
+                    featureItem(icon: "chart.bar.fill", text: "Strength Tiers", color: .setEasy)
+                    featureItem(icon: "flame.fill", text: "Intensity Breakdown", color: .setNearMax)
+                    featureItem(icon: "figure.strengthtraining.traditional", text: "Volume & Frequency", color: .setModerate)
+                    featureItem(icon: "square.and.arrow.up.fill", text: "Shareable Image", color: .setHard)
+                }
+
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 8)
+
+            // Right side — progress card image in black container
+            // Shadow/glow behind the entire container
+            Image("IdealizedProgressCard")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(height: 230)
+                .padding(6)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.black)
+                        .shadow(color: accentColor.opacity(0.2), radius: 16, x: -2, y: 0)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .padding(.trailing, 12)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 276)
+        .padding(.vertical, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(white: 0.10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(accentColor.opacity(0.2), lineWidth: 1)
+                )
+        )
+    }
+
+    private func featureItem(icon: String, text: String, color: Color) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 11))
+                .foregroundStyle(color)
+                .frame(width: 16)
+            Text(text)
+                .font(.inter(size: 11))
+                .foregroundStyle(.white.opacity(0.7))
+        }
     }
 }
 

@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import UserNotifications
 
 struct MoreView: View {
     @ObservedObject var authViewModel: AuthViewModel
@@ -18,6 +19,7 @@ struct MoreView: View {
     @State private var showAccount = false
     @State private var showSettings = false
     @State private var showDeveloper = false
+    @State private var showAbout = false
     @State private var showWeightInput = false
     @State private var showPlateSelection = false
 
@@ -27,6 +29,9 @@ struct MoreView: View {
     @State private var showDeleteConfirmation = false
     @State private var showDataDeletedAlert = false
     @State private var showLogoutConfirmation = false
+    @State private var showDeleteAccountSheet = false
+    @State private var deleteConfirmationText = ""
+    @State private var isDeletingAccount = false
     @State private var userPropertiesAlertMessage = ""
     @State private var isUpdatingProperties = false
     @State private var isPopulating28Days = false
@@ -38,6 +43,8 @@ struct MoreView: View {
     @State private var seedMissingCount = 0
     @State private var isSeedingSetPlans = false
     @State private var showSeedSetPlansAlert = false
+    @State private var isSeedingGroups = false
+    @State private var showSeedGroupsAlert = false
     @State private var showExerciseIds = false
     @State private var showMemberSince = false
     @State private var showTokenExpiry = false
@@ -64,8 +71,14 @@ struct MoreView: View {
     @State private var syncFailed = false
     @State private var copiedToast: String?
     @State private var showAPIValidation = false
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var notificationStatus: UNAuthorizationStatus?
+    @State private var isExportingIdealCard = false
+    @State private var idealCardExportResult: String?
+    @State private var showIdealCardShareSheet = false
+    @State private var idealCardImage: UIImage?
 
-    @State private var tempBodyweight: Double = 150
+    @State private var tempBodyweight: Double = 180
     @State private var showBiologicalSexPicker = false
     @State private var repRangeDebounceTask: Task<Void, Never>?
 
@@ -395,6 +408,24 @@ struct MoreView: View {
                             }
                         }
                         .disabled(authViewModel.isLoading)
+
+                        // Delete Account Button
+                        Button {
+                            showDeleteAccountSheet = true
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "trash")
+                                    .foregroundStyle(.secondary.opacity(0.5))
+                                    .font(.system(size: 12))
+                                    .frame(width: 20)
+                                    .padding(.leading, 24)
+                                Text("Delete Account")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                            }
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
 
@@ -428,7 +459,7 @@ struct MoreView: View {
                                 .padding(.leading, 32)
 
                             Button {
-                                tempBodyweight = userProperties.bodyweight ?? 150
+                                tempBodyweight = userProperties.bodyweight ?? 180
                                 showWeightInput = true
                             } label: {
                                 HStack {
@@ -509,6 +540,149 @@ struct MoreView: View {
                         }
                         .padding(.horizontal, 4)
                     }
+                }
+
+                // Notifications Section
+                Section {
+                    Button {
+                        if let status = notificationStatus, status == .denied {
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        } else if notificationStatus == .notDetermined {
+                            PushNotificationService.shared.requestPermissionIfNeeded()
+                            // Re-check status after a short delay
+                            Task {
+                                try? await Task.sleep(for: .seconds(1))
+                                await refreshNotificationStatus()
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "bell.badge")
+                                .foregroundStyle(Color.appAccent)
+                                .font(.system(size: 20))
+                            Text("Notifications")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if let status = notificationStatus {
+                                switch status {
+                                case .authorized, .provisional:
+                                    Text("Enabled")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.white.opacity(0.4))
+                                case .denied:
+                                    Text("Open Settings")
+                                        .font(.subheadline)
+                                        .foregroundStyle(Color.appAccent)
+                                    Image(systemName: "arrow.up.forward.app")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(Color.appAccent)
+                                case .notDetermined:
+                                    Text("Enable")
+                                        .font(.subheadline)
+                                        .foregroundStyle(Color.appAccent)
+                                @unknown default:
+                                    EmptyView()
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 4)
+                    }
+                }
+                .task {
+                    await refreshNotificationStatus()
+                }
+                .onChange(of: scenePhase) { _, newPhase in
+                    if newPhase == .active {
+                        Task { await refreshNotificationStatus() }
+                    }
+                }
+
+                // About Section (Expandable)
+                Section {
+                    Button {
+                        withAnimation {
+                            showAbout.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "info.circle")
+                                .foregroundStyle(Color.appAccent)
+                                .font(.system(size: 20))
+                            Text("About")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Image(systemName: showAbout ? "chevron.down" : "chevron.right")
+                                .foregroundStyle(.white.opacity(0.3))
+                                .font(.system(size: 14))
+                        }
+                        .padding(.horizontal, 4)
+                    }
+
+                    if showAbout {
+                        // App Version
+                        HStack(spacing: 10) {
+                            Image(systemName: "number")
+                                .foregroundStyle(.white.opacity(0.4))
+                                .font(.system(size: 14))
+                                .frame(width: 20)
+                                .padding(.leading, 24)
+                            Text("Version")
+                                .foregroundStyle(.white)
+                                .font(.subheadline)
+                            Spacer()
+                            Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.4))
+                        }
+
+                        // Terms & Conditions
+                        Link(destination: URL(string: "https://example.com/terms")!) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "doc.text")
+                                    .foregroundStyle(.white.opacity(0.4))
+                                    .font(.system(size: 14))
+                                    .frame(width: 20)
+                                    .padding(.leading, 24)
+                                Text("Terms & Conditions")
+                                    .foregroundStyle(.white)
+                                    .font(.subheadline)
+                                Spacer()
+                                Image(systemName: "arrow.up.forward")
+                                    .foregroundStyle(.white.opacity(0.25))
+                                    .font(.system(size: 12))
+                            }
+                        }
+
+                        // Privacy Policy
+                        Link(destination: URL(string: "https://example.com/privacy")!) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "hand.raised")
+                                    .foregroundStyle(.white.opacity(0.4))
+                                    .font(.system(size: 14))
+                                    .frame(width: 20)
+                                    .padding(.leading, 24)
+                                Text("Privacy Policy")
+                                    .foregroundStyle(.white)
+                                    .font(.subheadline)
+                                Spacer()
+                                Image(systemName: "arrow.up.forward")
+                                    .foregroundStyle(.white.opacity(0.25))
+                                    .font(.system(size: 12))
+                            }
+                        }
+                    }
+                } footer: {
+                    VStack(spacing: 4) {
+                        Text("Lift the Bull")
+                            .font(.subheadline)
+                        Text("Anthroverse LLC")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.white.opacity(0.4))
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 8)
                 }
 
                 #if DEBUG
@@ -638,6 +812,26 @@ struct MoreView: View {
                         .disabled(isSeedingSetPlans)
 
                         Button {
+                            isSeedingGroups = true
+                            SeedService.seedGroups(context: modelContext)
+                            isSeedingGroups = false
+                            showSeedGroupsAlert = true
+                        } label: {
+                            HStack {
+                                Text("Seed Missing Groups")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if isSeedingGroups {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "plus.circle")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+                        }
+                        .disabled(isSeedingGroups)
+
+                        Button {
                             Task {
                                 await updateUserProperties()
                             }
@@ -765,7 +959,7 @@ struct MoreView: View {
                         }
 
                         HStack {
-                            Text("UI Test Mode")
+                            Text("Legacy Check-In")
                                 .foregroundStyle(.primary)
                             Spacer()
                             Toggle("", isOn: Binding(
@@ -921,6 +1115,30 @@ struct MoreView: View {
                             ))
                             .font(.subheadline)
                             .tint(.appAccent)
+                        }
+
+                        // MARK: Export Idealized Progress Card
+                        Button {
+                            exportIdealizedProgressCard()
+                        } label: {
+                            HStack {
+                                Text("Export Idealized Progress Card")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if isExportingIdealCard {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+                        }
+                        .disabled(isExportingIdealCard)
+
+                        if let idealCardExportResult {
+                            Text(idealCardExportResult)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(idealCardExportResult.hasPrefix("Error") ? .red.opacity(0.8) : .green.opacity(0.8))
                         }
 
                         // MARK: Experimental
@@ -1137,6 +1355,11 @@ struct MoreView: View {
             .sheet(isPresented: $showLogExportSheet) {
                 ShareSheet(activityItems: [exportedLogText])
             }
+            .sheet(isPresented: $showIdealCardShareSheet) {
+                if let image = idealCardImage {
+                    ShareSheet(activityItems: [image])
+                }
+            }
             .alert("Data Populated", isPresented: $showDataPopulatedAlert) {
                 Button("OK") { }
             } message: {
@@ -1163,6 +1386,11 @@ struct MoreView: View {
                 Button("OK") { }
             } message: {
                 Text("Default set plans have been seeded.")
+            }
+            .alert("Seed Missing Groups", isPresented: $showSeedGroupsAlert) {
+                Button("OK") { }
+            } message: {
+                Text("Default groups have been seeded.")
             }
             .alert("User Properties", isPresented: $showUserPropertiesAlert) {
                 Button("OK") { }
@@ -1205,6 +1433,89 @@ struct MoreView: View {
             } message: {
                 Text("Are you sure you want to logout? All local data will be deleted.")
             }
+            .sheet(isPresented: $showDeleteAccountSheet) {
+                deleteConfirmationText = ""
+                isDeletingAccount = false
+            } content: {
+                NavigationStack {
+                    VStack(spacing: 24) {
+                        VStack(spacing: 12) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 40))
+                                .foregroundStyle(.red)
+
+                            Text("Delete Your Account?")
+                                .font(.title2.bold())
+                        }
+                        .padding(.top, 24)
+
+                        VStack(spacing: 12) {
+                            Text("This will permanently delete your account and all associated data, including workout history, exercises, and settings.")
+
+                            Text("Allow up to 7 days for processing. A confirmation email will be sent.")
+
+                            Text("If you have an active subscription, [manage it here](https://apps.apple.com/account/subscriptions) first.")
+                                .tint(.blue)
+                        }
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+
+                        VStack(spacing: 8) {
+                            Text("Type DELETE to confirm")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            TextField("DELETE", text: $deleteConfirmationText)
+                                .textFieldStyle(.roundedBorder)
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.characters)
+                                .multilineTextAlignment(.center)
+                        }
+                        .padding(.horizontal, 24)
+
+                        Button {
+                            isDeletingAccount = true
+                            Task {
+                                do {
+                                    let _ = try await APIService.shared.requestAccountDeletion()
+                                    showDeleteAccountSheet = false
+                                    await authViewModel.logout {
+                                        hardDeleteAllData()
+                                    }
+                                } catch {
+                                    isDeletingAccount = false
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                if isDeletingAccount {
+                                    ProgressView()
+                                        .tint(.white)
+                                }
+                                Text("Confirm Deletion")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(deleteConfirmationText == "DELETE" && !isDeletingAccount ? Color.red : Color.red.opacity(0.3))
+                            .foregroundStyle(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                        .disabled(deleteConfirmationText != "DELETE" || isDeletingAccount)
+                        .padding(.horizontal, 24)
+
+                        Spacer()
+                    }
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") {
+                                showDeleteAccountSheet = false
+                            }
+                        }
+                    }
+                }
+                .presentationDetents([.large])
+            }
             .alert("Force Re-Sync", isPresented: $showForceResyncAlert) {
                 Button("Re-Sync", role: .destructive) {
                     Task {
@@ -1231,6 +1542,13 @@ struct MoreView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: copiedToast)
+        }
+    }
+
+    private func refreshNotificationStatus() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        await MainActor.run {
+            notificationStatus = settings.authorizationStatus
         }
     }
 
@@ -1400,8 +1718,8 @@ struct MoreView: View {
                     // Weight Picker
                     HStack(spacing: 0) {
                         Picker("Weight", selection: $tempBodyweight) {
-                            ForEach(Array(stride(from: 50.0, through: 500.0, by: 0.5)), id: \.self) { weight in
-                                Text("\(weight, specifier: "%.1f")")
+                            ForEach(Array(stride(from: 50.0, through: 500.0, by: 1.0)), id: \.self) { weight in
+                                Text("\(Int(weight))")
                                     .tag(weight)
                             }
                         }
@@ -1420,7 +1738,7 @@ struct MoreView: View {
                     // Buttons
                     HStack(spacing: 16) {
                         Button {
-                            tempBodyweight = 150
+                            tempBodyweight = 180
                             userProperties.bodyweight = nil
                             try? modelContext.save()
                             showWeightInput = false
@@ -1845,6 +2163,54 @@ struct MoreView: View {
         isUpdatingProperties = false
     }
 
+    @MainActor
+    private func exportIdealizedProgressCard() {
+        isExportingIdealCard = true
+        idealCardExportResult = nil
+
+        let data = ReportCardData(
+            dateRangeStart: Calendar.current.date(byAdding: .day, value: -90, to: Date())!,
+            dateRangeEnd: Date(),
+            overallTier: .advanced,
+            previousOverallTier: .intermediate,
+            exercises: [
+                ExerciseReportData(name: "Deadlifts", icon: "DeadliftIcon", currentE1RM: 405, firstE1RM: 315, tier: .advanced, bwRatio: 2.25, tierProgress: 0.65),
+                ExerciseReportData(name: "Squats", icon: "SquatIcon", currentE1RM: 335, firstE1RM: 265, tier: .advanced, bwRatio: 1.86, tierProgress: 0.40),
+                ExerciseReportData(name: "Bench Press", icon: "BenchPressIcon", currentE1RM: 265, firstE1RM: 205, tier: .intermediate, bwRatio: 1.47, tierProgress: 0.75),
+                ExerciseReportData(name: "Overhead Press", icon: "OverheadPressIcon", currentE1RM: 175, firstE1RM: 135, tier: .intermediate, bwRatio: 0.97, tierProgress: 0.55),
+                ExerciseReportData(name: "Barbell Row", icon: "BarbellRowIcon", currentE1RM: 245, firstE1RM: 185, tier: .intermediate, bwRatio: 1.36, tierProgress: 0.60),
+            ],
+            totalPRs: 24,
+            totalSetsLogged: 847,
+            totalVolume: 1_284_500,
+            trainingWeeks: 13,
+            trainingDays: 42,
+            milestonesAchieved: 8,
+            milestonesTotal: 30,
+            balanceCategory: nil,
+            intensity: IntensityBreakdown(easyPct: 0.22, moderatePct: 0.35, hardPct: 0.25, redlinePct: 0.12, prPct: 0.06),
+            avgWeeklyVolume: 98_808,
+            bodyweight: 180
+        )
+
+        let view = TrainingReportCardView(data: data)
+            .frame(width: 360, height: 780)
+
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 3
+
+        if let image = renderer.uiImage {
+            idealCardImage = image
+            UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+            idealCardExportResult = "Saved to Photos + share sheet"
+            isExportingIdealCard = false
+            showIdealCardShareSheet = true
+        } else {
+            idealCardExportResult = "Error: Failed to render image"
+            isExportingIdealCard = false
+        }
+    }
+
     private func deleteAllWorkoutData() {
         // Delete all LiftSet items
         let allLiftSet = (try? modelContext.fetch(FetchDescriptor<LiftSet>())) ?? []
@@ -1891,6 +2257,12 @@ struct MoreView: View {
         let allEntitlements = (try? modelContext.fetch(FetchDescriptor<EntitlementGrant>())) ?? []
         for grant in allEntitlements {
             modelContext.delete(grant)
+        }
+
+        // Hard delete ExerciseGroups
+        let allGroups = (try? modelContext.fetch(FetchDescriptor<ExerciseGroup>())) ?? []
+        for group in allGroups {
+            modelContext.delete(group)
         }
 
 

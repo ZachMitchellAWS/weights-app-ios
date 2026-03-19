@@ -66,11 +66,10 @@ struct TrendsCalculator {
         /// Does not handle PR detection — caller should check for PRs first.
         static func from(percent1RM p: Double) -> IntensityBucket {
             switch p {
-            case 1.0...:      return .pr
-            case 0.92..<1.0:  return .redline
-            case 0.82..<0.92: return .hard
-            case 0.70..<0.82: return .moderate
-            default:          return .easy
+            case 0.92...:     return .redline  // 92%+ (PR is handled by caller)
+            case 0.82..<0.92: return .hard     // 82-91%
+            case 0.70..<0.82: return .moderate // 70-81%
+            default:          return .easy     // < 70%
             }
         }
     }
@@ -106,42 +105,74 @@ struct TrendsCalculator {
 
         var distribution = IntensityDistribution()
 
-        // Walk each exercise chronologically with a running max,
-        // matching the same approach as computeSetsWithPRInfo
+        // Walk each exercise session-by-session. Within a session, classify all
+        // sets against the pre-session max so that warm-up progressions don't
+        // cascade into false PRs. Update the running max only between sessions.
         let byExercise = Dictionary(grouping: sets) { $0.exercise?.id }
 
         for (_, exerciseSets) in byExercise {
             let sorted = exerciseSets.sorted { $0.createdAt < $1.createdAt }
-            var currentMax: Double = 0
+
+            // Group into sessions by calendar day in the set's timezone
+            var sessions: [[LiftSet]] = []
+            var currentSession: [LiftSet] = []
+            var currentDay: DateComponents?
 
             for set in sorted {
-                if set.isBaselineSet { continue }
+                let tz = TimeZone(identifier: set.createdTimezone) ?? .current
+                var cal = Calendar.current
+                cal.timeZone = tz
+                let day = cal.dateComponents([.year, .month, .day], from: set.createdAt)
 
-                let estimated = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
-                let isInWindow = set.createdAt >= cutoffDate
-
-                if isInWindow && currentMax > 0 {
-                    let percent1RM = estimated / currentMax
-                    let bucket: IntensityBucket
-                    // Match computeSetsWithPRInfo: a true PR is when estimated > currentMax
-                    if set.weight > 0 && estimated > currentMax {
-                        bucket = .pr
-                    } else {
-                        bucket = IntensityBucket.from(percent1RM: percent1RM)
-                    }
-                    switch bucket {
-                    case .pr: distribution.pr += 1
-                    case .redline: distribution.redline += 1
-                    case .hard: distribution.hard += 1
-                    case .moderate: distribution.moderate += 1
-                    case .easy: distribution.easy += 1
-                    }
+                if day != currentDay {
+                    if !currentSession.isEmpty { sessions.append(currentSession) }
+                    currentSession = [set]
+                    currentDay = day
+                } else {
+                    currentSession.append(set)
                 }
-                // else: no prior history — skip rather than guessing
+            }
+            if !currentSession.isEmpty { sessions.append(currentSession) }
 
-                // Update running max (even for sets outside the window, to build history)
-                if set.weight > 0 && estimated > currentMax {
-                    currentMax = estimated
+            var currentMax: Double = 0
+
+            for session in sessions {
+                let preSessionMax = currentMax
+
+                for set in session {
+                    let estimated = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
+
+                    // Baseline sets seed the running max but aren't classified
+                    if set.isBaselineSet {
+                        if set.weight > 0 && estimated > currentMax {
+                            currentMax = estimated
+                        }
+                        continue
+                    }
+
+                    let isInWindow = set.createdAt >= cutoffDate
+
+                    if isInWindow && preSessionMax > 0 {
+                        let bucket: IntensityBucket
+                        if set.weight > 0 && estimated > preSessionMax {
+                            bucket = .pr
+                        } else {
+                            let percent1RM = estimated / preSessionMax
+                            bucket = IntensityBucket.from(percent1RM: percent1RM)
+                        }
+                        switch bucket {
+                        case .pr: distribution.pr += 1
+                        case .redline: distribution.redline += 1
+                        case .hard: distribution.hard += 1
+                        case .moderate: distribution.moderate += 1
+                        case .easy: distribution.easy += 1
+                        }
+                    }
+
+                    // Track session max for post-session update
+                    if set.weight > 0 && estimated > currentMax {
+                        currentMax = estimated
+                    }
                 }
             }
         }

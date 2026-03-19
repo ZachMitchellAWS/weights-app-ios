@@ -19,6 +19,7 @@ struct HubView: View {
     let exercises: [Exercise]
     @Binding var selectedExercisesId: UUID?
     @Binding var selectedSection: HubSection
+    @Binding var activeGroupId: UUID
     let deepLinkExerciseId: UUID?
     let onExerciseCreated: (_ name: String, _ loadType: ExerciseLoadType, _ movementType: ExerciseMovementType, _ icon: String) -> Void
     let onExerciseSaved: (_ exercise: Exercise, _ name: String, _ movementType: ExerciseMovementType, _ icon: String, _ notes: String?, _ barbellWeight: Double?) -> Void
@@ -45,7 +46,7 @@ struct HubView: View {
             // Content
             switch selectedSection {
             case .groups:
-                VStack { Spacer(); Text("Coming soon").foregroundStyle(.white.opacity(0.3)); Spacer() }
+                GroupEditorView(exercises: exercises, activeGroupId: $activeGroupId)
             case .exercises:
                 ExercisesSelectionView(
                     exercises: exercises,

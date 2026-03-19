@@ -11,6 +11,7 @@ import SwiftData
 @main
 struct WeightAppApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var authViewModel = AuthViewModel()
     @State private var showSplash = true
     @State private var showWelcome = true
@@ -37,7 +38,7 @@ struct WeightAppApp: App {
 
         // Create the model container
         do {
-            modelContainer = try ModelContainer(for: Exercise.self, LiftSet.self, UserProperties.self, Estimated1RM.self, EntitlementGrant.self, SetPlan.self, AccessoryGoalCheckin.self)
+            modelContainer = try ModelContainer(for: Exercise.self, LiftSet.self, UserProperties.self, Estimated1RM.self, EntitlementGrant.self, SetPlan.self, AccessoryGoalCheckin.self, ExerciseGroup.self)
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
          }
@@ -129,8 +130,9 @@ struct WeightAppApp: App {
                 authViewModel.setModelContext(context)
                 EntitlementsService.shared.setModelContext(context)
 
-                // Seed set plan defaults (splits are seeded after sync to avoid duplicates)
+                // Seed set plan and group defaults
                 SeedService.seedSetPlans(context: context)
+                SeedService.seedGroups(context: context)
 
                 // Start listening for StoreKit transaction updates (renewals, etc.)
                 transactionListenerTask = PurchaseService.shared.listenForTransactions()
@@ -143,6 +145,7 @@ struct WeightAppApp: App {
                         await SyncService.shared.processLiftSetRetryQueue()
                         await SyncService.shared.processEstimated1RMRetryQueue()
                         await SyncService.shared.processTemplateRetryQueue()
+                        await SyncService.shared.processGroupRetryQueue()
                         await SyncService.shared.processAccessoryGoalCheckinRetryQueue()
 
                         // Sync timezone to backend if changed
@@ -153,6 +156,12 @@ struct WeightAppApp: App {
 
                         // Resume incomplete sync if needed (e.g. app was killed mid-sync)
                         await SyncService.shared.resumeSyncIfNeeded()
+
+                        // Silently re-register for push notifications if previously authorized
+                        PushNotificationService.shared.refreshTokenIfAuthorized()
+
+                        // Check for new narrative badge (fetches API to update cache)
+                        await NarrativeBadgeService.shared.refreshFromAPI()
                     }
                 }
 
@@ -181,6 +190,11 @@ struct WeightAppApp: App {
                     showOnboarding = true
                 }
             }
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .active && authViewModel.isAuthenticated {
+                    NarrativeBadgeService.shared.refresh()
+                }
+            }
         }
         .modelContainer(modelContainer)
     }
@@ -191,5 +205,14 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         return AppDelegate.orientationLock
+    }
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        let token = deviceToken.map { String(format: "%02x", $0) }.joined()
+        PushNotificationService.shared.handleNewToken(token)
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        print("APNS registration failed: \(error)")
     }
 }

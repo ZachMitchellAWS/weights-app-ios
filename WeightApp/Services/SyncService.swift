@@ -33,6 +33,7 @@ class SyncService: ObservableObject {
         var userPropertiesComplete: Bool = false
         var exercisesComplete: Bool = false
         var templatesComplete: Bool = false
+        var groupsComplete: Bool = false
         var liftSetsComplete: Bool = false
         var estimated1RMsComplete: Bool = false
         var accessoryGoalCheckinsComplete: Bool = false
@@ -154,6 +155,23 @@ class SyncService: ObservableObject {
             SyncLogger.sync.debug("Step 2.7: Templates already synced, skipping")
         }
 
+        // Step 2.8: Sync groups
+        if !state.groupsComplete {
+            SyncLogger.sync.info("Step 2.8: Syncing groups")
+            let backendGroupCount = await syncGroupsFromBackend()
+            await processGroupRetryQueue()
+            state.groupsComplete = true
+            syncState = state
+
+            // Seed only if backend had nothing (new user)
+            if backendGroupCount == 0, let ctx = modelContext {
+                SyncLogger.sync.info("No groups on backend, creating defaults")
+                await createAndSyncDefaultGroups(context: ctx)
+            }
+        } else {
+            SyncLogger.sync.debug("Step 2.8: Groups already synced, skipping")
+        }
+
         // Step 3: Sync lift sets and estimated 1RMs (interleaved, resumable)
         if !state.liftSetsComplete || !state.estimated1RMsComplete {
             SyncLogger.sync.info("Step 3: Syncing lift sets and estimated 1RMs")
@@ -240,6 +258,9 @@ class SyncService: ObservableObject {
             }
             if let activeSetPlanId = response.activeSetPlanId {
                 userProperties.activeSetPlanId = UUID(uuidString: activeSetPlanId)
+            }
+            if let activeGroupId = response.activeGroupId {
+                userProperties.activeGroupId = UUID(uuidString: activeGroupId)
             }
             if let stepsGoal = response.stepsGoal {
                 userProperties.stepsGoal = stepsGoal
@@ -370,6 +391,22 @@ class SyncService: ObservableObject {
         }
     }
 
+    func updateActiveGroup(_ groupId: UUID?) async {
+        do {
+            var request = UserPropertiesRequest()
+            if let groupId = groupId {
+                request.activeGroupId = groupId.uuidString
+            } else {
+                request.clearActiveGroupId = true
+            }
+            _ = try await APIService.shared.updateUserProperties(request)
+            retryQueue.removePendingUserPropertiesSync()
+        } catch {
+            SyncLogger.sync.error("Failed to update active group: \(error.localizedDescription)")
+            retryQueue.addPendingUserPropertiesSync()
+        }
+    }
+
 
     func processUserPropertiesRetryQueue() async {
         guard let context = modelContext else { return }
@@ -395,6 +432,11 @@ class SyncService: ObservableObject {
                 request.activeSetPlanId = templateId.uuidString
             } else {
                 request.clearActiveSetPlan = true
+            }
+            if let groupId = userProperties.activeGroupId {
+                request.activeGroupId = groupId.uuidString
+            } else {
+                request.clearActiveGroupId = true
             }
             _ = try await APIService.shared.updateUserProperties(request)
             retryQueue.removePendingUserPropertiesSync()
@@ -1075,6 +1117,168 @@ class SyncService: ObservableObject {
         return (try? context.fetch(descriptor)) ?? []
     }
 
+    // MARK: - Groups Sync
+
+    func syncGroupsFromBackend() async -> Int {
+        guard let context = modelContext else { return 0 }
+
+        do {
+            let response = try await APIService.shared.getGroups()
+            await importGroupsFromBackend(response.groups)
+
+            // Push any local-only groups to backend
+            let allLocal = fetchAllGroups(context: context)
+            let backendIds = Set(response.groups.map { $0.groupId })
+            let localOnly = allLocal.filter { !$0.deleted && !backendIds.contains($0.groupId) }
+
+            if !localOnly.isEmpty {
+                let dtos = localOnly.map { $0.toDTO() }
+                do {
+                    _ = try await APIService.shared.upsertGroups(dtos)
+                } catch {
+                    SyncLogger.sync.error("Failed to push local groups: \(error.localizedDescription)")
+                    for group in localOnly {
+                        retryQueue.addPendingGroupUpsert(groupId: group.groupId)
+                    }
+                }
+            }
+
+            SyncLogger.sync.info("Completed group sync, fetched \(response.groups.count) from backend")
+            return response.groups.count
+        } catch {
+            SyncLogger.sync.error("Failed to sync groups: \(error.localizedDescription)")
+            return 0
+        }
+    }
+
+    func syncGroup(_ group: ExerciseGroup) async {
+        let dto = group.toDTO()
+
+        do {
+            _ = try await APIService.shared.upsertGroups([dto])
+            retryQueue.removePendingGroupOperation(groupId: group.groupId)
+            SyncLogger.sync.debug("Synced group \(group.groupId)")
+        } catch {
+            SyncLogger.sync.error("Failed to sync group \(group.groupId): \(error.localizedDescription)")
+            retryQueue.addPendingGroupUpsert(groupId: group.groupId)
+        }
+    }
+
+    func deleteGroup(_ groupId: UUID) async {
+        do {
+            _ = try await APIService.shared.deleteGroups([groupId])
+            retryQueue.removePendingGroupOperation(groupId: groupId)
+            SyncLogger.sync.debug("Deleted group \(groupId)")
+        } catch {
+            SyncLogger.sync.error("Failed to delete group \(groupId): \(error.localizedDescription)")
+            retryQueue.addPendingGroupDelete(groupId: groupId)
+        }
+    }
+
+    func processGroupRetryQueue() async {
+        guard let context = modelContext else { return }
+
+        let pendingOperations = retryQueue.getPendingGroupOperations()
+
+        for operation in pendingOperations {
+            switch operation.operationType {
+            case .upsert:
+                if let group = fetchGroup(by: operation.groupId, context: context) {
+                    do {
+                        _ = try await APIService.shared.upsertGroups([group.toDTO()])
+                        retryQueue.removePendingGroupOperation(groupId: operation.groupId)
+                    } catch {
+                        retryQueue.incrementGroupRetryCount(for: operation.groupId)
+                    }
+                } else {
+                    retryQueue.removePendingGroupOperation(groupId: operation.groupId)
+                }
+
+            case .delete:
+                do {
+                    _ = try await APIService.shared.deleteGroups([operation.groupId])
+                    retryQueue.removePendingGroupOperation(groupId: operation.groupId)
+                } catch {
+                    retryQueue.incrementGroupRetryCount(for: operation.groupId)
+                }
+            }
+        }
+    }
+
+    private func importGroupsFromBackend(_ dtos: [GroupDTO]) async {
+        guard let container = modelContainer else { return }
+        let sendableDtos = dtos
+        await Task.detached {
+            let context = ModelContext(container)
+            context.autosaveEnabled = false
+
+            let existingGroups = (try? context.fetch(FetchDescriptor<ExerciseGroup>())) ?? []
+            let existingById = Dictionary(uniqueKeysWithValues: existingGroups.map { ($0.groupId, $0) })
+
+            for dto in sendableDtos {
+                if dto.deleted == true {
+                    if let existing = existingById[dto.groupId] {
+                        existing.deleted = true
+                    }
+                    continue
+                }
+
+                if let existing = existingById[dto.groupId] {
+                    existing.name = dto.name
+                    existing.exerciseIds = dto.exerciseIds
+                    existing.isCustom = dto.isCustom
+                    existing.sortOrder = dto.sortOrder
+                    existing.deleted = dto.deleted ?? false
+                    if let lastModified = dto.lastModifiedDatetime {
+                        existing.lastModifiedDatetime = lastModified
+                    }
+                } else {
+                    let group = ExerciseGroup(
+                        groupId: dto.groupId,
+                        name: dto.name,
+                        exerciseIds: dto.exerciseIds,
+                        sortOrder: dto.sortOrder,
+                        isCustom: dto.isCustom,
+                        createdAt: dto.createdDatetime ?? Date(),
+                        createdTimezone: dto.createdTimezone,
+                        lastModifiedDatetime: dto.lastModifiedDatetime ?? Date(),
+                        deleted: dto.deleted ?? false
+                    )
+                    context.insert(group)
+                }
+            }
+
+            try? context.save()
+        }.value
+    }
+
+    private func fetchGroup(by id: UUID, context: ModelContext) -> ExerciseGroup? {
+        let descriptor = FetchDescriptor<ExerciseGroup>(predicate: #Predicate { $0.groupId == id })
+        return try? context.fetch(descriptor).first
+    }
+
+    private func fetchAllGroups(context: ModelContext) -> [ExerciseGroup] {
+        let descriptor = FetchDescriptor<ExerciseGroup>()
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    @MainActor
+    private func createAndSyncDefaultGroups(context: ModelContext) async {
+        SeedService.seedGroups(context: context)
+        let allGroups = fetchAllGroups(context: context)
+        let dtos = allGroups.filter { !$0.deleted }.map { $0.toDTO() }
+        if !dtos.isEmpty {
+            do {
+                _ = try await APIService.shared.upsertGroups(dtos)
+            } catch {
+                SyncLogger.sync.error("Failed to push default groups: \(error.localizedDescription)")
+                for group in allGroups where !group.deleted {
+                    retryQueue.addPendingGroupUpsert(groupId: group.groupId)
+                }
+            }
+        }
+    }
+
     // MARK: - Retry Queue Processing
 
     func processRetryQueue() async {
@@ -1421,5 +1625,6 @@ class SyncService: ObservableObject {
         UserDefaults.standard.removeObject(forKey: Self.syncStateKey)
         UserDefaults.standard.removeObject(forKey: "insights_cached_response")
         UserDefaults.standard.removeObject(forKey: "insights_last_fetched_at")
+        UserDefaults.standard.removeObject(forKey: "insights_last_viewed_week")
     }
 }

@@ -47,8 +47,8 @@ enum SubscriptionConfig {
         ("list.clipboard.fill", "Set Plan Catalog & Custom Plans",
          "Full access to the complete set plan library plus the ability to create and save your own custom plans.",
          .setNearMax),
-        ("square.and.arrow.up.fill", "Training Report Card",
-         "Generate a shareable visual report card of your training — PRs, consistency, balance, and progress at a glance.",
+        ("square.and.arrow.up.fill", "Progress Card",
+         "Generate a shareable visual progress card of your training — PRs, strength tiers, and progress at a glance.",
          .setPR)
     ]
 }

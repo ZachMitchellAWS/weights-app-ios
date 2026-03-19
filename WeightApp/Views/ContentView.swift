@@ -28,6 +28,7 @@ struct ContentView: View {
 
     @State private var selectedTab = 1
     @StateObject private var selectedSetData = SelectedSetData()
+    private var narrativeBadge: NarrativeBadgeService { NarrativeBadgeService.shared }
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
 
     var body: some View {
@@ -35,12 +36,13 @@ struct ContentView: View {
             LazyView(TrendsView(selectedSetData: selectedSetData, selectedTab: $selectedTab))
                 .tabItem { Label("Progress", systemImage: "chart.line.uptrend.xyaxis") }
                 .tag(0)
+                .badge(narrativeBadge.hasNewNarrative ? 1 : 0)
 
             Group {
                 if UITestMode.isEnabled {
-                    ExperimentalCheckInView(selectedSetData: selectedSetData, selectedTab: $selectedTab)
-                } else {
                     CheckInView(selectedSetData: selectedSetData, initialExerciseId: initialExerciseId, selectedTab: $selectedTab)
+                } else {
+                    ExperimentalCheckInView(selectedSetData: selectedSetData, selectedTab: $selectedTab)
                 }
             }
                 .tabItem { Label("Lift", systemImage: "plus.circle") }
@@ -53,8 +55,11 @@ struct ContentView: View {
         .tint(Color.appAccent)
         .toolbarBackground(Color.black, for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)
-        .onChange(of: selectedTab) { _, _ in
+        .onChange(of: selectedTab) { _, newTab in
             hapticFeedback.impactOccurred()
+            if newTab == 0 && narrativeBadge.hasNewNarrative {
+                selectedSetData.pendingTrendsTab = .narratives
+            }
         }
     }
 }

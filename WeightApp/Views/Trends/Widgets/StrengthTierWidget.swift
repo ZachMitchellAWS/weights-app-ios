@@ -16,7 +16,7 @@ struct StrengthTierWidget: View {
     @Environment(\.modelContext) private var modelContext
 
     @State private var showWeightPicker = false
-    @State private var tempBodyweight: Double = 150
+    @State private var tempBodyweight: Double = 180
 
     private var biologicalSex: String? { userProperties.biologicalSex }
     private var bodyweight: Double? { userProperties.bodyweight }
@@ -188,7 +188,7 @@ struct StrengthTierWidget: View {
                         .foregroundStyle(.white.opacity(0.5))
 
                     Button {
-                        tempBodyweight = 150
+                        tempBodyweight = 180
                         showWeightPicker = true
                     } label: {
                         HStack {
@@ -258,8 +258,8 @@ struct StrengthTierWidget: View {
 
                     HStack(spacing: 0) {
                         Picker("Weight", selection: $tempBodyweight) {
-                            ForEach(Array(stride(from: 50.0, through: 500.0, by: 0.5)), id: \.self) { weight in
-                                Text("\(weight, specifier: "%.1f")")
+                            ForEach(Array(stride(from: 50.0, through: 500.0, by: 1.0)), id: \.self) { weight in
+                                Text("\(Int(weight))")
                                     .tag(weight)
                             }
                         }

@@ -82,6 +82,20 @@ struct PendingSetPlanOperation: Codable, Equatable {
     }
 }
 
+struct PendingGroupOperation: Codable, Equatable {
+    let groupId: UUID
+    let operationType: PendingOperationType
+    var retryCount: Int
+    let createdAt: Date
+
+    init(groupId: UUID, operationType: PendingOperationType) {
+        self.groupId = groupId
+        self.operationType = operationType
+        self.retryCount = 0
+        self.createdAt = Date()
+    }
+}
+
 struct PendingAccessoryGoalCheckinOperation: Codable, Equatable {
     let checkinId: UUID
     let operationType: PendingOperationType
@@ -104,6 +118,7 @@ class SyncRetryQueue {
     private let liftSetOperationsKey = "SyncRetryQueue.PendingLiftSetOperations"
     private let estimated1RMOperationsKey = "SyncRetryQueue.PendingEstimated1RMOperations"
     private let templateOperationsKey = "SyncRetryQueue.PendingSetPlanOperations"
+    private let groupOperationsKey = "SyncRetryQueue.PendingGroupOperations"
     private let accessoryGoalCheckinOperationsKey = "SyncRetryQueue.PendingAccessoryGoalCheckinOperations"
     private let maxRetries = 10
 
@@ -150,11 +165,12 @@ class SyncRetryQueue {
         UserDefaults.standard.removeObject(forKey: liftSetOperationsKey)
         UserDefaults.standard.removeObject(forKey: estimated1RMOperationsKey)
         UserDefaults.standard.removeObject(forKey: templateOperationsKey)
+        UserDefaults.standard.removeObject(forKey: groupOperationsKey)
         UserDefaults.standard.removeObject(forKey: accessoryGoalCheckinOperationsKey)
     }
 
     func hasPendingOperations() -> Bool {
-        return !loadOperations().isEmpty || !loadLiftSetOperations().isEmpty || !loadEstimated1RMOperations().isEmpty || !loadTemplateOperations().isEmpty || !loadAccessoryGoalCheckinOperations().isEmpty
+        return !loadOperations().isEmpty || !loadLiftSetOperations().isEmpty || !loadEstimated1RMOperations().isEmpty || !loadTemplateOperations().isEmpty || !loadGroupOperations().isEmpty || !loadAccessoryGoalCheckinOperations().isEmpty
     }
 
     // MARK: - User Properties Sync Methods
@@ -459,6 +475,79 @@ class SyncRetryQueue {
             UserDefaults.standard.set(data, forKey: templateOperationsKey)
         } catch {
             SyncLogger.retry.error("Failed to encode pending template operations: \(error)")
+        }
+    }
+
+    // MARK: - Group Operations
+
+    func addPendingGroupUpsert(groupId: UUID) {
+        SyncLogger.retry.debug("Queuing group upsert: \(groupId)")
+        addGroupOperation(PendingGroupOperation(groupId: groupId, operationType: .upsert))
+    }
+
+    func addPendingGroupDelete(groupId: UUID) {
+        SyncLogger.retry.debug("Queuing group delete: \(groupId)")
+        addGroupOperation(PendingGroupOperation(groupId: groupId, operationType: .delete))
+    }
+
+    func removePendingGroupOperation(groupId: UUID) {
+        SyncLogger.retry.debug("Removing group operation: \(groupId)")
+        var operations = loadGroupOperations()
+        operations.removeAll { $0.groupId == groupId }
+        saveGroupOperations(operations)
+    }
+
+    func getPendingGroupOperations() -> [PendingGroupOperation] {
+        return loadGroupOperations()
+    }
+
+    func incrementGroupRetryCount(for groupId: UUID) {
+        var operations = loadGroupOperations()
+        if let index = operations.firstIndex(where: { $0.groupId == groupId }) {
+            operations[index].retryCount += 1
+            if operations[index].retryCount >= maxRetries {
+                SyncLogger.retry.info("Group \(groupId) dropped after \(self.maxRetries) retries")
+                operations.remove(at: index)
+            }
+        }
+        saveGroupOperations(operations)
+    }
+
+    func hasGroupPendingOperations() -> Bool {
+        return !loadGroupOperations().isEmpty
+    }
+
+    private func addGroupOperation(_ operation: PendingGroupOperation) {
+        var operations = loadGroupOperations()
+
+        if let existingIndex = operations.firstIndex(where: { $0.groupId == operation.groupId }) {
+            operations[existingIndex] = operation
+        } else {
+            operations.append(operation)
+        }
+
+        saveGroupOperations(operations)
+    }
+
+    private func loadGroupOperations() -> [PendingGroupOperation] {
+        guard let data = UserDefaults.standard.data(forKey: groupOperationsKey) else {
+            return []
+        }
+
+        do {
+            return try JSONDecoder().decode([PendingGroupOperation].self, from: data)
+        } catch {
+            SyncLogger.retry.error("Failed to decode pending group operations: \(error)")
+            return []
+        }
+    }
+
+    private func saveGroupOperations(_ operations: [PendingGroupOperation]) {
+        do {
+            let data = try JSONEncoder().encode(operations)
+            UserDefaults.standard.set(data, forKey: groupOperationsKey)
+        } catch {
+            SyncLogger.retry.error("Failed to encode pending group operations: \(error)")
         }
     }
 

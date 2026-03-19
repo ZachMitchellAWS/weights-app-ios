@@ -15,12 +15,12 @@ class InsightsViewModel {
 
     // MARK: - State
 
-    enum EmptyReason {
+    enum EmptyReason: Equatable {
         case noSetsLogged
         case setsLoggedWeekInProgress(sundayDate: String)
     }
 
-    enum ViewState {
+    enum ViewState: Equatable {
         case idle
         case loading
         case loaded(WeeklyInsightsResponse)
@@ -78,20 +78,24 @@ class InsightsViewModel {
             if cachedInsight == nil {
                 state = .loading
             }
-            await fetchInsights(force: false, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
+            await fetchInsights(force: false, isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
         }
     }
 
     // MARK: - Fetch
 
-    func fetchInsights(force: Bool, hasLocalSetsThisWeek: Bool = false) async {
+    func fetchInsights(force: Bool, isPremium: Bool = false, hasLocalSetsThisWeek: Bool = false) async {
         do {
             let response = try await APIService.shared.getWeeklyInsights()
             mapResponse(response, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
         } catch let error as APIError {
             switch error {
             case .httpError(let code, _) where code == 403:
-                state = .locked
+                if isPremium {
+                    state = .error("Unable to load insights. Pull to refresh to try again.")
+                } else {
+                    state = .locked
+                }
             case .httpError(let code, _) where code == 503:
                 state = .error("Insights are temporarily unavailable. Please try again later.")
             case .unauthorized:
@@ -117,6 +121,7 @@ class InsightsViewModel {
         if let sections = response.sections, !sections.isEmpty {
             state = .loaded(response)
             saveCache(response)
+            NarrativeBadgeService.shared.refresh()
             return
         }
 

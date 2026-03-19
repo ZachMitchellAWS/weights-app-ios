@@ -82,6 +82,8 @@ struct UserPropertiesRequest: Codable {
     var clearBiologicalSex: Bool = false
     var activeSetPlanId: String?
     var clearActiveSetPlan: Bool = false
+    var activeGroupId: String?
+    var clearActiveGroupId: Bool = false
     var stepsGoal: Int?
     var proteinGoal: Int?
     var bodyweightTarget: Double?
@@ -95,6 +97,7 @@ struct UserPropertiesRequest: Codable {
         case easyMinReps, easyMaxReps, moderateMinReps, moderateMaxReps, hardMinReps, hardMaxReps
         case biologicalSex
         case activeSetPlanId = "activeSetPlanTemplateId"
+        case activeGroupId
         case stepsGoal, proteinGoal, bodyweightTarget
         case timezone
     }
@@ -143,6 +146,11 @@ struct UserPropertiesRequest: Codable {
         } else if let activeSetPlanId = activeSetPlanId {
             try container.encode(activeSetPlanId, forKey: .activeSetPlanId)
         }
+        if clearActiveGroupId {
+            try container.encodeNil(forKey: .activeGroupId)
+        } else if let activeGroupId = activeGroupId {
+            try container.encode(activeGroupId, forKey: .activeGroupId)
+        }
         if clearStepsGoal {
             try container.encodeNil(forKey: .stepsGoal)
         } else if let stepsGoal = stepsGoal {
@@ -178,6 +186,7 @@ struct UserPropertiesResponse: Codable {
     let hardMaxReps: Int?
     let biologicalSex: String?
     let activeSetPlanId: String?
+    let activeGroupId: String?
     let stepsGoal: Int?
     let proteinGoal: Int?
     let bodyweightTarget: Double?
@@ -190,6 +199,7 @@ struct UserPropertiesResponse: Codable {
         case easyMinReps, easyMaxReps, moderateMinReps, moderateMaxReps, hardMinReps, hardMaxReps
         case biologicalSex
         case activeSetPlanId = "activeSetPlanTemplateId"
+        case activeGroupId
         case stepsGoal, proteinGoal, bodyweightTarget, timezone
         case createdDatetime, lastModifiedDatetime
     }

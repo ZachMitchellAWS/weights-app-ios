@@ -161,6 +161,12 @@ struct AccountDetailView: View {
             modelContext.delete(grant)
         }
 
+        // Hard delete ExerciseGroups
+        let allGroups = (try? modelContext.fetch(FetchDescriptor<ExerciseGroup>())) ?? []
+        for group in allGroups {
+            modelContext.delete(group)
+        }
+
 
         try? modelContext.save()
     }

@@ -10,6 +10,7 @@ import SwiftData
 
 struct InsightsView: View {
     @State private var viewModel = InsightsViewModel()
+    @State private var audioPlayer = AudioPlayerManager()
     @Query private var entitlementRecords: [EntitlementGrant]
     @Query private var allLiftSets: [LiftSet]
     @State private var showUpsell = false
@@ -37,7 +38,9 @@ struct InsightsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 12) {
-                insightsHeader
+                if case .locked = viewModel.state {} else {
+                    insightsHeader
+                }
 
                 switch viewModel.state {
                 case .idle:
@@ -61,13 +64,25 @@ struct InsightsView: View {
         }
         .scrollIndicators(.hidden)
         .refreshable {
-            await viewModel.fetchInsights(force: true, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
+            guard isPremium else { return }
+            await viewModel.fetchInsights(force: true, isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
         }
         .task {
             await viewModel.onAppear(isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
+            PushNotificationService.shared.requestPermissionIfNeeded()
+            if case .loaded(let response) = viewModel.state,
+               let weekStart = response.weekStartDate {
+                NarrativeBadgeService.shared.markViewed(weekStart: weekStart)
+            }
+        }
+        .onChange(of: viewModel.state) {
+            if case .loaded(let response) = viewModel.state,
+               let weekStart = response.weekStartDate {
+                NarrativeBadgeService.shared.markViewed(weekStart: weekStart)
+            }
         }
         .fullScreenCover(isPresented: $showUpsell) {
-            UpsellView { _ in showUpsell = false }
+            UpsellView(initialPage: 1) { _ in showUpsell = false }
         }
     }
 
@@ -190,7 +205,7 @@ struct InsightsView: View {
         if let sections = response.sections {
             ForEach(sections, id: \.title) { section in
                 let style = InsightSectionStyle.from(title: section.title)
-                InsightSectionCard(section: section, style: style)
+                InsightSectionCard(section: section, style: style, audioPlayer: audioPlayer)
             }
 
             // AI Disclaimer
@@ -217,7 +232,7 @@ struct InsightsView: View {
 
             Button {
                 Task {
-                    await viewModel.fetchInsights(force: true, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
+                    await viewModel.fetchInsights(force: true, isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
                 }
             } label: {
                 Text("Try Again")
@@ -348,6 +363,11 @@ enum InsightSectionStyle: String, CaseIterable, Identifiable {
 struct InsightSectionCard: View {
     let section: InsightSection
     let style: InsightSectionStyle
+    var audioPlayer: AudioPlayerManager
+
+    private var isSectionPlaying: Bool {
+        audioPlayer.currentlyPlayingSectionTitle == section.title && audioPlayer.isPlaying
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -358,6 +378,20 @@ struct InsightSectionCard: View {
                 Text(section.title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.7))
+
+                if section.audioUrl != nil {
+                    Spacer()
+                    Button {
+                        guard let urlString = section.audioUrl,
+                              let url = URL(string: urlString) else { return }
+                        audioPlayer.toggle(url: url, sectionTitle: section.title)
+                    } label: {
+                        Image(systemName: isSectionPlaying ? "pause.circle.fill" : "play.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(style.color)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
 
             Text(section.body)
