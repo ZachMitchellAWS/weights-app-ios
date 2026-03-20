@@ -40,9 +40,9 @@ struct ContentView: View {
 
             Group {
                 if UITestMode.isEnabled {
-                    CheckInView(selectedSetData: selectedSetData, initialExerciseId: initialExerciseId, selectedTab: $selectedTab)
+                    LegacyCheckInView(selectedSetData: selectedSetData, initialExerciseId: initialExerciseId, selectedTab: $selectedTab)
                 } else {
-                    ExperimentalCheckInView(selectedSetData: selectedSetData, selectedTab: $selectedTab)
+                    CheckInView(selectedSetData: selectedSetData, selectedTab: $selectedTab)
                 }
             }
                 .tabItem { Label("Lift", systemImage: "plus.circle") }

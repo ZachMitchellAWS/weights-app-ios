@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import SafariServices
 import AuthenticationServices
 
 struct AuthView: View {
@@ -20,13 +19,10 @@ struct AuthView: View {
     @State private var toastMessage = ""
     @State private var isKeyboardVisible = false
     @State private var isSubmitting = false
-    @State private var showTermsOfService = false
-    @State private var showPrivacyPolicy = false
+    @Environment(\.openURL) private var openURL
     @FocusState private var focusedField: Field?
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
 
-    private let termsOfServiceURL = URL(string: "https://example.com/terms")!
-    private let privacyPolicyURL = URL(string: "https://example.com/privacy")!
 
     enum Field {
         case email
@@ -281,9 +277,9 @@ struct AuthView: View {
 
                                 HStack(spacing: 4) {
                                     Button {
-                                        showTermsOfService = true
+                                        openURL(SubscriptionConfig.termsURL)
                                     } label: {
-                                        Text("Terms of Service")
+                                        Text("Terms and Conditions")
                                             .font(.inter(size: 12))
                                             .foregroundStyle(Color.appAccent)
                                     }
@@ -293,7 +289,7 @@ struct AuthView: View {
                                         .foregroundStyle(.white.opacity(0.5))
 
                                     Button {
-                                        showPrivacyPolicy = true
+                                        openURL(SubscriptionConfig.privacyURL)
                                     } label: {
                                         Text("Privacy Policy")
                                             .font(.inter(size: 12))
@@ -345,12 +341,6 @@ struct AuthView: View {
             .onDisappear {
                 NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillShowNotification, object: nil)
                 NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillHideNotification, object: nil)
-            }
-            .sheet(isPresented: $showTermsOfService) {
-                SafariView(url: termsOfServiceURL)
-            }
-            .sheet(isPresented: $showPrivacyPolicy) {
-                SafariView(url: privacyPolicyURL)
             }
         }
     }
@@ -412,14 +402,3 @@ struct AuthView: View {
     }
 }
 
-// MARK: - Safari View
-
-struct SafariView: UIViewControllerRepresentable {
-    let url: URL
-
-    func makeUIViewController(context: Context) -> SFSafariViewController {
-        SFSafariViewController(url: url)
-    }
-
-    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
-}

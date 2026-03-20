@@ -638,40 +638,18 @@ struct MoreView: View {
                         }
 
                         // Terms & Conditions
-                        Link(destination: URL(string: "https://example.com/terms")!) {
-                            HStack(spacing: 10) {
-                                Image(systemName: "doc.text")
-                                    .foregroundStyle(.white.opacity(0.4))
-                                    .font(.system(size: 14))
-                                    .frame(width: 20)
-                                    .padding(.leading, 24)
-                                Text("Terms & Conditions")
-                                    .foregroundStyle(.white)
-                                    .font(.subheadline)
-                                Spacer()
-                                Image(systemName: "arrow.up.forward")
-                                    .foregroundStyle(.white.opacity(0.25))
-                                    .font(.system(size: 12))
-                            }
-                        }
+                        SafariLinkRow(
+                            icon: "doc.text",
+                            title: "Terms & Conditions",
+                            url: SubscriptionConfig.termsURL
+                        )
 
                         // Privacy Policy
-                        Link(destination: URL(string: "https://example.com/privacy")!) {
-                            HStack(spacing: 10) {
-                                Image(systemName: "hand.raised")
-                                    .foregroundStyle(.white.opacity(0.4))
-                                    .font(.system(size: 14))
-                                    .frame(width: 20)
-                                    .padding(.leading, 24)
-                                Text("Privacy Policy")
-                                    .foregroundStyle(.white)
-                                    .font(.subheadline)
-                                Spacer()
-                                Image(systemName: "arrow.up.forward")
-                                    .foregroundStyle(.white.opacity(0.25))
-                                    .font(.system(size: 12))
-                            }
-                        }
+                        SafariLinkRow(
+                            icon: "hand.raised",
+                            title: "Privacy Policy",
+                            url: SubscriptionConfig.privacyURL
+                        )
                     }
                 } footer: {
                     VStack(spacing: 4) {
@@ -2267,6 +2245,36 @@ struct MoreView: View {
 
 
         try? modelContext.save()
+    }
+}
+
+// MARK: - Safari Link Row
+
+private struct SafariLinkRow: View {
+    let icon: String
+    let title: String
+    let url: URL
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        Button {
+            openURL(url)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .foregroundStyle(.white.opacity(0.4))
+                    .font(.system(size: 14))
+                    .frame(width: 20)
+                    .padding(.leading, 24)
+                Text(title)
+                    .foregroundStyle(.white)
+                    .font(.subheadline)
+                Spacer()
+                Image(systemName: "arrow.up.forward")
+                    .foregroundStyle(.white.opacity(0.25))
+                    .font(.system(size: 12))
+            }
+        }
     }
 }
 

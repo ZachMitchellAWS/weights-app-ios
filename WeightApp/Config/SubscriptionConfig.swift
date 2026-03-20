@@ -23,8 +23,13 @@ enum SubscriptionConfig {
     static let trialEligibleProduct = yearlyProductId  // Only yearly has trial
 
     // MARK: - URLs
-    static let termsOfServiceURL = URL(string: "https://example.com/terms")!
-    static let privacyPolicyURL = URL(string: "https://example.com/privacy")!
+    static var websiteBaseURL: String {
+        APIConfig.environment == "production"
+            ? "https://liftthebull.io"
+            : "https://staging.liftthebull.io"
+    }
+    static var termsURL: URL { URL(string: "\(websiteBaseURL)/terms")! }
+    static var privacyURL: URL { URL(string: "\(websiteBaseURL)/privacy")! }
 
     // MARK: - Marketing Copy
     static let upsellTitle = "Go Premium"

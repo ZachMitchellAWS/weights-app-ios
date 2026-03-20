@@ -25,6 +25,7 @@ struct UpsellView: View {
     @State private var currentPage: Int
     @State private var isProcessing = false
     @State private var errorMessage: String?
+    @Environment(\.openURL) private var openURL
 
     // Entrance animation states
     @State private var logoScale: CGFloat = 0.5
@@ -356,17 +357,21 @@ struct UpsellView: View {
 
     private var footerLinks: some View {
         HStack(spacing: 16) {
-            Link("Terms of Service", destination: SubscriptionConfig.termsOfServiceURL)
-                .font(.inter(size: 12))
-                .foregroundStyle(.white.opacity(0.5))
+            Button("Terms and Conditions") {
+                openURL(SubscriptionConfig.termsURL)
+            }
+            .font(.inter(size: 12))
+            .foregroundStyle(.white.opacity(0.5))
 
             Text("|")
                 .font(.inter(size: 12))
                 .foregroundStyle(.white.opacity(0.5))
 
-            Link("Privacy Policy", destination: SubscriptionConfig.privacyPolicyURL)
-                .font(.inter(size: 12))
-                .foregroundStyle(.white.opacity(0.5))
+            Button("Privacy Policy") {
+                openURL(SubscriptionConfig.privacyURL)
+            }
+            .font(.inter(size: 12))
+            .foregroundStyle(.white.opacity(0.5))
         }
     }
 }

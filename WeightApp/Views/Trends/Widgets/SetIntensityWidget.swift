@@ -29,12 +29,12 @@ struct SetIntensityWidget: View {
         return exercises.first(where: { $0.name == name })
     }
 
-    private var setsWithPRInfo: [CheckInView.SetWithPR] {
+    private var setsWithPRInfo: [LegacyCheckInView.SetWithPR] {
         guard let exercise = selectedExercise else { return [] }
-        return CheckInView.computeSetsWithPRInfo(for: exercise, from: allSets, estimated1RMs: allEstimated1RM)
+        return LegacyCheckInView.computeSetsWithPRInfo(for: exercise, from: allSets, estimated1RMs: allEstimated1RM)
     }
 
-    private var displayData: [CheckInView.SetWithPR] {
+    private var displayData: [LegacyCheckInView.SetWithPR] {
         if showPROnly {
             return setsWithPRInfo.filter { $0.increases1RM }
         }
@@ -120,7 +120,7 @@ struct SetIntensityWidget: View {
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 0) {
-                            CheckInView.SetHistoryChart(setsWithPRInfo: displayData, showYAxis: false, selectedBarIndex: $selectedChartBarIndex)
+                            LegacyCheckInView.SetHistoryChart(setsWithPRInfo: displayData, showYAxis: false, selectedBarIndex: $selectedChartBarIndex)
                                 .id("chart-end")
                         }
                     }
@@ -138,7 +138,7 @@ struct SetIntensityWidget: View {
                     }
                 }
 
-                CheckInView.SetHistoryChartYAxis(setsWithPRInfo: displayData)
+                LegacyCheckInView.SetHistoryChartYAxis(setsWithPRInfo: displayData)
             }
 
             if let index = selectedChartBarIndex, index < displayData.count {
@@ -155,7 +155,7 @@ struct SetIntensityWidget: View {
         }
     }
 
-    private func setDetailOverlay(for setInfo: CheckInView.SetWithPR) -> some View {
+    private func setDetailOverlay(for setInfo: LegacyCheckInView.SetWithPR) -> some View {
         let isZeroWeight = setInfo.set.weight == 0
 
         return VStack(spacing: 8) {
