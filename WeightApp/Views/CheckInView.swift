@@ -814,7 +814,7 @@ struct CheckInView: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    .disabled(isViewingToday)
+                    .allowsHitTesting(!isViewingToday)
 
                     // Plan name — tap to open hub (only interactive on today)
                     if isViewingToday {

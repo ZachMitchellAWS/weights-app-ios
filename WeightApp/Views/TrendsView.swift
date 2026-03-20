@@ -84,26 +84,32 @@ struct TrendsView: View {
                     .padding(.top, 4)
                     .padding(.bottom, 6)
 
-                    // Segmented picker
-                    TrendsPicker(selectedTab: $trendsTab)
-                        .padding(.top, 4)
-                        .padding(.bottom, 12)
+                    ZStack(alignment: .bottom) {
+                        ScrollView {
+                            // Content based on selected tab
+                            ZStack {
+                                if trendsTab == .strength {
+                                    BalanceView()
+                                }
 
-                    // Content based on selected tab
-                    ZStack {
-                        if trendsTab == .strength {
-                            BalanceView()
+                                if trendsTab == .analytics {
+                                    AnalyticsView()
+                                }
+
+                                if trendsTab == .narratives {
+                                    InsightsView()
+                                }
+                            }
+                            .transition(.move(edge: .leading))
+                            .padding(.bottom, 70)
                         }
 
-                        if trendsTab == .analytics {
-                            AnalyticsView()
-                        }
-
-                        if trendsTab == .narratives {
-                            InsightsView()
-                        }
+                        // Floating picker at bottom
+                        TrendsPicker(selectedTab: $trendsTab)
+                            .padding(.top, 10)
+                            .padding(.bottom, 6)
+                            .background(Color(white: 0.10).ignoresSafeArea(.container, edges: .bottom))
                     }
-                    .transition(.move(edge: .leading))
                 }
             }
             .background(Color.black)
