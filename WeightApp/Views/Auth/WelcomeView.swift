@@ -43,7 +43,7 @@ struct WelcomeView: View {
                             .font(.bebasNeue(size: 38))
                             .foregroundStyle(.white)
 
-                        Text("Progressive Overload Tracker")
+                        Text("Strength Tracker")
                             .font(.inter(size: 14))
                             .foregroundStyle(.white.opacity(0.6))
                     }

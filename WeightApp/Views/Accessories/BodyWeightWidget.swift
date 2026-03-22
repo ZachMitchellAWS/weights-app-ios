@@ -12,6 +12,7 @@ import Charts
 struct BodyWeightWidget: View {
     let checkins: [AccessoryGoalCheckin]
     let target: Double?
+    var weightUnit: WeightUnit = .lbs
     let onAdd: () -> Void
     let onEditTarget: () -> Void
     let onShowHistory: () -> Void
@@ -83,11 +84,13 @@ struct BodyWeightWidget: View {
 
     private var headerText: String {
         if let latest = latestWeight {
-            let formatted = String(format: "%.1f", latest)
+            let displayLatest = weightUnit.fromLbs(latest)
+            let formatted = String(format: "%.1f", displayLatest)
             if let target = target {
-                return "\(formatted) lbs \u{2014} Target: \(String(format: "%.0f", target))"
+                let displayTarget = weightUnit.fromLbs(target)
+                return "\(formatted) \(weightUnit.label) \u{2014} Target: \(String(format: "%.0f", displayTarget))"
             }
-            return "\(formatted) lbs"
+            return "\(formatted) \(weightUnit.label)"
         }
         return "No entries"
     }

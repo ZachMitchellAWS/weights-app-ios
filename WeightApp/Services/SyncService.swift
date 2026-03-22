@@ -275,6 +275,9 @@ class SyncService: ObservableObject {
                 userProperties.timezoneIdentifier = timezone
             }
             userProperties.biologicalSex = response.biologicalSex
+            if let weightUnit = response.weightUnit {
+                userProperties.weightUnit = weightUnit
+            }
 
             try? context.save()
 
@@ -355,6 +358,32 @@ class SyncService: ObservableObject {
         }
     }
 
+    func updateWeightUnit(_ unit: String) async {
+        do {
+            let request = UserPropertiesRequest(weightUnit: unit)
+            _ = try await APIService.shared.updateUserProperties(request)
+            retryQueue.removePendingUserPropertiesSync()
+        } catch {
+            SyncLogger.sync.error("Failed to update weight unit: \(error.localizedDescription)")
+            retryQueue.addPendingUserPropertiesSync()
+        }
+    }
+
+    func updateBodyProfile(bodyweight: Double, biologicalSex: String, weightUnit: String) async {
+        do {
+            let request = UserPropertiesRequest(
+                bodyweight: bodyweight,
+                biologicalSex: biologicalSex,
+                weightUnit: weightUnit
+            )
+            _ = try await APIService.shared.updateUserProperties(request)
+            retryQueue.removePendingUserPropertiesSync()
+        } catch {
+            SyncLogger.sync.error("Failed to update body profile: \(error.localizedDescription)")
+            retryQueue.addPendingUserPropertiesSync()
+        }
+    }
+
     func updateAllRepRanges(minReps: Int, maxReps: Int, easyMinReps: Int, easyMaxReps: Int, moderateMinReps: Int, moderateMaxReps: Int, hardMinReps: Int, hardMaxReps: Int) async {
         do {
             let request = UserPropertiesRequest(
@@ -426,6 +455,7 @@ class SyncService: ObservableObject {
                 moderateMaxReps: userProperties.moderateMaxReps,
                 hardMinReps: userProperties.hardMinReps,
                 hardMaxReps: userProperties.hardMaxReps,
+                weightUnit: userProperties.weightUnit,
                 timezone: userProperties.timezoneIdentifier
             )
             if let templateId = userProperties.activeSetPlanId {
@@ -1626,5 +1656,7 @@ class SyncService: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "insights_cached_response")
         UserDefaults.standard.removeObject(forKey: "insights_last_fetched_at")
         UserDefaults.standard.removeObject(forKey: "insights_last_viewed_week")
+        UserDefaults.standard.removeObject(forKey: "hasSeenTierIntro")
+        UserDefaults.standard.removeObject(forKey: "contiguousAccessoryCharts")
     }
 }

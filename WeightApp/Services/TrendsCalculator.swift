@@ -765,10 +765,10 @@ struct TrendsCalculator {
         biologicalSex: String
     ) -> StrengthTierResult {
         guard let sex = BiologicalSex(rawValue: biologicalSex) else {
-            // Unknown sex — default everything to rookie
-            let tiers = fundamentalExercises.map { ($0, nil as Double?, StrengthTier.rookie) }
+            // Unknown sex — default everything to none
+            let tiers = fundamentalExercises.map { ($0, nil as Double?, StrengthTier.none) }
             return StrengthTierResult(
-                overallTier: .rookie,
+                overallTier: .none,
                 exerciseTiers: tiers,
                 limitingExercise: fundamentalExercises[0]
             )
@@ -808,10 +808,10 @@ struct TrendsCalculator {
                     limitingExercise = exercise
                 }
             } else {
-                // No data = Rookie
-                exerciseTiers.append((exercise, nil, .rookie))
-                if StrengthTier.rookie < lowestTier {
-                    lowestTier = .rookie
+                // No data = None (no sets logged yet)
+                exerciseTiers.append((exercise, nil, .none))
+                if StrengthTier.none < lowestTier {
+                    lowestTier = .none
                     limitingExercise = exercise
                 }
             }
@@ -848,7 +848,8 @@ struct TrendsCalculator {
             // tierScore: base from tier rank, refined by within-tier progress
             let tierBase: Double
             switch tier {
-            case .rookie:       tierBase = 1.0
+            case .none:         tierBase = 1.0
+            case .novice:       tierBase = 1.0
             case .beginner:     tierBase = 0.8
             case .intermediate: tierBase = 0.6
             case .advanced:     tierBase = 0.4
@@ -901,6 +902,7 @@ struct TrendsCalculator {
         let exerciseIcon: String
         let targetLbs: Double
         let targetLabel: String
+        let isAbsoluteTarget: Bool // true when targetLabel is in lbs (not BW-relative)
         let currentE1RM: Double
         let achieved: Bool
         let progress: Double
@@ -943,8 +945,8 @@ struct TrendsCalculator {
             }
         }
 
-        // All tiers including Rookie (easy starter milestones)
-        let tiers: [StrengthTier] = [.rookie, .beginner, .intermediate, .advanced, .elite, .legend]
+        // All tiers including Novice (easy starter milestones)
+        let tiers: [StrengthTier] = [.novice, .beginner, .intermediate, .advanced, .elite, .legend]
 
         var batches: [TierMilestoneBatch] = []
         var overallAchieved = 0
@@ -959,20 +961,14 @@ struct TrendsCalculator {
                 let targetLbs: Double
                 let targetLabel: String
 
-                if tier == .rookie {
-                    // Rookie milestone = midpoint of rookie range (half of beginner min)
-                    // This prevents starting with all rookie milestones already achieved
+                if tier == .novice {
+                    // Novice milestone = log at least one set (binary achievement)
                     let beginnerMin = StrengthTierData.thresholds[exercise.name]?[sex]?[.beginner]?.min ?? 0
-                    let milestoneMultiplier = beginnerMin / 2.0
-                    targetLbs = milestoneMultiplier * bodyweight
-                    if milestoneMultiplier == floor(milestoneMultiplier) {
-                        targetLabel = "\(Int(milestoneMultiplier))× BW"
-                    } else {
-                        targetLabel = "\(String(format: "%g", milestoneMultiplier))× BW"
-                    }
+                    targetLbs = beginnerMin * bodyweight
+                    targetLabel = "≥1 set"
                 } else if threshold.isAbsolute {
                     targetLbs = threshold.min
-                    targetLabel = "\(Int(threshold.min)) lbs"
+                    targetLabel = "\(Int(threshold.min))"
                 } else {
                     targetLbs = threshold.min * bodyweight
                     // Format multiplier: "1× BW", "1.25× BW", "0.5× BW"
@@ -984,14 +980,23 @@ struct TrendsCalculator {
                 }
 
                 let current = latestByExercise[exercise.id] ?? 0
-                let achieved = targetLbs > 0 && current >= targetLbs
-                let progress = targetLbs > 0 ? min(current / targetLbs, 1.0) : 0
+                let achieved: Bool
+                let progress: Double
+                if tier == .novice {
+                    // Binary: achieved if any set has been logged (e1RM > 0)
+                    achieved = current > 0
+                    progress = current > 0 ? 1.0 : 0.0
+                } else {
+                    achieved = targetLbs > 0 && current >= targetLbs
+                    progress = targetLbs > 0 ? min(current / targetLbs, 1.0) : 0
+                }
 
                 milestones.append(TierMilestone(
                     exerciseName: exercise.name,
                     exerciseIcon: exercise.icon,
                     targetLbs: targetLbs,
                     targetLabel: targetLabel,
+                    isAbsoluteTarget: threshold.isAbsolute,
                     currentE1RM: current,
                     achieved: achieved,
                     progress: progress
@@ -1014,13 +1019,17 @@ struct TrendsCalculator {
         // Overall tier = lowest tier across all 5 exercises (same as StrengthTierWidget logic)
         var lowestTier: StrengthTier = .legend
         for exercise in fundamentalExercises {
-            let current = latestByExercise[exercise.id] ?? 0
-            let exerciseTier = StrengthTierData.tierForExercise(
-                name: exercise.name,
-                e1rm: current,
-                bodyweight: bodyweight,
-                sex: sex
-            )
+            let exerciseTier: StrengthTier
+            if let current = latestByExercise[exercise.id] {
+                exerciseTier = StrengthTierData.tierForExercise(
+                    name: exercise.name,
+                    e1rm: current,
+                    bodyweight: bodyweight,
+                    sex: sex
+                )
+            } else {
+                exerciseTier = .none
+            }
             if exerciseTier < lowestTier {
                 lowestTier = exerciseTier
             }

@@ -60,7 +60,7 @@ struct InsightsView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 20)
+            .padding(.bottom, 70)
         }
         .scrollIndicators(.hidden)
         .refreshable {

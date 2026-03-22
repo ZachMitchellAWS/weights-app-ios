@@ -25,7 +25,7 @@ struct UpsellView: View {
     @State private var currentPage: Int
     @State private var isProcessing = false
     @State private var errorMessage: String?
-    @Environment(\.openURL) private var openURL
+    @State private var safariURL: URL?
 
     // Entrance animation states
     @State private var logoScale: CGFloat = 0.5
@@ -104,6 +104,10 @@ struct UpsellView: View {
             dismissButton
                 .opacity(ctaOpacity)
         }
+        .sheet(item: $safariURL) { url in
+            SafariView(url: url)
+                .ignoresSafeArea()
+        }
         .onAppear {
             // 0.0s — Logo springs in
             withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
@@ -169,8 +173,8 @@ struct UpsellView: View {
                 .scaleEffect(logoScale)
                 .opacity(logoOpacity)
 
-            // "GO PREMIUM" badge
-            Text("GO PREMIUM")
+            // "PREMIUM" badge
+            Text("PREMIUM")
                 .font(.system(size: 13, weight: .semibold))
                 .tracking(3)
                 .foregroundStyle(.white)
@@ -358,7 +362,7 @@ struct UpsellView: View {
     private var footerLinks: some View {
         HStack(spacing: 16) {
             Button("Terms and Conditions") {
-                openURL(SubscriptionConfig.termsURL)
+                safariURL = SubscriptionConfig.termsURL
             }
             .font(.inter(size: 12))
             .foregroundStyle(.white.opacity(0.5))
@@ -368,7 +372,7 @@ struct UpsellView: View {
                 .foregroundStyle(.white.opacity(0.5))
 
             Button("Privacy Policy") {
-                openURL(SubscriptionConfig.privacyURL)
+                safariURL = SubscriptionConfig.privacyURL
             }
             .font(.inter(size: 12))
             .foregroundStyle(.white.opacity(0.5))
@@ -379,18 +383,28 @@ struct UpsellView: View {
 // MARK: - Overview Feature Card
 
 private struct OverviewFeatureCard: View {
+    private let accentColor: Color = .appAccent
+
     var body: some View {
-        VStack(spacing: 16) {
-            Text("WHAT YOU GET")
-                .font(.bebasNeue(size: 18))
-                .foregroundStyle(Color.appAccent)
-                .tracking(2)
+        VStack(spacing: 14) {
+            // Icon with colored circle background and glow
+            Image(systemName: "star.fill")
+                .font(.system(size: 36))
+                .foregroundStyle(accentColor)
+                .frame(width: 64, height: 64)
+                .background(
+                    Circle()
+                        .fill(accentColor.opacity(0.18))
+                )
+                .shadow(color: accentColor.opacity(0.3), radius: 12, x: 0, y: 4)
 
-            Rectangle()
-                .fill(Color.appAccent)
-                .frame(width: 40, height: 2)
+            Text("What You Get")
+                .font(.interSemiBold(size: 16))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
 
-            VStack(alignment: .leading, spacing: 12) {
+            // Feature list
+            VStack(alignment: .leading, spacing: 10) {
                 ForEach(SubscriptionConfig.premiumFeatures, id: \.title) { feature in
                     HStack(spacing: 12) {
                         Image(systemName: feature.icon)
@@ -411,24 +425,27 @@ private struct OverviewFeatureCard: View {
 
             Spacer()
 
-            HStack(spacing: 4) {
-                Text("Swipe to learn more")
-                    .font(.inter(size: 11))
-                    .foregroundStyle(.white.opacity(0.35))
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.white.opacity(0.35))
-            }
+            // Accent divider
+            Rectangle()
+                .fill(accentColor.opacity(0.25))
+                .frame(height: 1)
+                .padding(.horizontal, 8)
         }
         .frame(maxWidth: .infinity)
         .frame(height: 276)
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(Color(white: 0.12))
+                .fill(
+                    LinearGradient(
+                        colors: [accentColor.opacity(0.08), Color(white: 0.10)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.appAccent.opacity(0.15), lineWidth: 1)
+                        .stroke(accentColor.opacity(0.2), lineWidth: 1)
                 )
         )
     }

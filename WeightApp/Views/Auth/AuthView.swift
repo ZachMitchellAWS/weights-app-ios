@@ -19,7 +19,7 @@ struct AuthView: View {
     @State private var toastMessage = ""
     @State private var isKeyboardVisible = false
     @State private var isSubmitting = false
-    @Environment(\.openURL) private var openURL
+    @State private var safariURL: URL?
     @FocusState private var focusedField: Field?
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
 
@@ -64,7 +64,7 @@ struct AuthView: View {
                                         .font(.bebasNeue(size: 34))
                                         .foregroundStyle(.white)
 
-                                    Text("Progressive Overload Tracker")
+                                    Text("Strength Tracker")
                                         .font(.inter(size: 14))
                                         .foregroundStyle(.white.opacity(0.6))
                                 }
@@ -277,7 +277,7 @@ struct AuthView: View {
 
                                 HStack(spacing: 4) {
                                     Button {
-                                        openURL(SubscriptionConfig.termsURL)
+                                        safariURL = SubscriptionConfig.termsURL
                                     } label: {
                                         Text("Terms and Conditions")
                                             .font(.inter(size: 12))
@@ -289,7 +289,7 @@ struct AuthView: View {
                                         .foregroundStyle(.white.opacity(0.5))
 
                                     Button {
-                                        openURL(SubscriptionConfig.privacyURL)
+                                        safariURL = SubscriptionConfig.privacyURL
                                     } label: {
                                         Text("Privacy Policy")
                                             .font(.inter(size: 12))
@@ -341,6 +341,10 @@ struct AuthView: View {
             .onDisappear {
                 NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillShowNotification, object: nil)
                 NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillHideNotification, object: nil)
+            }
+            .sheet(item: $safariURL) { url in
+                SafariView(url: url)
+                    .ignoresSafeArea()
             }
         }
     }

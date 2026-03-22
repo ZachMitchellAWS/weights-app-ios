@@ -31,6 +31,13 @@ final class UserProperties {
     var bodyweightTarget: Double?
     var timezoneIdentifier: String?
     var biologicalSex: String?
+    var weightUnit: String = "lbs"
+
+    /// Computed accessor for the preferred WeightUnit enum
+    var preferredWeightUnit: WeightUnit {
+        get { WeightUnit(rawValue: weightUnit) ?? .lbs }
+        set { weightUnit = newValue.rawValue }
+    }
 
     init() {
         self.id = UserProperties.singletonID
@@ -50,6 +57,7 @@ final class UserProperties {
         self.proteinGoal = nil
         self.bodyweightTarget = nil
         self.biologicalSex = nil
+        self.weightUnit = "lbs"
     }
 
     static let defaultAvailableChangePlates: [Double] = [2.5]

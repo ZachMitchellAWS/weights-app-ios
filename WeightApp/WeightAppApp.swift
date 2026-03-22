@@ -53,6 +53,7 @@ struct WeightAppApp: App {
                             if authViewModel.isNewUser {
                                 if showOnboarding {
                                     OnboardingView {
+                                        authViewModel.markOnboardingComplete()
                                         withAnimation(.easeInOut(duration: 0.4)) {
                                             showOnboarding = false
                                         }

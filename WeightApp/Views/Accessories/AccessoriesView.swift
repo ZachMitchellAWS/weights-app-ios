@@ -85,9 +85,11 @@ struct AccessoriesView: View {
                 BodyWeightWidget(
                     checkins: bodyweightCheckins,
                     target: userProperties.bodyweightTarget,
+                    weightUnit: userProperties.preferredWeightUnit,
                     onAdd: { showBodyWeightInput = true },
                     onEditTarget: {
-                        goalInputText = userProperties.bodyweightTarget.map { String(format: "%.1f", $0) } ?? ""
+                        let displayTarget = userProperties.bodyweightTarget.map { userProperties.preferredWeightUnit.fromLbs($0) }
+                        goalInputText = displayTarget.map { String(format: "%.1f", $0) } ?? ""
                         showBodyWeightTargetEditor = true
                     },
                     onShowHistory: { showBodyWeightHistory = true }
@@ -108,7 +110,7 @@ struct AccessoriesView: View {
             }
         }
         .sheet(isPresented: $showBodyWeightInput) {
-            AccessoryInputSheet(metricType: "bodyweight") { value, date in
+            AccessoryInputSheet(metricType: "bodyweight", weightUnit: userProperties.preferredWeightUnit) { value, date in
                 saveCheckin(metricType: "bodyweight", value: value, date: date)
             }
         }
@@ -130,7 +132,8 @@ struct AccessoriesView: View {
             AccessoryHistoryView(
                 metricType: "bodyweight",
                 checkins: bodyweightCheckins,
-                onDelete: { deleteCheckin($0) }
+                onDelete: { deleteCheckin($0) },
+                weightUnit: userProperties.preferredWeightUnit
             )
         }
         .alert("Steps Goal", isPresented: $showStepsGoalEditor) {
@@ -172,7 +175,7 @@ struct AccessoriesView: View {
                 .keyboardType(.decimalPad)
             Button("Save") {
                 if let value = Double(goalInputText) {
-                    userProperties.bodyweightTarget = value
+                    userProperties.bodyweightTarget = userProperties.preferredWeightUnit.toLbs(value)
                     syncGoals()
                 }
             }
@@ -182,7 +185,7 @@ struct AccessoriesView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Set your target body weight (lbs)")
+            Text("Set your target body weight (\(userProperties.preferredWeightUnit.label))")
         }
     }
 

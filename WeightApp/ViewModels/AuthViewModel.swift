@@ -37,6 +37,16 @@ class AuthViewModel: ObservableObject {
         self.modelContext = context
     }
 
+    /// Tracks whether a newly created user still needs onboarding.
+    /// Set to `true` in `createUser()`, cleared in `completePostAuthFlow()`.
+    /// Existing users who never had this flag are unaffected.
+    private static let onboardingPendingKey = "onboardingPending"
+
+    private var isOnboardingPending: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.onboardingPendingKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.onboardingPendingKey) }
+    }
+
     func checkAuthStatus() {
         // First check if we have tokens
         guard KeychainService.shared.isAuthenticated() else {
@@ -54,10 +64,20 @@ class AuthViewModel: ObservableObject {
 
         isAuthenticated = true
         userId = KeychainService.shared.getUserId()
+
+        // Resume onboarding if it was interrupted (e.g. force quit mid-onboarding)
+        if isOnboardingPending {
+            isNewUser = true
+            showPostAuthFlow = true
+        }
     }
 
     func completePostAuthFlow() {
         showPostAuthFlow = false
+    }
+
+    func markOnboardingComplete() {
+        isOnboardingPending = false
     }
 
     func handleSessionExpired() {
@@ -68,6 +88,7 @@ class AuthViewModel: ObservableObject {
         SyncService.shared.clearOnLogout()
 
         // Update state
+        isOnboardingPending = false
         isAuthenticated = false
         userId = nil
         sessionExpired = true
@@ -109,6 +130,7 @@ class AuthViewModel: ObservableObject {
         do {
             let response = try await APIService.shared.createUser(email: email, password: password)
             isNewUser = true
+            isOnboardingPending = true
             showPostAuthFlow = true
             isAuthenticated = true
             userId = response.userId
@@ -188,6 +210,9 @@ class AuthViewModel: ObservableObject {
             fullName: fullName
         )
         isNewUser = response.isNewUser ?? false
+        if isNewUser {
+            isOnboardingPending = true
+        }
         showPostAuthFlow = true
         isAuthenticated = true
         userId = response.userId
@@ -211,6 +236,7 @@ class AuthViewModel: ObservableObject {
         onDataCleanup()
         SyncService.shared.clearOnLogout()
         KeychainService.shared.clearTokens()
+        isOnboardingPending = false
         isAuthenticated = false
         userId = nil
         stopTokenRefreshTimer()

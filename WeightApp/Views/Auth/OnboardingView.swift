@@ -18,12 +18,7 @@ struct OnboardingView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [Color(white: 0.18), Color(white: 0.14)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            Color.black.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 Spacer()
@@ -33,26 +28,38 @@ struct OnboardingView: View {
                 Group {
                     switch currentPage {
                     case 0: OnboardingWelcome()
-                    case 1: OnboardingE1RMConcept(onAnimationComplete: {
+                    case 1: OnboardingFiveLiftsConcept(onAnimationComplete: {
                         withAnimation(.easeOut(duration: 0.4)) {
                             showControls = true
                         }
                     })
-                    case 2: OnboardingEffortTraining(onAnimationComplete: {
+                    case 2: OnboardingProgressConcept(onAnimationComplete: {
                         withAnimation(.easeOut(duration: 0.4)) {
                             showControls = true
                         }
                     })
-                    case 3: OnboardingProgressOptions()
-                    case 4: OnboardingChangePlatesStep(onComplete: onComplete)
+                    // Views 4-6 commented out
+                    // case 3: OnboardingE1RMConcept(onAnimationComplete: {
+                    //     withAnimation(.easeOut(duration: 0.4)) {
+                    //         showControls = true
+                    //     }
+                    // })
+                    // case 4: OnboardingEffortTraining(onAnimationComplete: {
+                    //     withAnimation(.easeOut(duration: 0.4)) {
+                    //         showControls = true
+                    //     }
+                    // })
+                    // case 5: OnboardingProgressOptions()
+                    case 3: OnboardingChangePlatesStep(currentPage: $currentPage, totalPages: totalPages)
+                    case 4: OnboardingBodyProfileStep(currentPage: $currentPage, totalPages: totalPages, onComplete: onComplete)
                     default: EmptyView()
                     }
                 }
 
                 Spacer()
 
-                // Page indicators + Continue button (not shown on plates page — it has its own)
-                if currentPage < totalPages - 1 {
+                // Page indicators + Continue button (not shown on plates/body profile pages — they have their own)
+                if currentPage < totalPages - 2 {
                     VStack(spacing: 20) {
                         // Page dots (hidden on welcome screen)
                         if currentPage > 0 {
@@ -84,8 +91,8 @@ struct OnboardingView: View {
                         .padding(.horizontal, 32)
                     }
                     .padding(.bottom, 50)
-                    // Welcome: always visible. E1RM & Effort screens: fade in after animation. Others: always visible.
-                    .opacity(currentPage == 0 || (currentPage != 1 && currentPage != 2) || showControls ? 1 : 0)
+                    // Welcome + Five Lifts: always visible. E1RM & Effort screens: fade in after animation. Others: always visible.
+                    .opacity(currentPage == 0 || (currentPage != 1 && currentPage != 2 && currentPage != 3 && currentPage != 4) || showControls ? 1 : 0)
                 }
             }
         }
@@ -120,8 +127,8 @@ private struct OnboardingWelcome: View {
                 .frame(height: 12)
 
             // Setup message
-            Text("Before you begin, here's a quick look\nat the core ideas behind the app.")
-                .font(.inter(size: 16))
+            Text("Here's a quick look at the basics.")
+                .font(.inter(size: 18))
                 .foregroundStyle(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
@@ -131,7 +138,130 @@ private struct OnboardingWelcome: View {
     }
 }
 
-// MARK: - Screen 2: Your Estimated 1RM
+// MARK: - Screen 2: Five Fundamental Lifts
+
+private struct OnboardingFiveLiftsConcept: View {
+    var onAnimationComplete: (() -> Void)? = nil
+
+    private let exercises = TrendsCalculator.fundamentalExercises
+
+    // Fake tier scenario: all tier colors represented, overall = advanced (lowest)
+    private let targetProgress: [CGFloat] = [0.90, 0.65, 0.75, 0.70, 0.80]
+    private let exerciseTiers: [StrengthTier] = [.legend, .advanced, .elite, .intermediate, .advanced]
+    private let overallTier: StrengthTier = .advanced
+
+    @State private var animatedExercise: Int = 0
+    @State private var barProgress: [CGFloat] = [0, 0, 0, 0, 0]
+    @State private var showOverallTier: Bool = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Title
+            VStack(spacing: 12) {
+                Text("Your Strength Tier")
+                    .font(.bebasNeue(size: 36))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+
+                (Text("Your strength is measured across\n")
+                    + Text("Five").fontWeight(.semibold).foregroundColor(.appAccent)
+                    + Text(" fundamental lifts."))
+                    .font(.inter(size: 18))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+            }
+
+            Spacer()
+                .frame(height: 32)
+
+            // Exercise list card (contains bars + overall tier)
+            VStack(spacing: 0) {
+                ForEach(Array(exercises.enumerated()), id: \.element.id) { index, exercise in
+                    HStack(spacing: 14) {
+                        Image(exercise.icon)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 32, height: 32)
+                            .foregroundStyle(barProgress[index] > 0 ? Color.appAccent : .white.opacity(0.3))
+
+                        Text(exercise.name)
+                            .font(.inter(size: 15))
+                            .foregroundStyle(.white)
+                            .frame(width: 120, alignment: .leading)
+
+                        // Progress bar
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Color.white.opacity(0.1))
+                                    .frame(height: 6)
+
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(exerciseTiers[index].color)
+                                    .frame(width: barProgress[index] * geo.size.width, height: 6)
+                            }
+                            .frame(maxHeight: .infinity, alignment: .center)
+                        }
+                        .frame(height: 6)
+                    }
+                    .padding(.vertical, 14)
+                    .padding(.horizontal, 16)
+                }
+
+                // Divider before overall tier
+                Rectangle()
+                    .fill(Color.white.opacity(0.1))
+                    .frame(height: 1)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+
+                // Overall tier reveal (inside the card)
+                VStack(spacing: 4) {
+                    Text("STRENGTH TIER")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .tracking(1.5)
+
+                    HStack(spacing: 8) {
+                        Image(overallTier.icon)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 24, height: 24)
+                            .foregroundStyle(overallTier.color)
+
+                        Text(overallTier.title)
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(overallTier.color)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .opacity(showOverallTier ? 1 : 0)
+                .animation(.easeOut(duration: 0.4), value: showOverallTier)
+            }
+            .background(Color(white: 0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, 24)
+        }
+        .onAppear {
+            Task {
+                try? await Task.sleep(for: .milliseconds(300))
+                for i in 0..<5 {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        barProgress[i] = targetProgress[i]
+                    }
+                    try? await Task.sleep(for: .milliseconds(i < 4 ? 300 : 200))
+                }
+                try? await Task.sleep(for: .milliseconds(250))
+                showOverallTier = true
+                onAnimationComplete?()
+            }
+        }
+    }
+}
+
+// MARK: - Screen 3: Your Estimated 1RM
 
 private struct OnboardingE1RMConcept: View {
     var onAnimationComplete: (() -> Void)? = nil
@@ -166,12 +296,12 @@ private struct OnboardingE1RMConcept: View {
             // Title
             VStack(spacing: 12) {
                 Text("Track Your Estimated 1-Rep Max")
-                    .font(.bebasNeue(size: 32))
+                    .font(.bebasNeue(size: 36))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
                 Text("New PRs are identified from each logged set.")
-                    .font(.inter(size: 16))
+                    .font(.inter(size: 18))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
@@ -265,6 +395,189 @@ private struct OnboardingE1RMConcept: View {
     }
 }
 
+// MARK: - Screen 4: Track Your Progress
+
+private struct OnboardingProgressConcept: View {
+    var onAnimationComplete: (() -> Void)? = nil
+
+    @State private var visibleBars: Int = 0
+    @State private var showPRIndicator: Bool = false
+    @State private var showE1RM: Bool = false
+    @State private var displayedE1RM: Int = 185
+    @State private var showDelta: Bool = false
+
+    private let bars: [(height: CGFloat, color: Color)] = [
+        (0.30, .setEasy),
+        (0.35, .setEasy),
+        (0.50, .setModerate),
+        (0.55, .setModerate),
+        (0.70, .setHard),
+        (1.00, .setPR),
+    ]
+
+    private let maxBarHeight: CGFloat = 160
+    private let barWidth: CGFloat = 32
+    private let barSpacing: CGFloat = 12
+    private let indicatorHeight: CGFloat = 56
+
+    private let legendEntries: [(color: Color, label: String, threshold: Int)] = [
+        (.setEasy, "Easy", 1),
+        (.setModerate, "Moderate", 3),
+        (.setHard, "Hard", 5),
+        (.setPR, "Progress", 6),
+    ]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Title
+            VStack(spacing: 12) {
+                Text("Achievable Progress")
+                    .font(.bebasNeue(size: 36))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+
+                (Text("Follow set options that increase your\n")
+                    + Text("estimated one-rep max").foregroundColor(.appAccent))
+                    .font(.inter(size: 18))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+            }
+
+            Spacer()
+                .frame(height: 32)
+
+            // Animated card — matching Five Lifts card dimensions
+            VStack(spacing: 0) {
+                // Bars with overlaid e1RM number
+                ZStack(alignment: .topLeading) {
+                    // Bars with PR indicator above last bar
+                    HStack(alignment: .bottom, spacing: barSpacing) {
+                        ForEach(0..<bars.count, id: \.self) { index in
+                            VStack(spacing: 10) {
+                                if index == bars.count - 1 {
+                                    VStack(spacing: 4) {
+                                        Image("LiftTheBullIcon")
+                                            .resizable()
+                                            .scaledToFit()
+                                            .frame(width: 24, height: 24)
+                                            .foregroundStyle(Color.setPR)
+                                            .shadow(color: Color.setPR.opacity(0.5), radius: 8, x: 0, y: 0)
+
+                                        VStack(spacing: 1) {
+                                            Text("New")
+                                                .font(.inter(size: 9))
+                                                .foregroundStyle(Color.setPR)
+                                            Text("Estimated 1RM")
+                                                .font(.inter(size: 9))
+                                                .foregroundStyle(Color.setPR)
+                                        }
+                                        .fixedSize()
+                                    }
+                                    .frame(width: barWidth, height: indicatorHeight)
+                                    .opacity(showPRIndicator ? 1 : 0)
+                                    .animation(.easeOut(duration: 0.4), value: showPRIndicator)
+                                } else {
+                                    Color.clear
+                                        .frame(width: barWidth, height: indicatorHeight)
+                                }
+
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(bars[index].color)
+                                    .frame(width: barWidth, height: bars[index].height * maxBarHeight)
+                                    .opacity(index < visibleBars ? 1 : 0)
+                                    .animation(.easeOut(duration: 0.4), value: visibleBars)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: maxBarHeight + indicatorHeight + 4, alignment: .bottom)
+
+                    // Hero e1RM number overlaid in upper-left, shifted diagonally into bar area
+                    HStack(alignment: .center, spacing: 6) {
+                        Text("\(displayedE1RM)")
+                            .font(.system(size: 48, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .contentTransition(.numericText())
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("e1RM")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Color.appAccent)
+
+                            // Green delta indicator below e1RM label
+                            HStack(spacing: 3) {
+                                Image(systemName: "triangle.fill")
+                                    .font(.system(size: 8))
+                                Text("+10")
+                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            }
+                            .foregroundStyle(.green)
+                            .opacity(showDelta ? 1 : 0)
+                            .animation(.easeOut(duration: 0.4), value: showDelta)
+                        }
+                    }
+                    .padding(.top, indicatorHeight - 16)
+                    .padding(.leading, 44)
+                    .opacity(showE1RM ? 1 : 0)
+                    .animation(.easeOut(duration: 0.4), value: showE1RM)
+                }
+
+                // Legend
+                HStack(spacing: 24) {
+                    ForEach(legendEntries, id: \.label) { entry in
+                        LegendDot(color: entry.color, label: entry.label)
+                            .opacity(visibleBars >= entry.threshold ? 1 : 0)
+                            .animation(.easeOut(duration: 0.3), value: visibleBars)
+                    }
+                }
+                .frame(height: 16)
+                .padding(.top, 16)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(20)
+            .background(Color(white: 0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, 24)
+            .onAppear {
+                startAnimation()
+            }
+        }
+    }
+
+    private func startAnimation() {
+        Task {
+            // Initial beat, then show e1RM number + first bar simultaneously
+            try await Task.sleep(for: .milliseconds(300))
+            showE1RM = true
+            visibleBars = 1
+
+            for i in 2...bars.count {
+                try await Task.sleep(for: .milliseconds(100))
+                visibleBars = i
+            }
+
+            try await Task.sleep(for: .milliseconds(300))
+            showPRIndicator = true
+
+            // Animate e1RM number rolling up from 185 → 195
+            try await Task.sleep(for: .milliseconds(250))
+            for value in 186...195 {
+                try await Task.sleep(for: .milliseconds(60))
+                withAnimation(.easeOut(duration: 0.2)) {
+                    displayedE1RM = value
+                }
+            }
+
+            // Show green delta indicator
+            try await Task.sleep(for: .milliseconds(200))
+            showDelta = true
+
+            onAnimationComplete?()
+        }
+    }
+}
+
 // MARK: - Screen 1 (Original Chart Version — commented out for reference)
 /*
 private struct OnboardingE1RMConcept_ChartVersion: View {
@@ -298,8 +611,8 @@ private struct OnboardingE1RMConcept_ChartVersion: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 12) {
-                Text("Your Estimated 1RM").font(.bebasNeue(size: 32)).foregroundStyle(.white).multilineTextAlignment(.center)
-                Text("You never need to max out").font(.inter(size: 16)).foregroundStyle(.white.opacity(0.7)).multilineTextAlignment(.center).padding(.horizontal, 40)
+                Text("Your Estimated 1RM").font(.bebasNeue(size: 36)).foregroundStyle(.white).multilineTextAlignment(.center)
+                Text("You never need to max out").font(.inter(size: 18)).foregroundStyle(.white.opacity(0.7)).multilineTextAlignment(.center).padding(.horizontal, 40)
             }
             Spacer().frame(height: 24)
             VStack(alignment: .leading, spacing: 12) {
@@ -396,12 +709,12 @@ private struct OnboardingEffortTraining: View {
             // Title
             VStack(spacing: 12) {
                 Text("Effort-Based Training")
-                    .font(.bebasNeue(size: 32))
+                    .font(.bebasNeue(size: 36))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
                 Text("Each session follows a planned sequence of effort levels.")
-                    .font(.inter(size: 16))
+                    .font(.inter(size: 18))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
@@ -645,8 +958,8 @@ private struct OnboardingEffortTraining_ScrollVersion: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 12) {
-                Text("Effort-Based Training").font(.bebasNeue(size: 32)).foregroundStyle(.white).multilineTextAlignment(.center)
-                Text("Each session follows a plan").font(.inter(size: 16)).foregroundStyle(.white.opacity(0.7)).multilineTextAlignment(.center).padding(.horizontal, 40)
+                Text("Effort-Based Training").font(.bebasNeue(size: 36)).foregroundStyle(.white).multilineTextAlignment(.center)
+                Text("Each session follows a plan").font(.inter(size: 18)).foregroundStyle(.white.opacity(0.7)).multilineTextAlignment(.center).padding(.horizontal, 40)
             }
             Spacer().frame(height: 24)
             VStack(alignment: .leading, spacing: 12) {
@@ -717,12 +1030,12 @@ private struct OnboardingProgressOptions: View {
             // Title
             VStack(spacing: 12) {
                 Text("Achievable Progress")
-                    .font(.bebasNeue(size: 32))
+                    .font(.bebasNeue(size: 36))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
                 Text("Follow weight and rep options that can move your e1RM forward.")
-                    .font(.inter(size: 16))
+                    .font(.inter(size: 18))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
@@ -788,7 +1101,8 @@ private struct OnboardingProgressOptions: View {
 // MARK: - Screen 5: Change Plates
 
 private struct OnboardingChangePlatesStep: View {
-    let onComplete: () -> Void
+    @Binding var currentPage: Int
+    let totalPages: Int
 
     @Environment(\.modelContext) private var modelContext
     @Query private var userPropertiesItems: [UserProperties]
@@ -824,13 +1138,13 @@ private struct OnboardingChangePlatesStep: View {
         VStack(spacing: 0) {
             // Title
             VStack(spacing: 12) {
-                Text("Available Plate Increments")
-                    .font(.bebasNeue(size: 32))
+                Text("Select Plate Increments")
+                    .font(.bebasNeue(size: 36))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
-                Text("Select your available plates for more precise weight suggestions.")
-                    .font(.inter(size: 16))
+                Text("Select the change plates you have\navailable for more precise suggestions.")
+                    .font(.inter(size: 18))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
@@ -869,9 +1183,9 @@ private struct OnboardingChangePlatesStep: View {
 
             // Page dots
             HStack(spacing: 8) {
-                ForEach(0..<5, id: \.self) { index in
+                ForEach(0..<totalPages, id: \.self) { index in
                     Circle()
-                        .fill(index == 4 ? Color.appAccent : Color.white.opacity(0.3))
+                        .fill(index == currentPage ? Color.appAccent : Color.white.opacity(0.3))
                         .frame(width: 8, height: 8)
                 }
             }
@@ -886,14 +1200,16 @@ private struct OnboardingChangePlatesStep: View {
                         await SyncService.shared.updateChangePlates(userProperties.availableChangePlates)
                     }
                 }
-                onComplete()
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    currentPage += 1
+                }
             } label: {
                 Text(hasSelection ? "Continue" : "Maybe Later")
                     .font(.interSemiBold(size: 16))
-                    .foregroundStyle(.black)
+                    .foregroundStyle(hasSelection ? .black : .white.opacity(0.7))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(Color.appAccent)
+                    .background(hasSelection ? Color.appAccent : Color(white: 0.2))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             }
             .buttonStyle(.plain)
@@ -912,6 +1228,190 @@ private struct OnboardingChangePlatesStep: View {
             userProperties.availableChangePlates.append(plate)
         }
         try? modelContext.save()
+    }
+}
+
+// MARK: - Screen 6: Body Profile
+
+private struct OnboardingBodyProfileStep: View {
+    @Binding var currentPage: Int
+    let totalPages: Int
+    let onComplete: () -> Void
+
+    @Environment(\.modelContext) private var modelContext
+    @Query private var userPropertiesItems: [UserProperties]
+
+    @State private var selectedSex: String = "male"
+    @State private var bodyweightValue: Double = 200.0
+    @State private var selectedUnit: WeightUnit = .lbs
+    @State private var hasInteracted: Bool = false
+    /// Canonical lbs value to avoid round-trip conversion drift (e.g. 200→91kg→201)
+    @State private var canonicalLbs: Double = 200.0
+    @State private var isUnitSwitching: Bool = false
+
+    private var userProperties: UserProperties {
+        if let props = userPropertiesItems.first { return props }
+        let props = UserProperties()
+        modelContext.insert(props)
+        return props
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Title
+            VStack(spacing: 12) {
+                Text("Set Your Baseline")
+                    .font(.bebasNeue(size: 36))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+
+                Text("Your inputs help to determine\nyour strength tier.")
+                    .font(.inter(size: 18))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+            }
+
+            Spacer()
+                .frame(height: 32)
+
+            // Content card
+            VStack(spacing: 24) {
+                // Biological sex toggle
+                VStack(spacing: 8) {
+                    Text("BIOLOGICAL SEX")
+                        .font(.interSemiBold(size: 10))
+                        .foregroundStyle(Color(white: 0.5))
+
+                    HStack(spacing: 12) {
+                        ForEach(["male", "female"], id: \.self) { sex in
+                            Button {
+                                hasInteracted = true
+                                selectedSex = sex
+                            } label: {
+                                Text(sex.capitalized)
+                                    .font(.interSemiBold(size: 14))
+                                    .foregroundStyle(selectedSex == sex ? .black : .white.opacity(0.7))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(selectedSex == sex ? Color.appAccent : Color(white: 0.16))
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .frame(width: 240)
+                }
+
+                // Bodyweight picker
+                VStack(spacing: 8) {
+                    Text("BODYWEIGHT")
+                        .font(.interSemiBold(size: 10))
+                        .foregroundStyle(Color(white: 0.5))
+
+                    Picker("Bodyweight", selection: $bodyweightValue) {
+                        let range = selectedUnit.bodyweightPickerRange
+                        ForEach(Array(stride(from: range.lowerBound, through: range.upperBound, by: 1.0)), id: \.self) { value in
+                            Text("\(Int(value)) \(selectedUnit.rawValue)")
+                                .tag(value)
+                        }
+                    }
+                    .pickerStyle(.wheel)
+                    .frame(height: 120)
+                    .onChange(of: bodyweightValue) {
+                        guard !isUnitSwitching else { return }
+                        hasInteracted = true
+                        // Update canonical lbs when user changes picker in either unit
+                        if selectedUnit == .lbs {
+                            canonicalLbs = bodyweightValue
+                        } else {
+                            canonicalLbs = (bodyweightValue / 0.45359237).rounded()
+                        }
+                    }
+                }
+
+                // Weight unit toggle
+                VStack(spacing: 8) {
+                    Text("WEIGHT UNIT")
+                        .font(.interSemiBold(size: 10))
+                        .foregroundStyle(Color(white: 0.5))
+
+                    Picker("Weight Unit", selection: $selectedUnit) {
+                        Text("lbs").tag(WeightUnit.lbs)
+                        Text("kg").tag(WeightUnit.kg)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 200)
+                    .onChange(of: selectedUnit) { oldUnit, newUnit in
+                        hasInteracted = true
+                        isUnitSwitching = true
+                        if oldUnit == .kg && newUnit == .lbs {
+                            // Switching back to lbs — restore canonical value
+                            // (updated whenever user changes the picker in kg)
+                            bodyweightValue = canonicalLbs
+                        } else if oldUnit == .lbs && newUnit == .kg {
+                            // Save current lbs as canonical, then convert for display
+                            canonicalLbs = bodyweightValue
+                            bodyweightValue = (bodyweightValue * 0.45359237).rounded()
+                            // Clamp to valid range
+                            let range = newUnit.bodyweightPickerRange
+                            bodyweightValue = min(max(bodyweightValue, range.lowerBound), range.upperBound)
+                        }
+                        isUnitSwitching = false
+                    }
+                }
+            }
+            .padding(.vertical, 24)
+            .padding(.horizontal, 24)
+            .background(Color(white: 0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, 24)
+
+            Spacer()
+
+            // Page dots
+            HStack(spacing: 8) {
+                ForEach(0..<totalPages, id: \.self) { index in
+                    Circle()
+                        .fill(index == currentPage ? Color.appAccent : Color.white.opacity(0.3))
+                        .frame(width: 8, height: 8)
+                }
+            }
+
+            Spacer()
+                .frame(height: 20)
+
+            // Bottom button
+            Button {
+                // Save locally
+                userProperties.biologicalSex = selectedSex
+                userProperties.bodyweight = selectedUnit.toLbs(bodyweightValue)
+                userProperties.preferredWeightUnit = selectedUnit
+                try? modelContext.save()
+
+                // Sync to backend via SyncService (retries on failure)
+                Task {
+                    await SyncService.shared.updateBodyProfile(
+                        bodyweight: selectedUnit.toLbs(bodyweightValue),
+                        biologicalSex: selectedSex,
+                        weightUnit: selectedUnit.rawValue
+                    )
+                }
+
+                onComplete()
+            } label: {
+                Text(hasInteracted ? "Continue" : "Use Defaults")
+                    .font(.interSemiBold(size: 16))
+                    .foregroundStyle(hasInteracted ? .black : .white.opacity(0.7))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(hasInteracted ? Color.appAccent : Color(white: 0.2))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 32)
+            .padding(.bottom, 50)
+        }
     }
 }
 

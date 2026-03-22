@@ -22,6 +22,7 @@ struct ProgressOptionCard: View {
     let columnHighlighted: Bool
     var weightColumnHighlighted: Bool = false
     var accentColor: Color = .setPR
+    var weightUnit: WeightUnit = .lbs
 
     var body: some View {
         HStack(spacing: 0) {
@@ -62,7 +63,8 @@ struct ProgressOptionCard: View {
 
             // Gain
             let delta = suggestion.delta
-            Text("\(delta >= 0 ? "+" : "")\(delta.formatted(.number.precision(.fractionLength(2))))")
+            let displayDelta = weightUnit.fromLbs(delta)
+            Text("\(displayDelta >= 0 ? "+" : "")\(displayDelta.formatted(.number.precision(.fractionLength(2))))")
                 .font(.callout)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -82,12 +84,8 @@ struct ProgressOptionCard: View {
         )
     }
 
-    private func formatWeight(_ weight: Double) -> String {
-        if weight.truncatingRemainder(dividingBy: 1) == 0 {
-            return "\(Int(weight))"
-        } else {
-            return weight.formatted(.number.precision(.fractionLength(1)))
-        }
+    private func formatWeight(_ lbsWeight: Double) -> String {
+        weightUnit.formatWeight(lbsWeight)
     }
 }
 
@@ -99,6 +97,7 @@ struct EffortOptionCard: View {
     var accentColor: Color = .setEasy
     var isLastSet: Bool = false
     var isMacroPlate: Bool = false
+    var weightUnit: WeightUnit = .lbs
 
     var body: some View {
         HStack(spacing: 0) {
@@ -170,12 +169,8 @@ struct EffortOptionCard: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func formatWeight(_ weight: Double) -> String {
-        if weight.truncatingRemainder(dividingBy: 1) == 0 {
-            return "\(Int(weight))"
-        } else {
-            return weight.formatted(.number.precision(.fractionLength(1)))
-        }
+    private func formatWeight(_ lbsWeight: Double) -> String {
+        weightUnit.formatWeight(lbsWeight)
     }
 }
 

@@ -12,6 +12,7 @@ struct StrengthMilestonesWidget: View {
     let bodyweight: Double?
     let biologicalSex: String?
     var isPremium: Bool = true
+    var weightUnit: WeightUnit = .lbs
     @Binding var showUpsell: Bool
 
     var body: some View {
@@ -26,51 +27,17 @@ struct StrengthMilestonesWidget: View {
 
     @ViewBuilder
     private var unlockedContent: some View {
-        if let bw = bodyweight, let sex = biologicalSex {
-            if let result = TrendsCalculator.strengthMilestones(from: allEstimated1RM, bodyweight: bw, biologicalSex: sex) {
-                let hasData = result.batches.contains { batch in
-                    batch.milestones.contains { $0.currentE1RM > 0 }
-                }
-                if hasData {
-                    MilestoneContentView(result: result)
-                } else {
-                    WidgetCard(title: "Strength Milestones") {
-                        EmptyWidgetState(
-                            icon: "medal.fill",
-                            message: "Log sets for the 5 fundamental lifts to track your milestones"
-                        )
-                    }
-                }
-            } else {
-                WidgetCard(title: "Strength Milestones") {
-                    EmptyWidgetState(
-                        icon: "medal.fill",
-                        message: "Log sets for the 5 fundamental lifts to track your milestones"
-                    )
-                }
-            }
+        if let bw = bodyweight, let sex = biologicalSex,
+           let result = TrendsCalculator.strengthMilestones(from: allEstimated1RM, bodyweight: bw, biologicalSex: sex) {
+            MilestoneContentView(result: result, weightUnit: weightUnit)
         } else {
             WidgetCard(title: "Strength Milestones") {
-                prerequisiteMessage
+                EmptyWidgetState(
+                    icon: "medal.fill",
+                    message: "Log sets for the 5 fundamental lifts to track your milestones"
+                )
             }
         }
-    }
-
-    // MARK: - Prerequisite Message
-
-    private var prerequisiteMessage: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "person.fill.questionmark")
-                .font(.title2)
-                .foregroundStyle(.white.opacity(0.3))
-
-            Text("Set bodyweight and biological sex in the Strength Tier widget above to see milestones")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.5))
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 20)
     }
 
     // MARK: - Locked Content
@@ -80,7 +47,7 @@ struct StrengthMilestonesWidget: View {
     // Fake achieved pattern per tier row — ensures every color is well-represented
     // [Deadlifts, Squats, Bench, Row, OHP]
     private static let fakeAchievedPattern: [[Bool]] = [
-        [true,  true,  true,  true,  true ],  // Rookie — all done
+        [true,  true,  true,  true,  true ],  // Novice — all done
         [true,  true,  true,  true,  true ],  // Beginner — all done
         [true,  true,  true,  true,  false],  // Intermediate — 4/5
         [true,  true,  false, true,  false],  // Advanced — 3/5
@@ -91,7 +58,7 @@ struct StrengthMilestonesWidget: View {
     private static let fakeExerciseNames = ["Deadlifts", "Squats", "Bench", "Row", "OHP"]
 
     private var lockedContent: some View {
-        let tiers: [StrengthTier] = [.rookie, .beginner, .intermediate, .advanced, .elite, .legend]
+        let tiers: [StrengthTier] = [.novice, .beginner, .intermediate, .advanced, .elite, .legend]
 
         return VStack(spacing: 10) {
             // Fake header
@@ -157,6 +124,7 @@ struct StrengthMilestonesWidget: View {
 
 private struct MilestoneContentView: View {
     let result: TrendsCalculator.MilestoneResult
+    var weightUnit: WeightUnit = .lbs
 
     @State private var expandedTiers: Set<Int> = []
 
@@ -181,7 +149,8 @@ private struct MilestoneContentView: View {
                 TierBatchSection(
                     batch: batch,
                     isExpanded: expandedTiers.contains(batch.id),
-                    isLegendAchieved: batch.tier == .legend && batch.allAchieved
+                    isLegendAchieved: batch.tier == .legend && batch.allAchieved,
+                    weightUnit: weightUnit
                 ) {
                     toggleTier(batch.id)
                 }
@@ -231,6 +200,7 @@ private struct TierBatchSection: View {
     let batch: TrendsCalculator.TierMilestoneBatch
     let isExpanded: Bool
     let isLegendAchieved: Bool
+    var weightUnit: WeightUnit = .lbs
     let onToggle: () -> Void
 
     var body: some View {
@@ -277,7 +247,8 @@ private struct TierBatchSection: View {
                         TierMilestoneBadge(
                             milestone: milestone,
                             tierColor: batch.tier.color,
-                            isLegend: batch.tier == .legend
+                            isLegend: batch.tier == .legend,
+                            weightUnit: weightUnit
                         )
                     }
                 }
@@ -294,6 +265,7 @@ private struct TierMilestoneBadge: View {
     let milestone: TrendsCalculator.TierMilestone
     let tierColor: Color
     let isLegend: Bool
+    var weightUnit: WeightUnit = .lbs
 
     private var badgeSize: CGFloat { 48 }
 
@@ -347,7 +319,9 @@ private struct TierMilestoneBadge: View {
                 .minimumScaleFactor(0.7)
 
             // Target label
-            Text(milestone.targetLabel)
+            Text(milestone.isAbsoluteTarget
+                 ? "\(Int(weightUnit.fromLbs(milestone.targetLbs))) \(weightUnit.label)"
+                 : milestone.targetLabel)
                 .font(.system(size: 8, weight: .regular))
                 .foregroundStyle(.white.opacity(0.65))
                 .lineLimit(1)

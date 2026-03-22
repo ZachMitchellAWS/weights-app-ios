@@ -11,6 +11,7 @@ struct AccessoryHistoryView: View {
     let metricType: String
     let checkins: [AccessoryGoalCheckin]
     let onDelete: (AccessoryGoalCheckin) -> Void
+    var weightUnit: WeightUnit = .lbs
 
     @Environment(\.dismiss) private var dismiss
 
@@ -27,7 +28,7 @@ struct AccessoryHistoryView: View {
         switch metricType {
         case "steps": return "steps"
         case "protein": return "g"
-        case "bodyweight": return "lbs"
+        case "bodyweight": return weightUnit.label
         default: return ""
         }
     }
@@ -104,7 +105,8 @@ struct AccessoryHistoryView: View {
     private func formattedValue(_ value: Double) -> String {
         switch metricType {
         case "bodyweight":
-            return String(format: "%.1f \(unitLabel)", value)
+            let displayValue = weightUnit.fromLbs(value)
+            return String(format: "%.1f \(unitLabel)", displayValue)
         case "steps":
             return "\(Int(value).formatted()) \(unitLabel)"
         case "protein":

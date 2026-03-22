@@ -12,6 +12,7 @@ import Charts
 struct SetIntensityWidget: View {
     let allSets: [LiftSet]
     let allEstimated1RM: [Estimated1RM]
+    var weightUnit: WeightUnit = .lbs
 
     @Query(filter: #Predicate<Exercise> { !$0.deleted }, sort: \Exercise.createdAt) private var exercises: [Exercise]
 
@@ -171,7 +172,7 @@ struct SetIntensityWidget: View {
             }
 
             VStack(spacing: 4) {
-                Text("Weight: \(setInfo.set.weight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
+                Text("Weight: \(weightUnit.formatWeight2dp(setInfo.set.weight)) \(weightUnit.label)")
                     .font(.subheadline)
                     .foregroundStyle(.white)
                 Text("Reps: \(setInfo.set.reps)")
@@ -181,7 +182,7 @@ struct SetIntensityWidget: View {
                     Text("Intensity: \(Int(setInfo.percentageOfCurrent))% of current")
                         .font(.subheadline)
                         .foregroundStyle(.white)
-                    Text("Est. 1RM: \(setInfo.estimated1RM.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
+                    Text("Est. 1RM: \(weightUnit.formatWeight2dp(setInfo.estimated1RM)) \(weightUnit.label)")
                         .font(.title3)
                         .foregroundStyle(Color.appAccent)
                 }

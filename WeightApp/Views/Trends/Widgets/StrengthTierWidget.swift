@@ -6,51 +6,28 @@
 //
 
 import SwiftUI
-import SwiftData
 
 struct StrengthTierWidget: View {
     let allEstimated1RM: [Estimated1RM]
     @Bindable var userProperties: UserProperties
     var isPremium: Bool = true
     @Binding var showUpsell: Bool
-    @Environment(\.modelContext) private var modelContext
 
-    @State private var showWeightPicker = false
-    @State private var tempBodyweight: Double = 180
+    private var biologicalSex: String { userProperties.biologicalSex ?? "male" }
+    private var bodyweight: Double { userProperties.bodyweight ?? 0 }
 
-    private var biologicalSex: String? { userProperties.biologicalSex }
-    private var bodyweight: Double? { userProperties.bodyweight }
-
-    private var hasBothPrerequisites: Bool {
-        biologicalSex != nil && bodyweight != nil
-    }
-
-    private var tierResult: TrendsCalculator.StrengthTierResult? {
-        guard let sex = biologicalSex, let bw = bodyweight else { return nil }
-        return TrendsCalculator.strengthTierAssessment(
+    private var tierResult: TrendsCalculator.StrengthTierResult {
+        TrendsCalculator.strengthTierAssessment(
             from: allEstimated1RM,
-            bodyweight: bw,
-            biologicalSex: sex
+            bodyweight: bodyweight,
+            biologicalSex: biologicalSex
         )
     }
 
     var body: some View {
         if isPremium {
             VStack(alignment: .leading, spacing: 12) {
-                if hasBothPrerequisites, let result = tierResult {
-                    resultsView(result)
-                } else {
-                    // Show title manually for prerequisite view
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Strength Tier")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.7))
-                        Text("Overall assessment based on your 5 fundamental lifts")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.4))
-                    }
-                    prerequisiteView
-                }
+                resultsView(tierResult)
             }
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -146,156 +123,20 @@ struct StrengthTierWidget: View {
                 Text(name)
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.7))
-                Text("\(lbs) lbs")
+                Text("\(lbs) \(userProperties.preferredWeightUnit.label)")
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(0.4))
             }
             Spacer()
             Text(tier.title)
                 .font(.caption2.weight(.semibold))
-                .foregroundStyle(tier == .rookie ? .white.opacity(0.6) : tier.color)
+                .foregroundStyle(tier <= .novice ? .white.opacity(0.6) : tier.color)
                 .frame(width: 90)
                 .padding(.vertical, 3)
-                .background(tier == .rookie ? Color.white.opacity(0.1) : tier.color.opacity(0.15))
+                .background(tier <= .novice ? Color.white.opacity(0.1) : tier.color.opacity(0.15))
                 .clipShape(Capsule())
         }
         .padding(.vertical, 8)
-    }
-
-    // MARK: - Prerequisite View
-
-    private var prerequisiteView: some View {
-        VStack(spacing: 16) {
-            // Biological Sex
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Biological Sex")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.5))
-
-                HStack(spacing: 0) {
-                    sexButton("Male", value: "male")
-                    sexButton("Female", value: "female")
-                }
-                .background(Color.white.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-            }
-
-            // Bodyweight
-            if bodyweight == nil {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Bodyweight")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.5))
-
-                    Button {
-                        tempBodyweight = 180
-                        showWeightPicker = true
-                    } label: {
-                        HStack {
-                            Text("Tap to set bodyweight")
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.5))
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.3))
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(Color.white.opacity(0.08))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                }
-            }
-
-            if biologicalSex != nil && bodyweight == nil {
-                Text("Set your bodyweight to see your strength tier")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.4))
-                    .multilineTextAlignment(.center)
-            } else if biologicalSex == nil {
-                Text("Select biological sex to begin")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.4))
-                    .multilineTextAlignment(.center)
-            }
-        }
-        .sheet(isPresented: $showWeightPicker) {
-            weightPickerSheet
-        }
-    }
-
-    private func sexButton(_ label: String, value: String) -> some View {
-        Button {
-            userProperties.biologicalSex = value
-            Task { await SyncService.shared.updateBiologicalSex(value) }
-        } label: {
-            Text(label)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(biologicalSex == value ? .black : .white.opacity(0.7))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .background(biologicalSex == value ? Color.appAccent : Color.clear)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-        }
-    }
-
-    // MARK: - Weight Picker Sheet
-
-    private var weightPickerSheet: some View {
-        NavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
-
-                VStack(spacing: 16) {
-                    Spacer().frame(height: 8)
-
-                    Text("Set Bodyweight")
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(.white)
-
-                    Spacer().frame(height: 20)
-
-                    HStack(spacing: 0) {
-                        Picker("Weight", selection: $tempBodyweight) {
-                            ForEach(Array(stride(from: 50.0, through: 500.0, by: 1.0)), id: \.self) { weight in
-                                Text("\(Int(weight))")
-                                    .tag(weight)
-                            }
-                        }
-                        .pickerStyle(.wheel)
-                        .frame(maxWidth: .infinity)
-
-                        Text("lbs")
-                            .font(.title2.weight(.bold))
-                            .foregroundStyle(.white.opacity(0.7))
-                            .padding(.trailing, 40)
-                    }
-                    .frame(height: 200)
-
-                    Spacer()
-
-                    Button {
-                        userProperties.bodyweight = tempBodyweight
-                        try? modelContext.save()
-                        showWeightPicker = false
-                        Task { await SyncService.shared.updateBodyweight(tempBodyweight) }
-                    } label: {
-                        Text("Done")
-                            .font(.headline)
-                            .foregroundStyle(.black)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(Color.appAccent)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 20)
-                }
-            }
-            .presentationDetents([.height(420)])
-            .presentationDragIndicator(.visible)
-        }
     }
 
     // MARK: - Results View
@@ -303,7 +144,10 @@ struct StrengthTierWidget: View {
     @State private var expandedExercises: Set<String> = []
 
     private func resultsView(_ result: TrendsCalculator.StrengthTierResult) -> some View {
-        VStack(spacing: 16) {
+        let isChecklistMode = result.overallTier == .none
+        let loggedCount = result.exerciseTiers.filter { $0.e1rm != nil }.count
+
+        return VStack(spacing: 16) {
             // Centered header
             VStack(spacing: 6) {
                 Text("STRENGTH TIER")
@@ -311,24 +155,46 @@ struct StrengthTierWidget: View {
                     .foregroundStyle(.white)
                     .tracking(1.5)
 
-                HStack(spacing: 10) {
-                    Image(result.overallTier.icon)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 30, height: 30)
-                        .foregroundStyle(StrengthTier.elite.color)
+                if isChecklistMode {
+                    Text("Log All 5 Lifts to Unlock")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.5))
+                    Text("\(loggedCount) of 5 exercises logged")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.4))
+                } else {
+                    HStack(spacing: 10) {
+                        Image(result.overallTier.icon)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 30, height: 30)
+                            .foregroundStyle(StrengthTier.elite.color)
 
-                    Text(result.overallTier.title)
-                        .font(.title.weight(.bold))
-                        .foregroundStyle(result.overallTier.color)
+                        Text(result.overallTier.title)
+                            .font(.title.weight(.bold))
+                            .foregroundStyle(result.overallTier.color)
+                    }
                 }
-
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
 
-            // Overall tier progress bar
-            if result.overallTier != .legend {
+            // Progress indicator
+            if isChecklistMode {
+                HStack(spacing: 12) {
+                    ForEach(Array(result.exerciseTiers.enumerated()), id: \.offset) { _, item in
+                        Circle()
+                            .fill(item.e1rm != nil ? Color.appAccent : .white.opacity(0.15))
+                            .overlay(
+                                item.e1rm == nil
+                                    ? Circle().stroke(.white.opacity(0.3), lineWidth: 1)
+                                    : nil
+                            )
+                            .frame(width: 10, height: 10)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            } else if result.overallTier != .legend {
                 let overallProgress = overallTierProgress(result)
                 VStack(spacing: 4) {
                     GeometryReader { geo in
@@ -354,9 +220,10 @@ struct StrengthTierWidget: View {
             VStack(spacing: 0) {
                 ForEach(Array(result.exerciseTiers.enumerated()), id: \.element.exercise.id) { index, item in
                     VStack(spacing: 0) {
-                        exerciseRow(item: item, isExpanded: expandedExercises.contains(item.exercise.name))
+                        exerciseRow(item: item, isExpanded: expandedExercises.contains(item.exercise.name), checklistMode: isChecklistMode)
                             .contentShape(Rectangle())
                             .onTapGesture {
+                                guard !isChecklistMode else { return }
                                 withAnimation(.easeInOut(duration: 0.25)) {
                                     if expandedExercises.contains(item.exercise.name) {
                                         expandedExercises.remove(item.exercise.name)
@@ -366,7 +233,7 @@ struct StrengthTierWidget: View {
                                 }
                             }
 
-                        if expandedExercises.contains(item.exercise.name) {
+                        if !isChecklistMode && expandedExercises.contains(item.exercise.name) {
                             exerciseExpansion(for: item.exercise.name)
                                 .transition(.opacity)
                         }
@@ -383,17 +250,26 @@ struct StrengthTierWidget: View {
             tierLegendBar
 
             // Explanation
-            Text("Your overall tier is determined by your lowest lift. All five exercises must reach a tier for it to apply.")
-                .font(.caption2)
-                .italic()
-                .foregroundStyle(.white.opacity(0.3))
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
+            if isChecklistMode {
+                Text("Log at least one set of each exercise above to see your strength tier.")
+                    .font(.caption2)
+                    .italic()
+                    .foregroundStyle(.white.opacity(0.3))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+            } else {
+                Text("Your overall tier is determined by your lowest lift. All five exercises must reach a tier for it to apply.")
+                    .font(.caption2)
+                    .italic()
+                    .foregroundStyle(.white.opacity(0.3))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+            }
         }
     }
 
-    private func exerciseRow(item: (exercise: TrendsCalculator.FundamentalExercise, e1rm: Double?, tier: StrengthTier), isExpanded: Bool) -> some View {
-        let progress = progressToNextTier(item: item)
+    private func exerciseRow(item: (exercise: TrendsCalculator.FundamentalExercise, e1rm: Double?, tier: StrengthTier), isExpanded: Bool, checklistMode: Bool = false) -> some View {
+        let progress = checklistMode ? nil : progressToNextTier(item: item)
 
         return HStack(spacing: 10) {
             Image(item.exercise.icon)
@@ -409,15 +285,15 @@ struct StrengthTierWidget: View {
 
                 if let e1rm = item.e1rm {
                     HStack(spacing: 0) {
-                        Text("\(Int(e1rm)) lbs")
+                        Text("\(Int(userProperties.preferredWeightUnit.fromLbs(e1rm))) \(userProperties.preferredWeightUnit.label)")
                             .font(.caption2)
                             .foregroundStyle(.white.opacity(0.4))
 
-                        if item.tier > .rookie, let bw = bodyweight, bw > 0 {
+                        if item.tier > .novice, bodyweight > 0 {
                             Text(" | ")
                                 .font(.caption2)
                                 .foregroundStyle(.white.opacity(0.2))
-                            Text(String(format: "%.2f× BW", e1rm / bw))
+                            Text(String(format: "%.2f× BW", e1rm / bodyweight))
                                 .font(.caption2)
                                 .foregroundStyle(.white.opacity(0.3))
                         }
@@ -431,37 +307,46 @@ struct StrengthTierWidget: View {
 
             Spacer()
 
-            // Progress bar — fixed position before fixed-width pill
-            if let progress = progress {
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.white.opacity(0.1))
-                        .frame(width: 36, height: 4)
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(item.tier.color)
-                        .frame(width: 36 * progress, height: 4)
-                }
-                .frame(width: 36, height: 4)
+            if checklistMode {
+                // Checklist status icon
+                Image(systemName: item.e1rm != nil ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 18))
+                    .foregroundStyle(item.e1rm != nil ? Color.appAccent : .white.opacity(0.25))
             } else {
-                Spacer().frame(width: 36)
+                // Progress bar — fixed position before fixed-width pill
+                if let progress = progress {
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color.white.opacity(0.1))
+                            .frame(width: 36, height: 4)
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(item.tier.color)
+                            .frame(width: 36 * progress, height: 4)
+                    }
+                    .frame(width: 36, height: 4)
+                } else {
+                    Spacer().frame(width: 36)
+                }
+
+                // Tier pill — fixed width so all rows align
+                Text(item.tier.title)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(item.tier <= .novice ? .white.opacity(0.6) : item.tier.color)
+                    .frame(width: 90)
+                    .padding(.vertical, 3)
+                    .background(
+                        item.tier <= .novice ? Color.white.opacity(0.1) : item.tier.color.opacity(0.15)
+                    )
+                    .clipShape(Capsule())
             }
 
-            // Tier pill — fixed width so all rows align
-            Text(item.tier.title)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(item.tier == .rookie ? .white.opacity(0.6) : item.tier.color)
-                .frame(width: 90)
-                .padding(.vertical, 3)
-                .background(
-                    item.tier == .rookie ? Color.white.opacity(0.1) : item.tier.color.opacity(0.15)
-                )
-                .clipShape(Capsule())
-
             // Expand/collapse indicator
-            Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.white.opacity(0.3))
-                .rotationEffect(.degrees(isExpanded ? 180 : 0))
+            if !checklistMode {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.3))
+                    .rotationEffect(.degrees(isExpanded ? 180 : 0))
+            }
         }
         .padding(.vertical, 8)
     }
@@ -469,8 +354,8 @@ struct StrengthTierWidget: View {
     // MARK: - Per-Row Expansion
 
     private func exerciseExpansion(for exerciseName: String) -> some View {
-        let sex = biologicalSex.flatMap { BiologicalSex(rawValue: $0) } ?? .male
-        let bw = bodyweight ?? 0
+        let sex = BiologicalSex(rawValue: biologicalSex) ?? .male
+        let bw = bodyweight
 
         return VStack(alignment: .leading, spacing: 5) {
             ForEach(StrengthTier.allCases, id: \.rawValue) { tier in
@@ -498,16 +383,20 @@ struct StrengthTierWidget: View {
     }
 
     private func expansionRangeLabel(_ threshold: TierThreshold, bodyweight: Double) -> String {
+        let unit = userProperties.preferredWeightUnit
         if threshold.isAbsolute {
-            let maxStr = threshold.max.map { "\(Int($0))" } ?? "+"
-            return "\(Int(threshold.min))–\(maxStr) lbs"
+            let minDisplay = Int(unit.fromLbs(threshold.min))
+            let maxStr = threshold.max.map { "\(Int(unit.fromLbs($0)))" } ?? "+"
+            return "\(minDisplay)–\(maxStr) \(unit.label)"
         } else {
-            let minLbs = Int(threshold.min * bodyweight)
+            let minLbs = threshold.min * bodyweight
+            let minDisplay = Int(unit.fromLbs(minLbs))
             if let max = threshold.max {
-                let maxLbs = Int(max * bodyweight)
-                return "\(minLbs)–\(maxLbs) lbs (\(String(format: "%.2g", threshold.min))–\(String(format: "%.2g", max))× BW)"
+                let maxLbs = max * bodyweight
+                let maxDisplay = Int(unit.fromLbs(maxLbs))
+                return "\(minDisplay)–\(maxDisplay) \(unit.label) (\(String(format: "%.2g", threshold.min))–\(String(format: "%.2g", max))× BW)"
             } else {
-                return "\(minLbs)+ lbs (\(String(format: "%.2g", threshold.min))× BW+)"
+                return "\(minDisplay)+ \(unit.label) (\(String(format: "%.2g", threshold.min))× BW+)"
             }
         }
     }
@@ -515,7 +404,7 @@ struct StrengthTierWidget: View {
     // MARK: - Tier Legend
 
     private var tierLegendBar: some View {
-        let tiers = StrengthTier.allCases
+        let tiers = StrengthTier.allCases.filter { $0 != .none }
         let topRow = Array(tiers.prefix(3))
         let bottomRow = Array(tiers.suffix(3))
 
@@ -545,7 +434,8 @@ struct StrengthTierWidget: View {
     // MARK: - Progress Calculation
 
     private func overallTierProgress(_ result: TrendsCalculator.StrengthTierResult) -> Double {
-        guard let bw = bodyweight, let sex = biologicalSex.flatMap({ BiologicalSex(rawValue: $0) }) else { return 0 }
+        guard let sex = BiologicalSex(rawValue: biologicalSex) else { return 0 }
+        let bw = bodyweight
         guard let nextTier = result.overallTier.next else { return 0 }
 
         // For each exercise, calculate progress toward the next overall tier
@@ -580,7 +470,8 @@ struct StrengthTierWidget: View {
     }
 
     private func progressToNextTier(item: (exercise: TrendsCalculator.FundamentalExercise, e1rm: Double?, tier: StrengthTier)) -> Double? {
-        guard let bw = bodyweight, let sex = biologicalSex.flatMap({ BiologicalSex(rawValue: $0) }) else { return nil }
+        guard let sex = BiologicalSex(rawValue: biologicalSex) else { return nil }
+        let bw = bodyweight
         guard item.tier != .legend else { return nil }
         guard let e1rm = item.e1rm else { return 0 }
 

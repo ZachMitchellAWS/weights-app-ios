@@ -10,6 +10,7 @@ import SwiftUI
 struct AccessoryInputSheet: View {
     let metricType: String
     let onSave: (Double, Date) -> Void
+    var weightUnit: WeightUnit = .lbs
 
     @Environment(\.dismiss) private var dismiss
     @State private var inputText = ""
@@ -21,7 +22,7 @@ struct AccessoryInputSheet: View {
         switch metricType {
         case "steps": return "steps"
         case "protein": return "g"
-        case "bodyweight": return "lbs"
+        case "bodyweight": return weightUnit.label
         default: return ""
         }
     }
@@ -65,7 +66,8 @@ struct AccessoryInputSheet: View {
 
                 Button {
                     if let value = parsedValue, value > 0 {
-                        onSave(value, selectedDate)
+                        let saveValue = metricType == "bodyweight" ? weightUnit.toLbs(value) : value
+                        onSave(saveValue, selectedDate)
                         dismiss()
                     }
                 } label: {

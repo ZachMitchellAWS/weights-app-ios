@@ -11,6 +11,7 @@ struct PRTimelineWidget: View {
     let allEstimated1RM: [Estimated1RM]
     var isPremium: Bool = true
     @Binding var showUpsell: Bool
+    var weightUnit: WeightUnit = .lbs
 
     private var leaderboard: [TrendsCalculator.ExercisePRSummary] {
         TrendsCalculator.prLeaderboard(from: allEstimated1RM)
@@ -41,7 +42,7 @@ struct PRTimelineWidget: View {
                 summaryBar(prCount: totalPRCount)
 
                 ForEach(Array(leaderboard.enumerated()), id: \.element.id) { index, entry in
-                    PRLeaderboardRow(rank: index + 1, entry: entry)
+                    PRLeaderboardRow(rank: index + 1, entry: entry, weightUnit: weightUnit)
                 }
             }
         }
@@ -90,12 +91,14 @@ private struct PRLeaderboardRow: View {
     let exerciseName: String
     let prCount: Int
     let totalGain: Double
+    var weightUnit: WeightUnit = .lbs
 
-    init(rank: Int, entry: TrendsCalculator.ExercisePRSummary) {
+    init(rank: Int, entry: TrendsCalculator.ExercisePRSummary, weightUnit: WeightUnit = .lbs) {
         self.rank = rank
         self.exerciseName = entry.exerciseName
         self.prCount = entry.prCount
         self.totalGain = entry.totalGain
+        self.weightUnit = weightUnit
     }
 
     private init(rank: Int, name: String, prCount: Int, gain: Double) {
@@ -127,9 +130,10 @@ private struct PRLeaderboardRow: View {
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.white.opacity(0.7))
 
-            Text(totalGain >= 0
-                 ? "+\(String(format: "%.1f", totalGain)) lbs"
-                 : "\(String(format: "%.1f", totalGain)) lbs")
+            let displayGain = weightUnit.fromLbs(totalGain)
+            Text(displayGain >= 0
+                 ? "+\(String(format: "%.1f", displayGain)) \(weightUnit.label)"
+                 : "\(String(format: "%.1f", displayGain)) \(weightUnit.label)")
                 .font(.caption)
                 .foregroundStyle(totalGain >= 0 ? Color.setEasy : .white.opacity(0.5))
                 .frame(width: 70, alignment: .trailing)

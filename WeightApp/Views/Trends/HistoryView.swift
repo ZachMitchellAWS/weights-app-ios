@@ -13,6 +13,7 @@ struct HistoryView: View {
     @ObservedObject var selectedSetData: SelectedSetData
     @Binding var selectedTab: Int
     var isVisible: Bool = true
+    var weightUnit: WeightUnit = .lbs
     @Binding var isDeleteModeActive: Bool
     @State private var setToDelete: LiftSet? = nil
     @State private var showDeleteConfirmation = false
@@ -74,7 +75,8 @@ struct HistoryView: View {
                                         selectedSetData.shouldPopulate = true
                                         selectedTab = 1
                                     },
-                                    effortCache: effortCache
+                                    effortCache: effortCache,
+                                    weightUnit: weightUnit
                                 )
                             }
                         } header: {
@@ -138,7 +140,7 @@ struct HistoryView: View {
             }
         } message: {
             if let set = setToDelete {
-                Text("Delete \(set.reps) × \(set.weight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs?")
+                Text("Delete \(set.reps) × \(weightUnit.formatWeight2dp(set.weight)) \(weightUnit.label)?")
             }
         }
         .onAppear {
@@ -292,6 +294,7 @@ struct ExerciseGroupRow: View {
     let onDelete: (LiftSet) -> Void
     let onSelect: (LiftSet) -> Void
     let effortCache: [UUID: HistoryView.EffortResult]
+    var weightUnit: WeightUnit = .lbs
 
     private func colorForEffort(percent1RM: Double?, isPR: Bool, set: LiftSet) -> Color {
         if isPR {
@@ -343,7 +346,7 @@ struct ExerciseGroupRow: View {
                             .fill(colorForEffort(percent1RM: result.percent1RM, isPR: result.isPR, set: set))
                             .frame(width: 8, height: 24)
 
-                        Text("\(set.reps) × \(set.weight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
+                        Text("\(set.reps) × \(weightUnit.formatWeight2dp(set.weight)) \(weightUnit.label)")
                             .font(.callout)
                             .foregroundStyle(.white)
                             .lineLimit(1)

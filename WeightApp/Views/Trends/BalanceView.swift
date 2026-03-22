@@ -51,7 +51,10 @@ struct BalanceView: View {
         balanceData.filter { $0.balanceScore != nil }.count >= 2
     }
 
+    @ObservedObject var selectedSetData: SelectedSetData
+
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(spacing: 16) {
                 StrengthTierWidget(
@@ -60,14 +63,17 @@ struct BalanceView: View {
                     isPremium: true,
                     showUpsell: $showUpsell
                 )
+                .id("strengthTierWidget")
 
                 StrengthMilestonesWidget(
                     allEstimated1RM: allEstimated1RM,
                     bodyweight: userProperties.bodyweight,
                     biologicalSex: userProperties.biologicalSex,
                     isPremium: true,
+                    weightUnit: userProperties.preferredWeightUnit,
                     showUpsell: $showUpsell
                 )
+                .id("strengthMilestonesWidget")
 
                 if isPremium {
                     if hasEnoughData {
@@ -81,7 +87,7 @@ struct BalanceView: View {
 
                 // BestLiftsWidget(allSets: allSets)
 
-                Text("Strength estimates are approximations based on your logged sets and standard formulas. Always train within your limits and consult a qualified professional before beginning any exercise program.")
+                Text("Strength estimates are approximations based on your logged sets and standard formulas. Always train within your limits and consult a physician before beginning or modifying any exercise program.")
                     .font(.inter(size: 12))
                     .foregroundStyle(.white.opacity(0.4))
                     .multilineTextAlignment(.center)
@@ -89,9 +95,30 @@ struct BalanceView: View {
                     .padding(.top, 8)
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 20)
+            .padding(.bottom, 70)
         }
         .scrollIndicators(.hidden)
+        .onAppear {
+            if selectedSetData.pendingScrollToStrengthTop {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation {
+                        proxy.scrollTo("strengthMilestonesWidget", anchor: .top)
+                    }
+                }
+                selectedSetData.pendingScrollToStrengthTop = false
+            }
+        }
+        .onChange(of: selectedSetData.pendingScrollToStrengthTop) { _, shouldScroll in
+            if shouldScroll {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation {
+                        proxy.scrollTo("strengthMilestonesWidget", anchor: .top)
+                    }
+                }
+                selectedSetData.pendingScrollToStrengthTop = false
+            }
+        }
+        } // ScrollViewReader
         .fullScreenCover(isPresented: $showUpsell) {
             UpsellView { _ in showUpsell = false }
         }

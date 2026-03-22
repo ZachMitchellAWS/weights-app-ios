@@ -49,7 +49,7 @@ struct LegacyCheckInView: View {
     @State private var overlayIntensityColor: Color = .setEasy
     @State private var overlayIntensityLabel: String = "Easy"
     @State private var overlayIsMilestone = false
-    @State private var overlayMilestoneTier: StrengthTier = .rookie
+    @State private var overlayMilestoneTier: StrengthTier = .novice
     @State private var overlayMilestoneExerciseIcon: String = ""
     @State private var overlayMilestoneExerciseName: String = ""
     @State private var overlayMilestoneTargetLabel: String = ""
@@ -770,7 +770,7 @@ struct LegacyCheckInView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
 
-                Text("lbs")
+                Text(userProperties.preferredWeightUnit.label)
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.6))
             }
@@ -852,11 +852,12 @@ struct LegacyCheckInView: View {
             // Done button
             Button {
                 let result = evaluateCalculator()
+                let lbsResult = userProperties.preferredWeightUnit.toLbs(result)
                 // Allow zero for single load (bodyweight) exercises
                 let loadType = selectedExercises?.exerciseLoadType
                 let minWeight = (loadType?.allowsZeroWeight == true) ? 0.0 : 0.01
-                if result >= minWeight && result <= 1000 {
-                    weight = result
+                if lbsResult >= minWeight && lbsResult <= 1000 {
+                    weight = lbsResult
                     hasSetInitialValues = true
                     hasSetWeight = true
                 }
@@ -877,7 +878,8 @@ struct LegacyCheckInView: View {
         .onAppear {
             calculatorTokens = []
             if hasSetInitialValues {
-                currentCalcInput = weight.rounded1().formatted(.number.precision(.fractionLength(0...2)))
+                let displayWeight = userProperties.preferredWeightUnit.fromLbs(weight).rounded1()
+                currentCalcInput = displayWeight.formatted(.number.precision(.fractionLength(0...2)))
             } else {
                 currentCalcInput = ""
             }
@@ -1414,7 +1416,8 @@ struct LegacyCheckInView: View {
                     delta: overlayDelta,
                     new1RM: overlayNew1RM,
                     intensityLabel: overlayIntensityLabel,
-                    intensityColor: overlayIntensityColor
+                    intensityColor: overlayIntensityColor,
+                    weightUnit: userProperties.preferredWeightUnit
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 .zIndex(10)
@@ -1519,6 +1522,7 @@ struct LegacyCheckInView: View {
                 exercise: selectedExercises,
                 reps: reps,
                 weight: weight,
+                weightUnit: userProperties.preferredWeightUnit,
                 onConfirm: {
                     hapticFeedback.impactOccurred()
                     showLogConfirmation = false
@@ -1829,7 +1833,8 @@ struct LegacyCheckInView: View {
                     hasSetWeight = true
                     hasSetReps = true
                     hasSelectedOption = true
-                }
+                },
+                weightUnit: userProperties.preferredWeightUnit
             )
             .presentationDetents([.large])
             .presentationContentInteraction(.scrolls)
@@ -1909,7 +1914,8 @@ struct LegacyCheckInView: View {
                     hasSetWeight = true
                     hasSetReps = true
                     hasSelectedOption = true
-                }
+                },
+                weightUnit: userProperties.preferredWeightUnit
             )
             .presentationDetents([.large])
             .presentationContentInteraction(.scrolls)
@@ -2516,7 +2522,8 @@ struct LegacyCheckInView: View {
                         ForEach(guidedSuggestions) { suggestion in
                             EffortOptionCard(
                                 suggestion: OneRMCalculator.EffortSuggestion(reps: suggestion.reps, weight: suggestion.weight, percent1RM: -1),
-                                isSelected: weight == suggestion.weight && reps == suggestion.reps
+                                isSelected: weight == suggestion.weight && reps == suggestion.reps,
+                                weightUnit: userProperties.preferredWeightUnit
                             )
                             .onTapGesture {
                                 hapticFeedback.impactOccurred()
@@ -2678,7 +2685,8 @@ struct LegacyCheckInView: View {
                                     isSelected: isOptionSelected(suggestion),
                                     sortColumn: sortColumn,
                                     columnHighlighted: columnHighlighted,
-                                    weightColumnHighlighted: weightColumnHighlighted
+                                    weightColumnHighlighted: weightColumnHighlighted,
+                                    weightUnit: userProperties.preferredWeightUnit
                                 )
                                 .onTapGesture {
                                     hapticFeedback.impactOccurred()
@@ -2749,7 +2757,8 @@ struct LegacyCheckInView: View {
                                         columnHighlighted: effortColumnHighlighted,
                                         accentColor: (effortMode ?? .easy).tileColor,
                                         isLastSet: lastSetMatchForEffort.map { $0.weight == suggestion.weight && $0.reps == suggestion.reps } ?? false,
-                                        isMacroPlate: macroWeights.contains(suggestion.weight)
+                                        isMacroPlate: macroWeights.contains(suggestion.weight),
+                                        weightUnit: userProperties.preferredWeightUnit
                                     )
                                     .onTapGesture {
                                         hapticFeedback.impactOccurred()
@@ -2855,7 +2864,8 @@ struct LegacyCheckInView: View {
                     EffortOptionCard(
                         suggestion: OneRMCalculator.EffortSuggestion(reps: suggestion.reps, weight: suggestion.weight, percent1RM: -1),
                         isSelected: weight == suggestion.weight && reps == suggestion.reps,
-                        accentColor: accentColor
+                        accentColor: accentColor,
+                        weightUnit: userProperties.preferredWeightUnit
                     )
                     .onTapGesture {
                         hapticFeedback.impactOccurred()
@@ -2930,12 +2940,12 @@ struct LegacyCheckInView: View {
                         showWeightPicker = true
                     } label: {
                         VStack(spacing: 1) {
-                            Text(hasSetWeight ? weight.rounded1().formatted(.number.precision(.fractionLength(2))) : "---")
+                            Text(hasSetWeight ? userProperties.preferredWeightUnit.formatWeight2dp(weight) : "---")
                                 .font(.title3)
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
-                            Text("lbs")
+                            Text(userProperties.preferredWeightUnit.label)
                                 .font(.caption2)
                                 .foregroundStyle(.white.opacity(0.6))
                         }
@@ -3090,6 +3100,7 @@ struct LegacyCheckInView: View {
         let new1RM: Double
         let intensityLabel: String
         let intensityColor: Color
+        var weightUnit: WeightUnit = .lbs
 
         @State private var pulse = false
         @State private var iconScale: CGFloat = 0.5
@@ -3127,7 +3138,7 @@ struct LegacyCheckInView: View {
                         VStack(spacing: 4) {
                             Text("Increased 1RM by")
                                 .font(.subheadline)
-                            Text("+\(delta.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
+                            Text("+\(weightUnit.formatWeight2dp(delta)) \(weightUnit.label)")
                                 .font(.title.weight(.semibold))
                                 .foregroundStyle(Color.appLogoColor)
                                 .lineLimit(1)
@@ -3340,6 +3351,7 @@ struct LegacyCheckInView: View {
         let exercise: Exercise?
         let reps: Int
         let weight: Double
+        var weightUnit: WeightUnit = .lbs
         let onConfirm: () -> Void
         let onCancel: () -> Void
 
@@ -3367,7 +3379,7 @@ struct LegacyCheckInView: View {
                     // Set details in a compact pill
                     HStack(spacing: 16) {
                         HStack(spacing: 6) {
-                            Text("\(weight.rounded1().formatted(.number.precision(.fractionLength(2)))) lbs")
+                            Text("\(weightUnit.formatWeight2dp(weight)) \(weightUnit.label)")
                                 .font(.bebasNeue(size: 22))
                                 .foregroundStyle(.white)
                         }
@@ -3589,7 +3601,7 @@ struct LegacyCheckInView: View {
     }
 
     private func formatWeight(_ weight: Double) -> String {
-        weight.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(weight))" : weight.formatted(.number.precision(.fractionLength(1)))
+        userProperties.preferredWeightUnit.formatWeight(weight)
     }
 
     private func saveBarbellWeight() {
@@ -3803,7 +3815,7 @@ struct LegacyCheckInView: View {
 
         // Milestone detection: check if e1RM PR crosses a strength tier threshold
         var isMilestone = false
-        var milestoneTier: StrengthTier = .rookie
+        var milestoneTier: StrengthTier = .novice
         var milestoneIcon: String = ""
         var milestoneName: String = ""
         var milestoneTargetLabel: String = ""
@@ -3820,12 +3832,12 @@ struct LegacyCheckInView: View {
                 milestoneName = fundamental.name
                 // Compute the target label for the achieved tier threshold
                 if let threshold = StrengthTierData.thresholds[fundamental.name]?[sex]?[newTier] {
-                    if newTier == .rookie {
+                    if newTier == .novice {
                         let beginnerMin = StrengthTierData.thresholds[fundamental.name]?[sex]?[.beginner]?.min ?? 0
                         let mult = beginnerMin / 2.0
                         milestoneTargetLabel = mult == floor(mult) ? "\(Int(mult))× BW" : "\(String(format: "%g", mult))× BW"
                     } else if threshold.isAbsolute {
-                        milestoneTargetLabel = "\(Int(threshold.min)) lbs"
+                        milestoneTargetLabel = "\(Int(userProperties.preferredWeightUnit.fromLbs(threshold.min))) \(userProperties.preferredWeightUnit.label)"
                     } else {
                         let m = threshold.min
                         milestoneTargetLabel = m == floor(m) ? "\(Int(m))× BW" : "\(String(format: "%g", m))× BW"
@@ -5273,6 +5285,7 @@ struct ExpandedProgressOptionsSheet: View {
     var onSaveBarbellWeight: (() -> Void)? = nil
     var guidedSuggestions: [OneRMCalculator.GuidedSuggestion]? = nil
     var onSelectGuided: ((OneRMCalculator.GuidedSuggestion) -> Void)? = nil
+    var weightUnit: WeightUnit = .lbs
 
     @Environment(\.dismiss) private var dismiss
     @State private var columnHighlighted = false
@@ -5392,7 +5405,7 @@ struct ExpandedProgressOptionsSheet: View {
                 Button {
                     showChangePlates = true
                 } label: {
-                    Text("Edit Change Plates ›")
+                    Text("Edit Available Change Plates ›")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.4))
                 }
@@ -5484,7 +5497,8 @@ struct ExpandedProgressOptionsSheet: View {
                     ForEach(guided) { suggestion in
                         EffortOptionCard(
                             suggestion: OneRMCalculator.EffortSuggestion(reps: suggestion.reps, weight: suggestion.weight, percent1RM: -1),
-                            isSelected: false
+                            isSelected: false,
+                            weightUnit: weightUnit
                         )
                         .onTapGesture {
                             onSelectGuided?(suggestion)
@@ -5515,6 +5529,42 @@ struct ExpandedProgressOptionsSheet: View {
                 .padding(.horizontal, 40)
                 .padding(.top, 24)
                 .padding(.bottom, 16)
+            } else if suggestions.isEmpty {
+                // Empty state — no historical data
+                Spacer()
+                VStack(spacing: 12) {
+                    Image(systemName: "chart.line.uptrend.xyaxis")
+                        .font(.system(size: 36, weight: .light))
+                        .foregroundStyle(Color.appAccent.opacity(0.4))
+
+                    Text("Log your first set to see progress options")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+
+                    Text("Weight and rep suggestions will appear here")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.3))
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 32)
+                Spacer()
+
+                Button {
+                    dismiss()
+                } label: {
+                    Text("Done")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.appAccent)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .padding(.horizontal, 40)
+                .padding(.top, 24)
+                .padding(.bottom, 16)
             } else {
             // Header row with column labels
             HStack(spacing: 12) {
@@ -5540,7 +5590,8 @@ struct ExpandedProgressOptionsSheet: View {
                             suggestion: suggestion,
                             isSelected: selectedSuggestion?.id == suggestion.id,
                             sortColumn: sortColumn,
-                            columnHighlighted: columnHighlighted
+                            columnHighlighted: columnHighlighted,
+                            weightUnit: weightUnit
                         )
                         .onTapGesture {
                             hapticFeedback.impactOccurred()
@@ -5679,6 +5730,7 @@ struct ExpandedEffortOptionsSheet: View {
     var onSaveBarbellWeight: (() -> Void)? = nil
     var guidedSuggestions: [OneRMCalculator.GuidedSuggestion]? = nil
     var onSelectGuided: ((OneRMCalculator.GuidedSuggestion) -> Void)? = nil
+    var weightUnit: WeightUnit = .lbs
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedSuggestion: OneRMCalculator.EffortSuggestion?
@@ -5881,7 +5933,8 @@ struct ExpandedEffortOptionsSheet: View {
                         EffortOptionCard(
                             suggestion: OneRMCalculator.EffortSuggestion(reps: suggestion.reps, weight: suggestion.weight, percent1RM: -1),
                             isSelected: false,
-                            accentColor: effortMode.tileColor
+                            accentColor: effortMode.tileColor,
+                            weightUnit: weightUnit
                         )
                         .onTapGesture {
                             onSelectGuided?(suggestion)
@@ -5937,7 +5990,8 @@ struct ExpandedEffortOptionsSheet: View {
                             columnHighlighted: columnHighlighted,
                             accentColor: effortMode.tileColor,
                             isLastSet: lastSetMatch.map { $0.weight == suggestion.weight && $0.reps == suggestion.reps } ?? false,
-                            isMacroPlate: macroPlateWeights.contains(suggestion.weight)
+                            isMacroPlate: macroPlateWeights.contains(suggestion.weight),
+                            weightUnit: weightUnit
                         )
                         .onTapGesture {
                             hapticFeedback.impactOccurred()

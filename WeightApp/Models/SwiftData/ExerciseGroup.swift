@@ -57,7 +57,7 @@ final class ExerciseGroup {
     static let builtInTemplates: [ExerciseGroup] = [
         ExerciseGroup(
             groupId: tierExercisesId,
-            name: "Tier Exercises",
+            name: "Strength Tier",
             exerciseIds: [
                 Exercise.deadliftsId,
                 Exercise.squatsId,

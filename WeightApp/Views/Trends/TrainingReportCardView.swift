@@ -9,6 +9,7 @@ import SwiftUI
 
 struct TrainingReportCardView: View {
     let data: ReportCardData
+    var weightUnit: WeightUnit = .lbs
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -196,10 +197,10 @@ struct TrainingReportCardView: View {
             Group {
                 if let e1rm = exercise.currentE1RM {
                     HStack(alignment: .firstTextBaseline, spacing: 1) {
-                        Text("\(Int(e1rm))")
+                        Text("\(Int(weightUnit.fromLbs(e1rm)))")
                             .font(.bebasNeue(size: 22))
                             .foregroundColor(.appAccent)
-                        Text("lbs")
+                        Text(weightUnit.label)
                             .font(.inter(size: 7))
                             .foregroundColor(.appAccent.opacity(0.5))
                     }

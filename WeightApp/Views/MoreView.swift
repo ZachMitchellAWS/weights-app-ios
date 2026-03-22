@@ -459,7 +459,9 @@ struct MoreView: View {
                                 .padding(.leading, 32)
 
                             Button {
-                                tempBodyweight = userProperties.bodyweight ?? 180
+                                let unit = userProperties.preferredWeightUnit
+                                let defaultBW: Double = unit == .kg ? 82 : 180
+                                tempBodyweight = userProperties.bodyweight.map { unit.fromLbs($0).rounded() } ?? defaultBW
                                 showWeightInput = true
                             } label: {
                                 HStack {
@@ -469,7 +471,7 @@ struct MoreView: View {
                                         .padding(.leading, 40)
                                     Spacer()
                                     if let bodyweight = userProperties.bodyweight {
-                                        Text("\(bodyweight, specifier: "%.1f") lbs")
+                                        Text("\(userProperties.preferredWeightUnit.formatWeight(bodyweight)) \(userProperties.preferredWeightUnit.label)")
                                             .foregroundStyle(.white.opacity(0.5))
                                     } else {
                                         Text("Not Set")
@@ -493,6 +495,28 @@ struct MoreView: View {
                                     Text(userProperties.biologicalSex?.capitalized ?? "Not Set")
                                         .foregroundStyle(.white.opacity(0.5))
                                 }
+                            }
+
+                            HStack {
+                                Text("Weight Unit")
+                                    .foregroundStyle(.white.opacity(0.7))
+                                    .font(.subheadline)
+                                    .padding(.leading, 40)
+                                Spacer()
+                                Picker("Weight Unit", selection: Binding(
+                                    get: { userProperties.preferredWeightUnit },
+                                    set: { newUnit in
+                                        userProperties.preferredWeightUnit = newUnit
+                                        try? modelContext.save()
+                                        Task { await SyncService.shared.updateWeightUnit(newUnit.rawValue) }
+                                    }
+                                )) {
+                                    ForEach(WeightUnit.allCases, id: \.self) { unit in
+                                        Text(unit.label).tag(unit)
+                                    }
+                                }
+                                .pickerStyle(.segmented)
+                                .frame(width: 120)
                             }
                         }
                         .padding(.vertical, 4)
@@ -1145,7 +1169,7 @@ struct MoreView: View {
                                     .foregroundStyle(.white.opacity(0.4))
 
                                 HStack {
-                                    TextField("Total weight (lbs)", text: $plateCalcInput)
+                                    TextField("Total weight (\(userProperties.preferredWeightUnit.label))", text: $plateCalcInput)
                                         .keyboardType(.decimalPad)
                                         .textFieldStyle(.roundedBorder)
                                         .frame(width: 150)
@@ -1696,7 +1720,7 @@ struct MoreView: View {
                     // Weight Picker
                     HStack(spacing: 0) {
                         Picker("Weight", selection: $tempBodyweight) {
-                            ForEach(Array(stride(from: 50.0, through: 500.0, by: 1.0)), id: \.self) { weight in
+                            ForEach(Array(stride(from: userProperties.preferredWeightUnit.bodyweightPickerRange.lowerBound, through: userProperties.preferredWeightUnit.bodyweightPickerRange.upperBound, by: 1.0)), id: \.self) { weight in
                                 Text("\(Int(weight))")
                                     .tag(weight)
                             }
@@ -1704,7 +1728,7 @@ struct MoreView: View {
                         .pickerStyle(.wheel)
                         .frame(maxWidth: .infinity)
 
-                        Text("lbs")
+                        Text(userProperties.preferredWeightUnit.label)
                             .font(.title2.weight(.bold))
                             .foregroundStyle(.white.opacity(0.7))
                             .padding(.trailing, 40)
@@ -1716,7 +1740,8 @@ struct MoreView: View {
                     // Buttons
                     HStack(spacing: 16) {
                         Button {
-                            tempBodyweight = 180
+                            let defaultBW: Double = userProperties.preferredWeightUnit == .kg ? 82 : 180
+                            tempBodyweight = defaultBW
                             userProperties.bodyweight = nil
                             try? modelContext.save()
                             showWeightInput = false
@@ -1732,10 +1757,11 @@ struct MoreView: View {
                         }
 
                         Button {
-                            userProperties.bodyweight = tempBodyweight
+                            let lbsValue = userProperties.preferredWeightUnit.toLbs(tempBodyweight)
+                            userProperties.bodyweight = lbsValue
                             try? modelContext.save()
                             showWeightInput = false
-                            Task { await SyncService.shared.updateBodyweight(tempBodyweight) }
+                            Task { await SyncService.shared.updateBodyweight(lbsValue) }
                         } label: {
                             Text("Done")
                                 .font(.headline)
@@ -2171,7 +2197,7 @@ struct MoreView: View {
             bodyweight: 180
         )
 
-        let view = TrainingReportCardView(data: data)
+        let view = TrainingReportCardView(data: data, weightUnit: userProperties.preferredWeightUnit)
             .frame(width: 360, height: 780)
 
         let renderer = ImageRenderer(content: view)
@@ -2254,11 +2280,11 @@ private struct SafariLinkRow: View {
     let icon: String
     let title: String
     let url: URL
-    @Environment(\.openURL) private var openURL
+    @State private var showSafari = false
 
     var body: some View {
         Button {
-            openURL(url)
+            showSafari = true
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: icon)
@@ -2274,6 +2300,10 @@ private struct SafariLinkRow: View {
                     .foregroundStyle(.white.opacity(0.25))
                     .font(.system(size: 12))
             }
+        }
+        .sheet(isPresented: $showSafari) {
+            SafariView(url: url)
+                .ignoresSafeArea()
         }
     }
 }

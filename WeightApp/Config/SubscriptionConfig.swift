@@ -32,7 +32,7 @@ enum SubscriptionConfig {
     static var privacyURL: URL { URL(string: "\(websiteBaseURL)/privacy")! }
 
     // MARK: - Marketing Copy
-    static let upsellTitle = "Go Premium"
+    static let upsellTitle = "Premium"
     static let upsellSubtitle = "Unlock the full power of your training"
     static let cancelAnytimeText = "Cancel anytime"
     static let bestValueBadge = "BEST VALUE"

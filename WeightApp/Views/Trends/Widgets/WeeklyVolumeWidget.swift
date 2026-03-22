@@ -10,6 +10,7 @@ import Charts
 
 struct WeeklyVolumeWidget: View {
     let allSets: [LiftSet]
+    var weightUnit: WeightUnit = .lbs
 
     private var weeklyData: [TrendsCalculator.WeeklyVolume] {
         TrendsCalculator.weeklyVolume(from: allSets, weeks: 8)
@@ -20,7 +21,7 @@ struct WeeklyVolumeWidget: View {
     }
 
     var body: some View {
-        WidgetCard(title: "Weekly Volume", subtitle: "Total lbs lifted per week") {
+        WidgetCard(title: "Weekly Volume", subtitle: "Total \(weightUnit.label) lifted per week") {
             if weeklyData.isEmpty {
                 EmptyWidgetState(icon: "chart.bar.fill", message: "Log sets to track your weekly volume")
             } else {

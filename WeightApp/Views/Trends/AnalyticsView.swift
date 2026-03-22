@@ -78,14 +78,15 @@ struct AnalyticsView: View {
 
                         ExerciseVolumeWidget(allSets: allSets)
 
-                        WeeklyVolumeWidget(allSets: allSets)
+                        WeeklyVolumeWidget(allSets: allSets, weightUnit: userProperties?.preferredWeightUnit ?? .lbs)
 
-                        SetIntensityWidget(allSets: allSets, allEstimated1RM: allEstimated1RM)
+                        SetIntensityWidget(allSets: allSets, allEstimated1RM: allEstimated1RM, weightUnit: userProperties?.preferredWeightUnit ?? .lbs)
 
-                        PRTimelineWidget(allEstimated1RM: allEstimated1RM, isPremium: isPremium, showUpsell: $showUpsell)
+                        PRTimelineWidget(allEstimated1RM: allEstimated1RM, isPremium: isPremium, showUpsell: $showUpsell, weightUnit: userProperties?.preferredWeightUnit ?? .lbs)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
+                    .padding(.bottom, 60)
                 }
                 .fullScreenCover(isPresented: $showUpsell) {
                     UpsellView { _ in showUpsell = false }
@@ -167,7 +168,8 @@ struct AnalyticsView: View {
             reportCardImage = ReportCardGenerator.generate(
                 modelContext: modelContext,
                 bodyweight: bw,
-                biologicalSex: sex
+                biologicalSex: sex,
+                weightUnit: userProperties?.preferredWeightUnit ?? .lbs
             )
             isGenerating = false
             if reportCardImage != nil {

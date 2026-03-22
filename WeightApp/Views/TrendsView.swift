@@ -12,6 +12,8 @@ struct TrendsView: View {
     @ObservedObject var selectedSetData: SelectedSetData
     @ObservedObject private var syncService = SyncService.shared
     @Binding var selectedTab: Int
+    @Query private var userPropertiesItems: [UserProperties]
+    private var userProperties: UserProperties { userPropertiesItems.first ?? UserProperties() }
     @State private var trendsTab: TrendsTab = .strength
     @State private var showHistory = false
     @State private var isDeleteModeActive = false
@@ -62,47 +64,47 @@ struct TrendsView: View {
                         selectedSetData: selectedSetData,
                         selectedTab: $selectedTab,
                         isVisible: true,
+                        weightUnit: userProperties.preferredWeightUnit,
                         isDeleteModeActive: $isDeleteModeActive
                     )
                     .transition(.move(edge: .trailing))
                 } else {
-                    // History icon row
+                    // History icon row (only on analytics tab)
                     HStack {
                         Spacer()
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.25)) {
-                                showHistory = true
+                        if trendsTab == .analytics {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    showHistory = true
+                                }
+                            } label: {
+                                Image(systemName: "clock.arrow.circlepath")
+                                    .font(.title3)
+                                    .foregroundStyle(Color.appAccent)
                             }
-                        } label: {
-                            Image(systemName: "clock.arrow.circlepath")
-                                .font(.title3)
-                                .foregroundStyle(Color.appAccent)
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 4)
                     .padding(.bottom, 6)
 
                     ZStack(alignment: .bottom) {
-                        ScrollView {
-                            // Content based on selected tab
-                            ZStack {
-                                if trendsTab == .strength {
-                                    BalanceView()
-                                }
-
-                                if trendsTab == .analytics {
-                                    AnalyticsView()
-                                }
-
-                                if trendsTab == .narratives {
-                                    InsightsView()
-                                }
+                        // Each tab view manages its own ScrollView
+                        ZStack {
+                            if trendsTab == .strength {
+                                BalanceView(selectedSetData: selectedSetData)
                             }
-                            .transition(.move(edge: .leading))
-                            .padding(.bottom, 70)
+
+                            if trendsTab == .analytics {
+                                AnalyticsView()
+                            }
+
+                            if trendsTab == .narratives {
+                                InsightsView()
+                            }
                         }
+                        .transition(.move(edge: .leading))
 
                         // Floating picker at bottom
                         TrendsPicker(selectedTab: $trendsTab)

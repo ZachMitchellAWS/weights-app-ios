@@ -59,7 +59,7 @@ struct ReportCardData {
 @MainActor
 enum ReportCardGenerator {
 
-    static func generate(modelContext: ModelContext, bodyweight: Double, biologicalSex: String) -> UIImage? {
+    static func generate(modelContext: ModelContext, bodyweight: Double, biologicalSex: String, weightUnit: WeightUnit = .lbs) -> UIImage? {
         let setsDescriptor = FetchDescriptor<LiftSet>(
             predicate: #Predicate { !$0.deleted },
             sortBy: [SortDescriptor(\.createdAt)]
@@ -83,7 +83,7 @@ enum ReportCardGenerator {
             biologicalSex: biologicalSex
         )
 
-        let view = TrainingReportCardView(data: data)
+        let view = TrainingReportCardView(data: data, weightUnit: weightUnit)
             .frame(width: 360, height: 780)
 
         let renderer = ImageRenderer(content: view)
@@ -123,7 +123,7 @@ enum ReportCardGenerator {
                     name: fundamental.name, e1rm: e1rm, bodyweight: bodyweight, sex: sex
                 )
             } else {
-                currentTier = .rookie
+                currentTier = .novice
             }
 
             let previousTier: StrengthTier
@@ -132,7 +132,7 @@ enum ReportCardGenerator {
                     name: fundamental.name, e1rm: e1rm, bodyweight: bodyweight, sex: sex
                 )
             } else {
-                previousTier = .rookie
+                previousTier = .novice
             }
             previousTiers.append(previousTier)
 
@@ -169,7 +169,7 @@ enum ReportCardGenerator {
         )
 
         // Previous overall tier
-        let previousOverallTier = previousTiers.min() ?? .rookie
+        let previousOverallTier = previousTiers.min() ?? .novice
 
         // PR count
         let prEvents = TrendsCalculator.prTimeline(from: allSets)
