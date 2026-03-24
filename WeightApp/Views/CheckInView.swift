@@ -783,9 +783,10 @@ struct CheckInView: View {
                             Text(displayName)
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundStyle(isSelected ? highlightColor.opacity(0.9) : .white.opacity(0.45))
+                                .frame(width: itemWidth - 8)
                                 .lineLimit(isFundamental ? 1 : 2)
                                 .multilineTextAlignment(.center)
-                                .minimumScaleFactor(isFundamental ? 0.7 : 1.0)
+                                .minimumScaleFactor(0.7)
 
                             // Progress bar or checklist checkmark (only for fundamental exercises)
                             if let fundEx = fundamentalExercise, let tierVal = tier {
