@@ -18,6 +18,7 @@ class NarrativeBadgeService {
 
     private static let lastViewedKey = "insights_last_viewed_week"
     private static let cacheKey = "insights_cached_response"
+    private static let starterInsightViewedKey = "starterInsightViewed"
 
     private init() {}
 
@@ -57,5 +58,48 @@ class NarrativeBadgeService {
         UserDefaults.standard.set(weekStart, forKey: Self.lastViewedKey)
         hasNewNarrative = false
         UNUserNotificationCenter.current().setBadgeCount(0)
+    }
+
+    // MARK: - Starter Insight Badge
+
+    private static let starterInsightCacheKey = "starterInsightCachedResponse"
+
+    /// Call when a free user unlocks a tier. Sets badge if starter insight hasn't been viewed yet.
+    func notifyTierUnlocked() {
+        guard !UserDefaults.standard.bool(forKey: Self.starterInsightViewedKey) else { return }
+        hasNewNarrative = true
+    }
+
+    /// Marks the starter insight as viewed, clearing the badge. Called when InsightsView appears in .freeWithTier state.
+    func markStarterViewedIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: Self.starterInsightViewedKey) else { return }
+        UserDefaults.standard.set(true, forKey: Self.starterInsightViewedKey)
+        hasNewNarrative = false
+        UNUserNotificationCenter.current().setBadgeCount(0)
+    }
+
+    /// Fetches starter insight from backend and caches locally. Fire-and-forget at tier completion.
+    func fetchAndCacheStarterInsight() async {
+        do {
+            let response = try await APIService.shared.getStarterInsight()
+            if response.body != nil, let data = try? JSONEncoder().encode(response) {
+                UserDefaults.standard.set(data, forKey: Self.starterInsightCacheKey)
+                hasNewNarrative = true
+            }
+        } catch {
+            // Silent fail — user will see placeholder, can retry on view
+        }
+    }
+
+    var cachedStarterInsight: StarterInsightResponse? {
+        guard let data = UserDefaults.standard.data(forKey: Self.starterInsightCacheKey) else { return nil }
+        return try? JSONDecoder().decode(StarterInsightResponse.self, from: data)
+    }
+
+    /// Updates the cached starter insight (e.g., when audio URL arrives from polling).
+    func updateCachedStarterInsight(_ response: StarterInsightResponse) {
+        if let data = try? JSONEncoder().encode(response) {
+            UserDefaults.standard.set(data, forKey: Self.starterInsightCacheKey)
+        }
     }
 }

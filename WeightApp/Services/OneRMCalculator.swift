@@ -76,6 +76,37 @@ enum OneRMCalculator {
         }
     }
 
+    static func tierBreakerSuggestion(
+        current1RM: Double,
+        targetE1RM: Double,
+        increment: Double,
+        repRange: ClosedRange<Int> = 5...10
+    ) -> Suggestion? {
+        guard increment > 0, targetE1RM > current1RM else { return nil }
+
+        var best: Suggestion?
+
+        for reps in repRange {
+            let mult: Double = (reps == 1) ? 1.0 : (1.0 + Double(reps) / 30.0)
+            let requiredRaw = targetE1RM / mult
+            var weight = requiredRaw.roundedUp(toIncrement: increment)
+
+            var proj = estimate1RM(weight: weight, reps: reps)
+            while proj < targetE1RM {
+                weight += increment
+                proj = estimate1RM(weight: weight, reps: reps)
+            }
+
+            let delta = proj - current1RM
+
+            if best == nil || proj < best!.projected1RM {
+                best = Suggestion(reps: reps, weight: weight, projected1RM: proj, delta: delta)
+            }
+        }
+
+        return best
+    }
+
     struct GuidedSuggestion: Identifiable {
         let id = UUID()
         let weight: Double

@@ -82,15 +82,7 @@ enum SeedService {
             context.insert(group)
         }
 
-        // Default the active group if none set
-        if let userProps = try? context.fetch(FetchDescriptor<UserProperties>()).first,
-           userProps.activeGroupId == nil {
-            userProps.activeGroupId = ExerciseGroup.tierExercisesId
-            try? context.save()
-            Task { await SyncService.shared.updateActiveGroup(ExerciseGroup.tierExercisesId) }
-        } else {
-            try? context.save()
-        }
+        try? context.save()
     }
 
     // MARK: - Built-in Set Plans

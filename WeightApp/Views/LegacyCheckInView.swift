@@ -355,8 +355,8 @@ struct LegacyCheckInView: View {
         guard let lastPR = cachedSetsWithPRInfo.last(where: { $0.increases1RM }),
               lastPR.set.weight > 0 else { return nil }
         let newReps = lastPR.set.reps + 1
-        guard newReps >= userProperties.minReps,
-              newReps <= userProperties.maxReps else { return nil }
+        guard newReps >= userProperties.progressMinReps,
+              newReps <= userProperties.progressMaxReps else { return nil }
         let projected = OneRMCalculator.estimate1RM(weight: lastPR.set.weight, reps: newReps)
         return OneRMCalculator.Suggestion(
             reps: newReps, weight: lastPR.set.weight,
@@ -409,7 +409,7 @@ struct LegacyCheckInView: View {
     private var filteredSuggestions: [OneRMCalculator.Suggestion] {
         guard current1RM > 0 else { return [] }
         var filtered = suggestions.filter {
-            $0.reps >= userProperties.minReps && $0.reps <= userProperties.maxReps
+            $0.reps >= userProperties.progressMinReps && $0.reps <= userProperties.progressMaxReps
         }
         if let prPlusOne = lastPRPlusOneSuggestion,
            !filtered.contains(where: { $0.weight == prPlusOne.weight && $0.reps == prPlusOne.reps }) {
@@ -1799,12 +1799,12 @@ struct LegacyCheckInView: View {
                 minWeightDelta: minWeightDelta,
                 maxWeightDelta: maxWeightDelta,
                 minReps: Binding(
-                    get: { userProperties.minReps },
-                    set: { userProperties.minReps = $0 }
+                    get: { userProperties.progressMinReps },
+                    set: { userProperties.progressMinReps = $0 }
                 ),
                 maxReps: Binding(
-                    get: { userProperties.maxReps },
-                    set: { userProperties.maxReps = $0 }
+                    get: { userProperties.progressMaxReps },
+                    set: { userProperties.progressMaxReps = $0 }
                 ),
                 onRepRangeChanged: { scheduleRepRangeSync() },
                 onSelect: { suggestion in
@@ -1847,36 +1847,30 @@ struct LegacyCheckInView: View {
                 repRangeMin: Binding(
                     get: {
                         switch effortMode ?? .easy {
-                        case .easy: return userProperties.easyMinReps
-                        case .moderate: return userProperties.moderateMinReps
-                        case .hard: return userProperties.hardMinReps
-                        case .progress: return userProperties.minReps
+                        case .easy: return 8
+                        case .moderate: return 6
+                        case .hard: return 3
+                        case .progress: return userProperties.progressMinReps
                         }
                     },
                     set: {
-                        switch effortMode ?? .easy {
-                        case .easy: userProperties.easyMinReps = $0
-                        case .moderate: userProperties.moderateMinReps = $0
-                        case .hard: userProperties.hardMinReps = $0
-                        case .progress: userProperties.minReps = $0
+                        if (effortMode ?? .easy) == .progress {
+                            userProperties.progressMinReps = $0
                         }
                     }
                 ),
                 repRangeMax: Binding(
                     get: {
                         switch effortMode ?? .easy {
-                        case .easy: return userProperties.easyMaxReps
-                        case .moderate: return userProperties.moderateMaxReps
-                        case .hard: return userProperties.hardMaxReps
-                        case .progress: return userProperties.maxReps
+                        case .easy: return 12
+                        case .moderate: return 10
+                        case .hard: return 6
+                        case .progress: return userProperties.progressMaxReps
                         }
                     },
                     set: {
-                        switch effortMode ?? .easy {
-                        case .easy: userProperties.easyMaxReps = $0
-                        case .moderate: userProperties.moderateMaxReps = $0
-                        case .hard: userProperties.hardMaxReps = $0
-                        case .progress: userProperties.maxReps = $0
+                        if (effortMode ?? .easy) == .progress {
+                            userProperties.progressMaxReps = $0
                         }
                     }
                 ),
@@ -3537,36 +3531,41 @@ struct LegacyCheckInView: View {
     }
 
     private func resetToDefaults() {
-        // Default to easy effort suggestion if available, otherwise 45 lbs / 5 reps
-        if let easySuggestion = firstEasySuggestion() {
-            weight = easySuggestion.weight
-            reps = easySuggestion.reps
-        } else {
-            weight = 45.0
-            reps = 8
+        // Set initial values based on load type (used when user first taps +/-)
+        if let ex = selectedExercises {
+            if ex.exerciseLoadType == .bodyweightPlusSingleLoad {
+                weight = 0
+                reps = 5
+            } else if current1RM > 0 {
+                let loadType = ex.exerciseLoadType
+                let repRange = EffortMode.easy.repRange(from: userProperties)
+                let targets = EffortMode.easy.targetPercent1RMs ?? [0.55, 0.60, 0.65]
+                let bounds = EffortMode.easy.percent1RMBounds ?? (0...70)
+                var results = OneRMCalculator.effortSuggestions(
+                    current1RM: current1RM,
+                    targetPercent1RMs: targets,
+                    loadType: loadType,
+                    repRange: repRange
+                )
+                results = results.filter { bounds.contains($0.percent1RM) }
+                if let first = results.first {
+                    weight = first.weight
+                    reps = first.reps
+                } else {
+                    weight = 95
+                    reps = 5
+                }
+            } else {
+                weight = 95
+                reps = 5
+            }
         }
         hasSetInitialValues = false
-        hasSetWeight = true
-        hasSetReps = true
+        hasSetWeight = false
+        hasSetReps = false
         hasSelectedOption = false
     }
 
-    private func firstEasySuggestion() -> (weight: Double, reps: Int)? {
-        guard current1RM > 0,
-              let targets = EffortMode.easy.targetPercent1RMs,
-              let loadType = selectedExercises?.exerciseLoadType else { return nil }
-        var results = OneRMCalculator.effortSuggestions(
-            current1RM: current1RM,
-            targetPercent1RMs: targets,
-            loadType: loadType,
-            repRange: EffortMode.easy.repRange(from: userProperties)
-        )
-        if let bounds = EffortMode.easy.percent1RMBounds {
-            results = results.filter { bounds.contains($0.percent1RM) }
-        }
-        guard let first = results.first else { return nil }
-        return (first.weight, first.reps)
-    }
 
     private func validateWeightDelta() {
         // Load persisted increment if available
@@ -3724,24 +3723,14 @@ struct LegacyCheckInView: View {
 
     private func scheduleRepRangeSync() {
         repRangeDebounceTask?.cancel()
-        let props = userProperties
-        let min = props.minReps
-        let max = props.maxReps
-        let easyMin = props.easyMinReps
-        let easyMax = props.easyMaxReps
-        let modMin = props.moderateMinReps
-        let modMax = props.moderateMaxReps
-        let hardMin = props.hardMinReps
-        let hardMax = props.hardMaxReps
+        let min = userProperties.progressMinReps
+        let max = userProperties.progressMaxReps
         try? modelContext.save()
         repRangeDebounceTask = Task {
             try? await Task.sleep(nanoseconds: 500_000_000)
             guard !Task.isCancelled else { return }
-            await SyncService.shared.updateAllRepRanges(
-                minReps: min, maxReps: max,
-                easyMinReps: easyMin, easyMaxReps: easyMax,
-                moderateMinReps: modMin, moderateMaxReps: modMax,
-                hardMinReps: hardMin, hardMaxReps: hardMax
+            await SyncService.shared.updateProgressRepRange(
+                minReps: min, maxReps: max
             )
         }
     }
@@ -4701,7 +4690,7 @@ struct ExercisesSelectionView: View {
     @Binding var pendingExerciseSave: (() -> Void)?
 
     @State private var navigationPath = NavigationPath()
-    @State private var hasAppliedDeepLink = false
+    @State private var appliedDeepLinkId: UUID? = nil
     @State private var searchText = ""
     @State private var collapsedSections: Set<ExerciseMovementType> = []
     @FocusState private var isSearchFocused: Bool
@@ -4907,8 +4896,14 @@ struct ExercisesSelectionView: View {
                 }
             }
             .onAppear {
-                if !hasAppliedDeepLink, let deepLinkId = initialDeepLinkExerciseId {
-                    hasAppliedDeepLink = true
+                if let deepLinkId = initialDeepLinkExerciseId, deepLinkId != appliedDeepLinkId {
+                    appliedDeepLinkId = deepLinkId
+                    navigationPath.append(ExerciseNavDestination.editExercise(exerciseId: deepLinkId))
+                }
+            }
+            .onChange(of: initialDeepLinkExerciseId) { _, newId in
+                if let deepLinkId = newId, deepLinkId != appliedDeepLinkId {
+                    appliedDeepLinkId = deepLinkId
                     navigationPath.append(ExerciseNavDestination.editExercise(exerciseId: deepLinkId))
                 }
             }
@@ -5439,10 +5434,10 @@ struct ExpandedProgressOptionsSheet: View {
                         .foregroundStyle(Color.setPR)
                         .font(.caption)
                     Spacer()
-                    if minReps != UserProperties.defaultMinReps || maxReps != UserProperties.defaultMaxReps {
+                    if minReps != UserProperties.defaultProgressMinReps || maxReps != UserProperties.defaultProgressMaxReps {
                         Button {
-                            minReps = UserProperties.defaultMinReps
-                            maxReps = UserProperties.defaultMaxReps
+                            minReps = UserProperties.defaultProgressMinReps
+                            maxReps = UserProperties.defaultProgressMaxReps
                             onRepRangeChanged()
                         } label: {
                             Text("Reset to Default")

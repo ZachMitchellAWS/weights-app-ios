@@ -33,7 +33,7 @@ struct TierJourneyOverlay: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.15)
+            Color.black.opacity(0.7)
                 .ignoresSafeArea()
                 .onTapGesture {
                     onDismiss()
@@ -71,7 +71,7 @@ struct TierJourneyOverlay: View {
                 .font(.bebasNeue(size: 22))
                 .foregroundStyle(Color.appAccent)
 
-            Text("Log your first set of each exercise to unlock your Strength Tier")
+            Text("Log your first set of each exercise to unlock your starting Strength Tier")
                 .font(.system(size: 13))
                 .foregroundStyle(.white.opacity(0.7))
                 .multilineTextAlignment(.center)

@@ -44,9 +44,26 @@ final class ExerciseGroup {
 
     // MARK: - Built-in Group IDs (deterministic, segment 0002)
 
-    static let tierExercisesId = UUID(uuidString: "00000000-0000-0000-0002-000000000001")!
+    static let tierExercisesId          = UUID(uuidString: "00000000-0000-0000-0002-000000000001")!
+    static let deadliftsPlusId   = UUID(uuidString: "00000000-0000-0000-0002-000000000002")!
+    static let squatsPlusId      = UUID(uuidString: "00000000-0000-0000-0002-000000000003")!
+    static let benchPressPlusId  = UUID(uuidString: "00000000-0000-0000-0002-000000000004")!
+    static let barbellRowPlusId  = UUID(uuidString: "00000000-0000-0000-0002-000000000005")!
+    static let ohpPlusId         = UUID(uuidString: "00000000-0000-0000-0002-000000000006")!
 
-    static let builtInIds: Set<UUID> = [tierExercisesId]
+    static let builtInIds: Set<UUID> = [
+        tierExercisesId,
+        deadliftsPlusId, squatsPlusId, benchPressPlusId,
+        barbellRowPlusId, ohpPlusId
+    ]
+
+    static let accessoryGroupForFundamental: [UUID: UUID] = [
+        Exercise.deadliftsId: deadliftsPlusId,
+        Exercise.squatsId: squatsPlusId,
+        Exercise.benchPressId: benchPressPlusId,
+        Exercise.barbellRowId: barbellRowPlusId,
+        Exercise.overheadPressId: ohpPlusId,
+    ]
 
     var isBuiltIn: Bool {
         ExerciseGroup.builtInIds.contains(groupId)
@@ -67,6 +84,66 @@ final class ExerciseGroup {
             ],
             sortOrder: 0,
             isCustom: false
-        )
+        ),
+        ExerciseGroup(
+            groupId: deadliftsPlusId,
+            name: "Deadlifts+",
+            exerciseIds: [
+                Exercise.deadliftsId,
+                Exercise.frontSquatsId,
+                Exercise.backExtensionsId,
+                Exercise.hangingLegRaisesId,
+            ],
+            sortOrder: 1,
+            isCustom: false
+        ),
+        ExerciseGroup(
+            groupId: squatsPlusId,
+            name: "Squats+",
+            exerciseIds: [
+                Exercise.squatsId,
+                Exercise.bulgarianSplitSquatsId,
+                Exercise.romanianDeadliftsId,
+                Exercise.standingCalfRaisesId,
+            ],
+            sortOrder: 2,
+            isCustom: false
+        ),
+        ExerciseGroup(
+            groupId: benchPressPlusId,
+            name: "Bench Press+",
+            exerciseIds: [
+                Exercise.benchPressId,
+                Exercise.dipsId,
+                Exercise.flyesId,
+                Exercise.lateralRaisesId,
+            ],
+            sortOrder: 3,
+            isCustom: false
+        ),
+        ExerciseGroup(
+            groupId: barbellRowPlusId,
+            name: "Barbell Row+",
+            exerciseIds: [
+                Exercise.barbellRowId,
+                Exercise.pullUpsId,
+                Exercise.barbellCurlsId,
+                Exercise.pulloversId,
+            ],
+            sortOrder: 4,
+            isCustom: false
+        ),
+        ExerciseGroup(
+            groupId: ohpPlusId,
+            name: "OHP+",
+            exerciseIds: [
+                Exercise.overheadPressId,
+                Exercise.closeGripBenchPressId,
+                Exercise.rearDeltFlysId,
+                Exercise.cableYRaisesId,
+            ],
+            sortOrder: 5,
+            isCustom: false
+        ),
     ]
 }

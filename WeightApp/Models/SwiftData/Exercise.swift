@@ -169,6 +169,14 @@ final class Exercise {
     static let barbellShrugsId                          = UUID(uuidString: "00000000-0000-0000-0001-000000000036")!
     static let highPulleyLateralExtensionsId            = UUID(uuidString: "00000000-0000-0000-0001-000000000037")!
     static let pulloversId                              = UUID(uuidString: "00000000-0000-0000-0001-000000000038")!
+    static let standingCalfRaisesId                     = UUID(uuidString: "00000000-0000-0000-0001-000000000039")!
+    static let cableRowsId                              = UUID(uuidString: "00000000-0000-0000-0001-000000000040")!
+    static let closeGripBenchPressId                    = UUID(uuidString: "00000000-0000-0000-0001-000000000041")!
+    static let rearDeltFlysId                           = UUID(uuidString: "00000000-0000-0000-0001-000000000042")!
+    static let cableYRaisesId                           = UUID(uuidString: "00000000-0000-0000-0001-000000000043")!
+    static let frontSquatsId                            = UUID(uuidString: "00000000-0000-0000-0001-000000000044")!
+    static let backExtensionsId                         = UUID(uuidString: "00000000-0000-0000-0001-000000000045")!
+    static let hangingLegRaisesId                       = UUID(uuidString: "00000000-0000-0000-0001-000000000046")!
 
     static let builtInIds: Set<UUID> = [
         deadliftsId, squatsId, benchPressId, overheadPressId, barbellRowId,
@@ -181,7 +189,9 @@ final class Exercise {
         lyingDumbbellTricepExtensionsId, oneArmOverheadDumbbellTricepExtensionsId,
         tricepKickbacksId, seatedDumbbellTricepExtensionsId, seatedEZBarTricepExtensionsId,
         lateralRaisesId, flyesId, sideRaisesId,
-        bulgarianSplitSquatsId, barbellShrugsId, highPulleyLateralExtensionsId, pulloversId
+        bulgarianSplitSquatsId, barbellShrugsId, highPulleyLateralExtensionsId, pulloversId,
+        standingCalfRaisesId, cableRowsId, closeGripBenchPressId, rearDeltFlysId,
+        cableYRaisesId, frontSquatsId, backExtensionsId, hangingLegRaisesId
     ]
 
     // MARK: - Built-in Definitions
@@ -193,7 +203,7 @@ final class Exercise {
         (overheadPressId,                          "Overhead Press",                                 .barbell,    .push,  "OverheadPressIcon"),
         (barbellRowId,                             "Barbell Row",                                    .barbell,    .pull,  "BarbellRowIcon"),
         (pullUpsId,                                "Pull Ups",                                       .bodyweightPlusSingleLoad, .pull,  "PullUpIcon"),
-        (dipsId,                                   "Dips",                                           .bodyweightPlusSingleLoad, .push,  "DipsIcon"),
+        (dipsId,                                   "Weighted Dips",                                  .bodyweightPlusSingleLoad, .push,  "DipsIcon"),
         (barbellCurlsId,                           "Barbell Curls",                                  .barbell,    .pull,  "CurlsIcon"),
         (romanianDeadliftsId,                      "Romanian Deadlifts",                             .barbell,    .hinge, "DeadliftIcon"),
         (dumbbellCurlsId,                          "Dumbbell Curls",                                 .singleLoad, .pull,  "DumbbellCurlsIcon"),
@@ -225,5 +235,13 @@ final class Exercise {
         (barbellShrugsId,                          "Barbell Shrugs",                                 .barbell,    .pull,  "BarbellShrugsIcon"),
         (highPulleyLateralExtensionsId,            "High Pulley Lateral Extensions",                 .singleLoad, .pull,  "HighPulleyLateralExtensionsIcon"),
         (pulloversId,                              "Pullovers",                                      .singleLoad, .pull,  "PulloversIcon"),
+        (standingCalfRaisesId,                     "Standing Calf Raises",                           .singleLoad, .other, "StandingCalfRaisesIcon"),
+        (cableRowsId,                              "Cable Rows",                                     .singleLoad, .pull,  "CableRowsIcon"),
+        (closeGripBenchPressId,                    "Close Grip Bench Press",                         .barbell,    .push,  "CloseGripBenchPressIcon"),
+        (rearDeltFlysId,                           "Rear Delt Flys",                                 .singleLoad, .pull,  "RearDeltFlysIcon"),
+        (cableYRaisesId,                           "Cable Y Raises",                                 .singleLoad, .pull,  "CableYRaisesIcon"),
+        (frontSquatsId,                            "Front Squats",                                   .barbell,    .squat, "FrontSquatsIcon"),
+        (backExtensionsId,                         "Back Extensions",                                .singleLoad, .hinge, "BackExtensionsIcon"),
+        (hangingLegRaisesId,                       "Hanging Leg Raises",                             .bodyweightPlusSingleLoad, .core,  "HangingLegRaisesIcon"),
     ]
 }

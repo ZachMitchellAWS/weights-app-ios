@@ -509,6 +509,14 @@ class APIService {
         )
     }
 
+    func getStarterInsight() async throws -> StarterInsightResponse {
+        return try await request(
+            endpoint: "/insights/starter",
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+
     // MARK: - Request Method with Date Decoding
 
     private func requestWithDateDecoding<T: Decodable>(

@@ -41,10 +41,10 @@ enum EffortMode: Int, CaseIterable {
 
     func repRange(from props: UserProperties) -> ClosedRange<Int> {
         switch self {
-        case .easy: return props.easyMinReps...props.easyMaxReps
-        case .moderate: return props.moderateMinReps...props.moderateMaxReps
-        case .hard: return props.hardMinReps...props.hardMaxReps
-        case .progress: return props.minReps...props.maxReps
+        case .easy: return 8...12
+        case .moderate: return 6...10
+        case .hard: return 3...6
+        case .progress: return props.progressMinReps...props.progressMaxReps
         }
     }
 
@@ -79,19 +79,19 @@ enum EffortMode: Int, CaseIterable {
 
     var defaultMinReps: Int {
         switch self {
-        case .easy: return UserProperties.defaultEasyMinReps
-        case .moderate: return UserProperties.defaultModerateMinReps
-        case .hard: return UserProperties.defaultHardMinReps
-        case .progress: return UserProperties.defaultMinReps
+        case .easy: return 8
+        case .moderate: return 6
+        case .hard: return 3
+        case .progress: return UserProperties.defaultProgressMinReps
         }
     }
 
     var defaultMaxReps: Int {
         switch self {
-        case .easy: return UserProperties.defaultEasyMaxReps
-        case .moderate: return UserProperties.defaultModerateMaxReps
-        case .hard: return UserProperties.defaultHardMaxReps
-        case .progress: return UserProperties.defaultMaxReps
+        case .easy: return 12
+        case .moderate: return 10
+        case .hard: return 6
+        case .progress: return UserProperties.defaultProgressMaxReps
         }
     }
 

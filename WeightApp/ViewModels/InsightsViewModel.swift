@@ -28,9 +28,12 @@ class InsightsViewModel {
         case empty(EmptyReason)
         case error(String)
         case locked
+        case freeNoTier
+        case freeWithTier(StrengthTier, StarterInsightResponse?)
     }
 
     var state: ViewState = .idle
+    var starterInsight: StarterInsightResponse?
 
     // MARK: - Cache Keys
 
@@ -51,11 +54,25 @@ class InsightsViewModel {
 
     // MARK: - Lifecycle
 
-    func onAppear(isPremium: Bool, hasLocalSetsThisWeek: Bool) async {
-        // Free user → locked
+    func onAppear(isPremium: Bool, hasLocalSetsThisWeek: Bool, overallTier: StrengthTier = .none) async {
+        // Free user → tier-aware state
         guard isPremium else {
-            state = .locked
+            if overallTier != .none {
+                let cached = NarrativeBadgeService.shared.cachedStarterInsight
+                state = .freeWithTier(overallTier, cached)
+                NarrativeBadgeService.shared.markStarterViewedIfNeeded()
+                if cached != nil && cached?.audioUrl == nil {
+                    pollForStarterAudio(tier: overallTier)
+                }
+            } else {
+                state = .freeNoTier
+            }
             return
+        }
+
+        // Premium user with a tier unlocked — show starter insight above weekly if cached
+        if overallTier != .none {
+            starterInsight = NarrativeBadgeService.shared.cachedStarterInsight
         }
 
         // Show cache immediately if available
@@ -144,6 +161,26 @@ class InsightsViewModel {
     }
 
     // MARK: - Helpers
+
+    // MARK: - Starter Audio Polling
+
+    func pollForStarterAudio(tier: StrengthTier) {
+        Task {
+            for _ in 0..<3 {
+                try? await Task.sleep(for: .seconds(10))
+                do {
+                    let response = try await APIService.shared.getStarterInsight()
+                    if response.audioUrl != nil {
+                        NarrativeBadgeService.shared.updateCachedStarterInsight(response)
+                        state = .freeWithTier(tier, response)
+                        return
+                    }
+                } catch {
+                    // Continue polling
+                }
+            }
+        }
+    }
 
     private func nextSundayFormatted() -> String {
         let calendar = Calendar.current

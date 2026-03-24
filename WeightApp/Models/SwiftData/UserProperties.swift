@@ -16,16 +16,9 @@ final class UserProperties {
     @Attribute(.unique) var id: UUID
     var bodyweight: Double?
     var availableChangePlates: [Double] = []
-    var minReps: Int = 5
-    var maxReps: Int = 12
-    var easyMinReps: Int = 8
-    var easyMaxReps: Int = 12
-    var moderateMinReps: Int = 6
-    var moderateMaxReps: Int = 10
-    var hardMinReps: Int = 3
-    var hardMaxReps: Int = 6
+    var progressMinReps: Int = 4
+    var progressMaxReps: Int = 8
     var activeSetPlanId: UUID?
-    var activeGroupId: UUID?
     var stepsGoal: Int?
     var proteinGoal: Int?
     var bodyweightTarget: Double?
@@ -43,16 +36,9 @@ final class UserProperties {
         self.id = UserProperties.singletonID
         self.bodyweight = nil
         self.availableChangePlates = []
-        self.minReps = UserProperties.defaultMinReps
-        self.maxReps = UserProperties.defaultMaxReps
-        self.easyMinReps = UserProperties.defaultEasyMinReps
-        self.easyMaxReps = UserProperties.defaultEasyMaxReps
-        self.moderateMinReps = UserProperties.defaultModerateMinReps
-        self.moderateMaxReps = UserProperties.defaultModerateMaxReps
-        self.hardMinReps = UserProperties.defaultHardMinReps
-        self.hardMaxReps = UserProperties.defaultHardMaxReps
+        self.progressMinReps = UserProperties.defaultProgressMinReps
+        self.progressMaxReps = UserProperties.defaultProgressMaxReps
         self.activeSetPlanId = nil
-        self.activeGroupId = nil
         self.stepsGoal = nil
         self.proteinGoal = nil
         self.bodyweightTarget = nil
@@ -61,14 +47,8 @@ final class UserProperties {
     }
 
     static let defaultAvailableChangePlates: [Double] = [2.5]
-    static let defaultMinReps = 5
-    static let defaultMaxReps = 12
-    static let defaultEasyMinReps = 8
-    static let defaultEasyMaxReps = 12
-    static let defaultModerateMinReps = 6
-    static let defaultModerateMaxReps = 10
-    static let defaultHardMinReps = 3
-    static let defaultHardMaxReps = 6
+    static let defaultProgressMinReps = 5
+    static let defaultProgressMaxReps = 12
     static let repRangeMax = 12     // Upper bound for rep range slider
     static let minRepRangeSpan = 3  // Minimum difference between min and max
 }

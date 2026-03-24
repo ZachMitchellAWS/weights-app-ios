@@ -196,6 +196,10 @@ struct WeightAppApp: App {
                     NarrativeBadgeService.shared.refresh()
                 }
             }
+            .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                // Universal link opened the app
+                // TODO: Parse activity.webpageURL for deep link routing in the future
+            }
         }
         .modelContainer(modelContainer)
     }

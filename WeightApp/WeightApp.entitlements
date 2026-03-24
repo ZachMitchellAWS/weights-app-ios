@@ -8,5 +8,10 @@
 	</array>
 	<key>aps-environment</key>
 	<string>development</string>
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:liftthebull.io</string>
+		<string>applinks:staging.liftthebull.io</string>
+	</array>
 </dict>
 </plist>

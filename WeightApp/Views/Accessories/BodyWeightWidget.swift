@@ -111,7 +111,7 @@ struct BodyWeightWidget: View {
                     y: .value("Weight", checkin.value)
                 )
                 .foregroundStyle(Color.appAccent)
-                .interpolationMethod(.catmullRom)
+                .interpolationMethod(.linear)
                 .lineStyle(StrokeStyle(lineWidth: 2))
 
                 PointMark(

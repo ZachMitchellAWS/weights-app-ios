@@ -177,25 +177,11 @@ struct APIValidationView: View {
                 guard response.minReps == 4 && response.maxReps == 10 else { throw ValidationError("rep ranges mismatch") }
             },
             // 7
-            TestStep(id: 7, name: "POST User Properties (set effort rep ranges)") {
-                let request = UserPropertiesRequest(
-                    easyMinReps: 8, easyMaxReps: 12,
-                    moderateMinReps: 6, moderateMaxReps: 10,
-                    hardMinReps: 3, hardMaxReps: 6
-                )
-                let response = try await api.updateUserProperties(request)
-                guard response.easyMinReps == 8 && response.easyMaxReps == 12 &&
-                      response.moderateMinReps == 6 && response.moderateMaxReps == 10 &&
-                      response.hardMinReps == 3 && response.hardMaxReps == 6
-                else { throw ValidationError("effort rep ranges mismatch") }
-            },
-            // 8
-            TestStep(id: 8, name: "GET User Properties (verify all)") {
+            TestStep(id: 7, name: "GET User Properties (verify all)") {
                 let response = try await api.getUserProperties()
                 guard response.bodyweight == 185.0 else { throw ValidationError("bodyweight missing") }
                 guard response.availableChangePlates == [2.5, 5.0, 10.0, 25.0, 45.0] else { throw ValidationError("plates missing") }
                 guard response.minReps == 4 && response.maxReps == 10 else { throw ValidationError("rep ranges missing") }
-                guard response.easyMinReps == 8 && response.hardMaxReps == 6 else { throw ValidationError("effort rep ranges missing") }
             },
             // 9
             TestStep(id: 9, name: "POST User Properties (clear bodyweight)") {

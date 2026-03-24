@@ -28,8 +28,9 @@ enum SubscriptionConfig {
             ? "https://liftthebull.io"
             : "https://staging.liftthebull.io"
     }
-    static var termsURL: URL { URL(string: "\(websiteBaseURL)/terms")! }
-    static var privacyURL: URL { URL(string: "\(websiteBaseURL)/privacy")! }
+    static var termsURL: URL { URL(string: "\(websiteBaseURL)/terms?embedded=1")! }
+    static var privacyURL: URL { URL(string: "\(websiteBaseURL)/privacy?embedded=1")! }
+    static var supportURL: URL { URL(string: "\(websiteBaseURL)/support?embedded=1")! }
 
     // MARK: - Marketing Copy
     static let upsellTitle = "Premium"

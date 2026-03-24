@@ -13,7 +13,19 @@ struct InsightsView: View {
     @State private var audioPlayer = AudioPlayerManager()
     @Query private var entitlementRecords: [EntitlementGrant]
     @Query private var allLiftSets: [LiftSet]
+    @Query(filter: #Predicate<Estimated1RM> { !$0.deleted }, sort: \Estimated1RM.createdAt) private var allEstimated1RM: [Estimated1RM]
+    @Query private var userPropertiesItems: [UserProperties]
     @State private var showUpsell = false
+
+    private var userProperties: UserProperties { userPropertiesItems.first ?? UserProperties() }
+
+    private var overallTier: StrengthTier {
+        TrendsCalculator.strengthTierAssessment(
+            from: allEstimated1RM,
+            bodyweight: userProperties.bodyweight ?? 0,
+            biologicalSex: userProperties.biologicalSex ?? "male"
+        ).overallTier
+    }
 
     private static let headerColors: [Color] = [
         Color(red: 0x21/255, green: 0xB7/255, blue: 0xC9/255),  // teal (Training Volume)
@@ -38,15 +50,17 @@ struct InsightsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 12) {
-                if case .locked = viewModel.state {} else {
-                    insightsHeader
-                }
+                insightsHeader
 
                 switch viewModel.state {
                 case .idle:
                     EmptyView()
                 case .locked:
                     lockedContent
+                case .freeNoTier:
+                    freeNoTierContent
+                case .freeWithTier(let tier, let starterResponse):
+                    freeWithTierContent(tier: tier, response: starterResponse)
                 case .loading:
                     loadingContent
                 case .empty(let reason):
@@ -68,7 +82,7 @@ struct InsightsView: View {
             await viewModel.fetchInsights(force: true, isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
         }
         .task {
-            await viewModel.onAppear(isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
+            await viewModel.onAppear(isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek, overallTier: overallTier)
             PushNotificationService.shared.requestPermissionIfNeeded()
             if case .loaded(let response) = viewModel.state,
                let weekStart = response.weekStartDate {
@@ -119,21 +133,94 @@ struct InsightsView: View {
         .padding(.bottom, 4)
     }
 
-    // MARK: - Locked State
+    // MARK: - Locked State (legacy fallback)
 
     private var lockedContent: some View {
-        VStack(spacing: 12) {
-            ForEach(InsightSectionStyle.allCases) { style in
-                placeholderCard(style: style)
-            }
+        freeNoTierContent
+    }
+
+    // MARK: - Free User, No Tier
+
+    private var freeNoTierContent: some View {
+        VStack(spacing: 20) {
+            gettingStartedCard
+            weeklyInsightsPremiumSection
         }
-        .premiumLocked(
-            title: "Premium Feature",
-            subtitle: "Unlock AI-powered weekly training insights with Premium.",
-            ctaText: "Learn More",
-            blurRadius: 6,
-            showUpsell: $showUpsell
-        )
+    }
+
+    // MARK: - Free User, Tier Unlocked
+
+    @ViewBuilder
+    private func freeWithTierContent(tier: StrengthTier, response: StarterInsightResponse?) -> some View {
+        VStack(spacing: 20) {
+            StarterInsightCard(tier: tier, response: response, audioPlayer: audioPlayer)
+            weeklyInsightsPremiumSection
+        }
+    }
+
+    // MARK: - Getting Started Card
+
+    private var gettingStartedCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "flag.fill")
+                    .foregroundStyle(Color.appAccent)
+                    .font(.subheadline)
+                Text("Getting Started")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+
+            Text("Unlock your Strength Tier by logging all 5 fundamental exercises to receive your first personalized insight.")
+                .font(.callout)
+                .foregroundStyle(.white.opacity(0.85))
+                .lineSpacing(4)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.appAccent)
+                .frame(width: 3)
+        }
+        .background(Color(white: 0.14))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    // MARK: - Weekly Insights Premium Section
+
+    private var weeklyInsightsPremiumSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                    .foregroundStyle(Color(red: 0xF5/255, green: 0x9E/255, blue: 0x0B/255))
+                    .font(.subheadline)
+                Text("Weekly Insights")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+
+                Text("Premium")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.appAccent)
+                    .clipShape(Capsule())
+            }
+
+            VStack(spacing: 12) {
+                ForEach(InsightSectionStyle.allCases) { style in
+                    placeholderCard(style: style)
+                }
+            }
+            .premiumLocked(
+                title: "Premium Feature",
+                subtitle: "Unlock AI-powered weekly training insights with Premium.",
+                ctaText: "Learn More",
+                blurRadius: 6,
+                showUpsell: $showUpsell
+            )
+        }
     }
 
     // MARK: - Loading State
@@ -202,6 +289,11 @@ struct InsightsView: View {
 
     @ViewBuilder
     private func populatedContent(response: WeeklyInsightsResponse) -> some View {
+        // Show starter insight card for premium users who have one cached
+        if let starter = viewModel.starterInsight, starter.body != nil {
+            StarterInsightCard(tier: overallTier, response: starter, audioPlayer: audioPlayer)
+        }
+
         if let sections = response.sections {
             ForEach(sections, id: \.title) { section in
                 let style = InsightSectionStyle.from(title: section.title)
@@ -354,6 +446,85 @@ enum InsightSectionStyle: String, CaseIterable, Identifiable {
         case "Accessory Goals": return .accessoryGoals
         case "Next Week": return .nextWeek
         default: return .trainingVolume
+        }
+    }
+}
+
+// MARK: - Starter Insight Card
+
+struct StarterInsightCard: View {
+    let tier: StrengthTier
+    let response: StarterInsightResponse?
+    var audioPlayer: AudioPlayerManager
+
+    private static let amberAccent = Color(red: 0xF5/255, green: 0x9E/255, blue: 0x0B/255)
+    private static let starterAudioTitle = "Starter Insight"
+
+    private var isPlaying: Bool {
+        audioPlayer.currentlyPlayingSectionTitle == Self.starterAudioTitle && audioPlayer.isPlaying
+    }
+
+    private var bodyText: String {
+        response?.body ?? "Based on your initial lifts, you're showing solid foundation strength. Focus on consistent progressive overload across your compound movements — even small incremental increases add up significantly over time."
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Your First Insight")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Self.amberAccent)
+                    .textCase(.uppercase)
+                    .tracking(0.5)
+
+                if response?.audioUrl != nil {
+                    Spacer()
+                    Button {
+                        guard let urlString = response?.audioUrl,
+                              let url = URL(string: urlString) else { return }
+                        audioPlayer.toggle(url: url, sectionTitle: Self.starterAudioTitle)
+                    } label: {
+                        Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(tier.color)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            HStack(spacing: 10) {
+                Image(systemName: "brain.fill")
+                    .font(.title2)
+                    .foregroundStyle(tier.color)
+                    .shadow(color: tier.color.opacity(0.6), radius: 8)
+
+                Text("Congratulations on reaching \(tier.title)!")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+            }
+
+            Text(bodyText)
+                .font(.callout)
+                .foregroundStyle(.white.opacity(0.85))
+                .lineSpacing(4)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(tier.color)
+                .frame(width: 3)
+        }
+        .background {
+            ZStack {
+                Color(white: 0.14)
+                tier.color.opacity(0.05)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Self.amberAccent.opacity(0.3), lineWidth: 1)
         }
     }
 }

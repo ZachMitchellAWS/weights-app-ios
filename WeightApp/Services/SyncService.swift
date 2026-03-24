@@ -233,34 +233,13 @@ class SyncService: ObservableObject {
                 userProperties.bodyweight = bodyweight
             }
             if let minReps = response.minReps {
-                userProperties.minReps = minReps
+                userProperties.progressMinReps = minReps
             }
             if let maxReps = response.maxReps {
-                userProperties.maxReps = maxReps
-            }
-            if let easyMinReps = response.easyMinReps {
-                userProperties.easyMinReps = easyMinReps
-            }
-            if let easyMaxReps = response.easyMaxReps {
-                userProperties.easyMaxReps = easyMaxReps
-            }
-            if let moderateMinReps = response.moderateMinReps {
-                userProperties.moderateMinReps = moderateMinReps
-            }
-            if let moderateMaxReps = response.moderateMaxReps {
-                userProperties.moderateMaxReps = moderateMaxReps
-            }
-            if let hardMinReps = response.hardMinReps {
-                userProperties.hardMinReps = hardMinReps
-            }
-            if let hardMaxReps = response.hardMaxReps {
-                userProperties.hardMaxReps = hardMaxReps
+                userProperties.progressMaxReps = maxReps
             }
             if let activeSetPlanId = response.activeSetPlanId {
                 userProperties.activeSetPlanId = UUID(uuidString: activeSetPlanId)
-            }
-            if let activeGroupId = response.activeGroupId {
-                userProperties.activeGroupId = UUID(uuidString: activeGroupId)
             }
             if let stepsGoal = response.stepsGoal {
                 userProperties.stepsGoal = stepsGoal
@@ -384,17 +363,11 @@ class SyncService: ObservableObject {
         }
     }
 
-    func updateAllRepRanges(minReps: Int, maxReps: Int, easyMinReps: Int, easyMaxReps: Int, moderateMinReps: Int, moderateMaxReps: Int, hardMinReps: Int, hardMaxReps: Int) async {
+    func updateProgressRepRange(minReps: Int, maxReps: Int) async {
         do {
             let request = UserPropertiesRequest(
                 minReps: minReps,
-                maxReps: maxReps,
-                easyMinReps: easyMinReps,
-                easyMaxReps: easyMaxReps,
-                moderateMinReps: moderateMinReps,
-                moderateMaxReps: moderateMaxReps,
-                hardMinReps: hardMinReps,
-                hardMaxReps: hardMaxReps
+                maxReps: maxReps
             )
             _ = try await APIService.shared.updateUserProperties(request)
             retryQueue.removePendingUserPropertiesSync()
@@ -420,23 +393,6 @@ class SyncService: ObservableObject {
         }
     }
 
-    func updateActiveGroup(_ groupId: UUID?) async {
-        do {
-            var request = UserPropertiesRequest()
-            if let groupId = groupId {
-                request.activeGroupId = groupId.uuidString
-            } else {
-                request.clearActiveGroupId = true
-            }
-            _ = try await APIService.shared.updateUserProperties(request)
-            retryQueue.removePendingUserPropertiesSync()
-        } catch {
-            SyncLogger.sync.error("Failed to update active group: \(error.localizedDescription)")
-            retryQueue.addPendingUserPropertiesSync()
-        }
-    }
-
-
     func processUserPropertiesRetryQueue() async {
         guard let context = modelContext else { return }
         guard retryQueue.hasUserPropertiesPending() else { return }
@@ -447,14 +403,8 @@ class SyncService: ObservableObject {
             var request = UserPropertiesRequest(
                 bodyweight: userProperties.bodyweight,
                 availableChangePlates: userProperties.availableChangePlates,
-                minReps: userProperties.minReps,
-                maxReps: userProperties.maxReps,
-                easyMinReps: userProperties.easyMinReps,
-                easyMaxReps: userProperties.easyMaxReps,
-                moderateMinReps: userProperties.moderateMinReps,
-                moderateMaxReps: userProperties.moderateMaxReps,
-                hardMinReps: userProperties.hardMinReps,
-                hardMaxReps: userProperties.hardMaxReps,
+                minReps: userProperties.progressMinReps,
+                maxReps: userProperties.progressMaxReps,
                 weightUnit: userProperties.weightUnit,
                 timezone: userProperties.timezoneIdentifier
             )
@@ -462,11 +412,6 @@ class SyncService: ObservableObject {
                 request.activeSetPlanId = templateId.uuidString
             } else {
                 request.clearActiveSetPlan = true
-            }
-            if let groupId = userProperties.activeGroupId {
-                request.activeGroupId = groupId.uuidString
-            } else {
-                request.clearActiveGroupId = true
             }
             _ = try await APIService.shared.updateUserProperties(request)
             retryQueue.removePendingUserPropertiesSync()
@@ -1658,5 +1603,7 @@ class SyncService: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "insights_last_viewed_week")
         UserDefaults.standard.removeObject(forKey: "hasSeenTierIntro")
         UserDefaults.standard.removeObject(forKey: "contiguousAccessoryCharts")
+        UserDefaults.standard.removeObject(forKey: "starterInsightViewed")
+        UserDefaults.standard.removeObject(forKey: "starterInsightCachedResponse")
     }
 }

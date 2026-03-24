@@ -14,7 +14,7 @@ struct OnboardingView: View {
 
     @State private var currentPage = 0
     @State private var showControls = false
-    private let totalPages = 5
+    private let totalPages = 6
 
     var body: some View {
         ZStack {
@@ -38,20 +38,13 @@ struct OnboardingView: View {
                             showControls = true
                         }
                     })
-                    // Views 4-6 commented out
-                    // case 3: OnboardingE1RMConcept(onAnimationComplete: {
-                    //     withAnimation(.easeOut(duration: 0.4)) {
-                    //         showControls = true
-                    //     }
-                    // })
-                    // case 4: OnboardingEffortTraining(onAnimationComplete: {
-                    //     withAnimation(.easeOut(duration: 0.4)) {
-                    //         showControls = true
-                    //     }
-                    // })
-                    // case 5: OnboardingProgressOptions()
-                    case 3: OnboardingChangePlatesStep(currentPage: $currentPage, totalPages: totalPages)
-                    case 4: OnboardingBodyProfileStep(currentPage: $currentPage, totalPages: totalPages, onComplete: onComplete)
+                    case 3: OnboardingMilestonesConcept(onAnimationComplete: {
+                        withAnimation(.easeOut(duration: 0.4)) {
+                            showControls = true
+                        }
+                    })
+                    case 4: OnboardingChangePlatesStep(currentPage: $currentPage, totalPages: totalPages)
+                    case 5: OnboardingBodyProfileStep(currentPage: $currentPage, totalPages: totalPages, onComplete: onComplete)
                     default: EmptyView()
                     }
                 }
@@ -92,7 +85,7 @@ struct OnboardingView: View {
                     }
                     .padding(.bottom, 50)
                     // Welcome + Five Lifts: always visible. E1RM & Effort screens: fade in after animation. Others: always visible.
-                    .opacity(currentPage == 0 || (currentPage != 1 && currentPage != 2 && currentPage != 3 && currentPage != 4) || showControls ? 1 : 0)
+                    .opacity(currentPage == 0 || (currentPage != 1 && currentPage != 2 && currentPage != 3 && currentPage != 4 && currentPage != 5) || showControls ? 1 : 0)
                 }
             }
         }
@@ -128,7 +121,7 @@ private struct OnboardingWelcome: View {
 
             // Setup message
             Text("Here's a quick look at the basics.")
-                .font(.inter(size: 18))
+                .font(.inter(size: 17))
                 .foregroundStyle(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
@@ -153,20 +146,21 @@ private struct OnboardingFiveLiftsConcept: View {
     @State private var animatedExercise: Int = 0
     @State private var barProgress: [CGFloat] = [0, 0, 0, 0, 0]
     @State private var showOverallTier: Bool = false
+    @State private var animationComplete: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
             // Title
             VStack(spacing: 12) {
                 Text("Your Strength Tier")
-                    .font(.bebasNeue(size: 36))
+                    .font(.bebasNeue(size: 34))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
                 (Text("Your strength is measured across\n")
                     + Text("Five").fontWeight(.semibold).foregroundColor(.appAccent)
                     + Text(" fundamental lifts."))
-                    .font(.inter(size: 18))
+                    .font(.inter(size: 17))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
@@ -243,21 +237,53 @@ private struct OnboardingFiveLiftsConcept: View {
             .background(Color(white: 0.12))
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .padding(.horizontal, 24)
-        }
-        .onAppear {
-            Task {
-                try? await Task.sleep(for: .milliseconds(300))
-                for i in 0..<5 {
-                    withAnimation(.easeOut(duration: 0.3)) {
-                        barProgress[i] = targetProgress[i]
+            .overlay(alignment: .bottomTrailing) {
+                if animationComplete {
+                    Button {
+                        replayAnimation()
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.3))
+                            .padding(8)
                     }
-                    try? await Task.sleep(for: .milliseconds(i < 4 ? 300 : 200))
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 28)
+                    .padding(.bottom, 4)
+                    .transition(.opacity)
                 }
-                try? await Task.sleep(for: .milliseconds(250))
-                showOverallTier = true
-                onAnimationComplete?()
             }
         }
+        .onAppear {
+            runAnimation()
+        }
+    }
+
+    private func runAnimation() {
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            for i in 0..<5 {
+                withAnimation(.easeOut(duration: 0.3)) {
+                    barProgress[i] = targetProgress[i]
+                }
+                try? await Task.sleep(for: .milliseconds(i < 4 ? 300 : 200))
+            }
+            try? await Task.sleep(for: .milliseconds(250))
+            showOverallTier = true
+            withAnimation(.easeOut(duration: 0.3)) {
+                animationComplete = true
+            }
+            onAnimationComplete?()
+        }
+    }
+
+    private func replayAnimation() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            barProgress = [0, 0, 0, 0, 0]
+            showOverallTier = false
+            animationComplete = false
+        }
+        runAnimation()
     }
 }
 
@@ -296,12 +322,12 @@ private struct OnboardingE1RMConcept: View {
             // Title
             VStack(spacing: 12) {
                 Text("Track Your Estimated 1-Rep Max")
-                    .font(.bebasNeue(size: 36))
+                    .font(.bebasNeue(size: 34))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
                 Text("New PRs are identified from each logged set.")
-                    .font(.inter(size: 18))
+                    .font(.inter(size: 17))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
@@ -405,6 +431,7 @@ private struct OnboardingProgressConcept: View {
     @State private var showE1RM: Bool = false
     @State private var displayedE1RM: Int = 185
     @State private var showDelta: Bool = false
+    @State private var animationComplete: Bool = false
 
     private let bars: [(height: CGFloat, color: Color)] = [
         (0.30, .setEasy),
@@ -432,13 +459,13 @@ private struct OnboardingProgressConcept: View {
             // Title
             VStack(spacing: 12) {
                 Text("Achievable Progress")
-                    .font(.bebasNeue(size: 36))
+                    .font(.bebasNeue(size: 34))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
                 (Text("Follow set options that increase your\n")
-                    + Text("estimated one-rep max").foregroundColor(.appAccent))
-                    .font(.inter(size: 18))
+                    + Text("estimated one-rep maxes").foregroundColor(.appAccent))
+                    .font(.inter(size: 17))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
@@ -539,6 +566,22 @@ private struct OnboardingProgressConcept: View {
             .background(Color(white: 0.12))
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .padding(.horizontal, 24)
+            .overlay(alignment: .bottomTrailing) {
+                if animationComplete {
+                    Button {
+                        replayAnimation()
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.3))
+                            .padding(8)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 28)
+                    .padding(.bottom, 4)
+                    .transition(.opacity)
+                }
+            }
             .onAppear {
                 startAnimation()
             }
@@ -573,8 +616,23 @@ private struct OnboardingProgressConcept: View {
             try await Task.sleep(for: .milliseconds(200))
             showDelta = true
 
+            withAnimation(.easeOut(duration: 0.3)) {
+                animationComplete = true
+            }
             onAnimationComplete?()
         }
+    }
+
+    private func replayAnimation() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            visibleBars = 0
+            showPRIndicator = false
+            showE1RM = false
+            displayedE1RM = 185
+            showDelta = false
+            animationComplete = false
+        }
+        startAnimation()
     }
 }
 
@@ -611,8 +669,8 @@ private struct OnboardingE1RMConcept_ChartVersion: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 12) {
-                Text("Your Estimated 1RM").font(.bebasNeue(size: 36)).foregroundStyle(.white).multilineTextAlignment(.center)
-                Text("You never need to max out").font(.inter(size: 18)).foregroundStyle(.white.opacity(0.7)).multilineTextAlignment(.center).padding(.horizontal, 40)
+                Text("Your Estimated 1RM").font(.bebasNeue(size: 34)).foregroundStyle(.white).multilineTextAlignment(.center)
+                Text("You never need to max out").font(.inter(size: 17)).foregroundStyle(.white.opacity(0.7)).multilineTextAlignment(.center).padding(.horizontal, 40)
             }
             Spacer().frame(height: 24)
             VStack(alignment: .leading, spacing: 12) {
@@ -709,12 +767,12 @@ private struct OnboardingEffortTraining: View {
             // Title
             VStack(spacing: 12) {
                 Text("Effort-Based Training")
-                    .font(.bebasNeue(size: 36))
+                    .font(.bebasNeue(size: 34))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
                 Text("Each session follows a planned sequence of effort levels.")
-                    .font(.inter(size: 18))
+                    .font(.inter(size: 17))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
@@ -958,8 +1016,8 @@ private struct OnboardingEffortTraining_ScrollVersion: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 12) {
-                Text("Effort-Based Training").font(.bebasNeue(size: 36)).foregroundStyle(.white).multilineTextAlignment(.center)
-                Text("Each session follows a plan").font(.inter(size: 18)).foregroundStyle(.white.opacity(0.7)).multilineTextAlignment(.center).padding(.horizontal, 40)
+                Text("Effort-Based Training").font(.bebasNeue(size: 34)).foregroundStyle(.white).multilineTextAlignment(.center)
+                Text("Each session follows a plan").font(.inter(size: 17)).foregroundStyle(.white.opacity(0.7)).multilineTextAlignment(.center).padding(.horizontal, 40)
             }
             Spacer().frame(height: 24)
             VStack(alignment: .leading, spacing: 12) {
@@ -1030,12 +1088,12 @@ private struct OnboardingProgressOptions: View {
             // Title
             VStack(spacing: 12) {
                 Text("Achievable Progress")
-                    .font(.bebasNeue(size: 36))
+                    .font(.bebasNeue(size: 34))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
                 Text("Follow weight and rep options that can move your e1RM forward.")
-                    .font(.inter(size: 18))
+                    .font(.inter(size: 17))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
@@ -1098,6 +1156,229 @@ private struct OnboardingProgressOptions: View {
 }
 
 
+// MARK: - Screen 4: Milestones That Matter
+
+private struct OnboardingMilestonesConcept: View {
+    var onAnimationComplete: (() -> Void)?
+
+    private let exercises = TrendsCalculator.fundamentalExercises
+    private let tiers: [StrengthTier] = [.novice, .beginner, .intermediate, .advanced, .elite, .legend]
+
+    private let startE1RMs = [135, 115, 95, 85, 65]
+    private let e1rmIncrements = [40, 35, 25, 20, 15]
+
+    private let roundOrders: [[Int]] = [
+        [2, 0, 4, 1, 3],
+        [1, 3, 0, 4, 2],
+        [4, 2, 3, 0, 1],
+        [0, 1, 2, 3, 4],
+        [3, 4, 1, 2, 0],
+    ]
+
+    @State private var exerciseTiers: [Int] = [0, 0, 0, 0, 0]
+    @State private var exerciseProgress: [CGFloat] = [0, 0, 0, 0, 0]
+    @State private var exerciseE1RMs: [Int] = [135, 115, 95, 85, 65]
+    @State private var animationComplete = false
+    @State private var animationTask: Task<Void, Never>?
+
+    private let badgeSize: CGFloat = 48
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Title
+            VStack(spacing: 12) {
+                Text("Milestones That Matter")
+                    .font(.bebasNeue(size: 34))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+
+                (Text("Earn ").foregroundColor(.white.opacity(0.7))
+                    + Text("Milestones").foregroundColor(.appAccent)
+                    + Text(" as you get stronger.").foregroundColor(.white.opacity(0.7)))
+                    .font(.inter(size: 17))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+            }
+
+            Spacer()
+                .frame(height: 32)
+
+            // Card
+            VStack(spacing: 0) {
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach(0..<5, id: \.self) { i in
+                        milestoneColumn(index: i)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .padding(20)
+            }
+            .background(Color(white: 0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, 24)
+            .overlay(alignment: .bottomTrailing) {
+                if animationComplete {
+                    Button {
+                        replayAnimation()
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.3))
+                            .padding(8)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 28)
+                    .padding(.bottom, 4)
+                    .transition(.opacity)
+                }
+            }
+            .onAppear { startAnimation() }
+        }
+    }
+
+    @ViewBuilder
+    private func milestoneColumn(index i: Int) -> some View {
+        let tierIndex = exerciseTiers[i]
+        let achievedTier = tiers[tierIndex]
+        let isInProgress = exerciseProgress[i] > 0
+        let displayColor = isInProgress ? tiers[min(tierIndex + 1, 5)].color : achievedTier.color
+
+        VStack(spacing: 8) {
+            // e1RM number
+            Text("\(exerciseE1RMs[i])")
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .contentTransition(.numericText())
+
+            // Milestone circle
+            ZStack {
+                if isInProgress {
+                    // In-progress: background ring + progress arc
+                    let nextColor = tiers[min(tierIndex + 1, 5)].color
+
+                    Circle()
+                        .stroke(nextColor.opacity(0.25), lineWidth: 2.5)
+                        .frame(width: badgeSize, height: badgeSize)
+
+                    Circle()
+                        .trim(from: 0, to: exerciseProgress[i])
+                        .stroke(nextColor.opacity(0.7), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                        .frame(width: badgeSize, height: badgeSize)
+                        .rotationEffect(.degrees(-90))
+
+                    Text("\(Int(exerciseProgress[i] * 100))%")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white)
+                        .contentTransition(.numericText())
+                } else {
+                    // Achieved: filled circle + stroke + icon
+                    Circle()
+                        .fill(achievedTier.color.opacity(0.2))
+                        .frame(width: badgeSize, height: badgeSize)
+
+                    Circle()
+                        .stroke(achievedTier.color.opacity(0.7), lineWidth: 2.5)
+                        .frame(width: badgeSize, height: badgeSize)
+
+                    if tierIndex == 5 {
+                        Image(systemName: "crown.fill")
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundStyle(achievedTier.color)
+                    } else {
+                        Image(exercises[i].icon)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 26, height: 26)
+                            .foregroundStyle(achievedTier.color)
+                    }
+                }
+            }
+            .frame(width: badgeSize, height: badgeSize)
+
+            // Tier label
+            Text(shortTierName(tiers[tierIndex]))
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(displayColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+    }
+
+    private func shortTierName(_ tier: StrengthTier) -> String {
+        switch tier {
+        case .intermediate: return "Inter."
+        default: return tier.title
+        }
+    }
+
+    private func startAnimation() {
+        animationTask?.cancel()
+        animationTask = Task {
+            // Initial pause
+            try? await Task.sleep(for: .milliseconds(1200))
+
+            for round in 0..<5 {
+                guard !Task.isCancelled else { return }
+                let order = roundOrders[round]
+
+                for exerciseIndex in order {
+                    guard !Task.isCancelled else { return }
+
+                    let targetE1RM = startE1RMs[exerciseIndex] + e1rmIncrements[exerciseIndex] * (round + 1)
+                    let currentE1RM = exerciseE1RMs[exerciseIndex]
+                    let steps = 8
+                    let stepDuration: UInt64 = 100
+
+                    // Animate progress ring and e1RM simultaneously
+                    for step in 1...steps {
+                        guard !Task.isCancelled else { return }
+                        try? await Task.sleep(for: .milliseconds(stepDuration))
+                        let fraction = CGFloat(step) / CGFloat(steps)
+                        let interpolatedE1RM = currentE1RM + Int(Double(targetE1RM - currentE1RM) * Double(fraction))
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            exerciseProgress[exerciseIndex] = fraction
+                            exerciseE1RMs[exerciseIndex] = interpolatedE1RM
+                        }
+                    }
+
+                    // Complete: advance tier, reset progress
+                    try? await Task.sleep(for: .milliseconds(100))
+                    withAnimation(.easeOut(duration: 0.4)) {
+                        exerciseTiers[exerciseIndex] += 1
+                        exerciseProgress[exerciseIndex] = 0
+                    }
+
+                    // Pause between exercises
+                    try? await Task.sleep(for: .milliseconds(300))
+                }
+
+                // Fire callback after first round completes
+                if round == 0 {
+                    onAnimationComplete?()
+                }
+
+                // Pause between rounds
+                try? await Task.sleep(for: .milliseconds(400))
+            }
+
+            withAnimation(.easeOut(duration: 0.3)) {
+                animationComplete = true
+            }
+        }
+    }
+
+    private func replayAnimation() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            exerciseTiers = [0, 0, 0, 0, 0]
+            exerciseProgress = [0, 0, 0, 0, 0]
+            exerciseE1RMs = startE1RMs
+            animationComplete = false
+        }
+        startAnimation()
+    }
+}
+
+
 // MARK: - Screen 5: Change Plates
 
 private struct OnboardingChangePlatesStep: View {
@@ -1139,12 +1420,12 @@ private struct OnboardingChangePlatesStep: View {
             // Title
             VStack(spacing: 12) {
                 Text("Select Plate Increments")
-                    .font(.bebasNeue(size: 36))
+                    .font(.bebasNeue(size: 34))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
                 Text("Select the change plates you have\navailable for more precise suggestions.")
-                    .font(.inter(size: 18))
+                    .font(.inter(size: 17))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
@@ -1261,12 +1542,12 @@ private struct OnboardingBodyProfileStep: View {
             // Title
             VStack(spacing: 12) {
                 Text("Set Your Baseline")
-                    .font(.bebasNeue(size: 36))
+                    .font(.bebasNeue(size: 34))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
                 Text("Your inputs help to determine\nyour strength tier.")
-                    .font(.inter(size: 18))
+                    .font(.inter(size: 17))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)

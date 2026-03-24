@@ -13,6 +13,13 @@ struct InsightSection: Codable, Equatable {
     let audioUrl: String?
 }
 
+struct StarterInsightResponse: Codable, Equatable {
+    let body: String?
+    let generatedAt: String?
+    let audioUrl: String?
+    let message: String?
+}
+
 struct WeeklyInsightsResponse: Codable, Equatable {
     let weekStartDate: String?
     let weekEndDate: String?
