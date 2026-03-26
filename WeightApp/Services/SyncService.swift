@@ -1605,5 +1605,13 @@ class SyncService: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "contiguousAccessoryCharts")
         UserDefaults.standard.removeObject(forKey: "starterInsightViewed")
         UserDefaults.standard.removeObject(forKey: "starterInsightCachedResponse")
+        UserDefaults.standard.removeObject(forKey: "tierUnlocksCachedResponse")
+        UserDefaults.standard.removeObject(forKey: "narratives_last_viewed_tier")
+        UserDefaults.standard.removeObject(forKey: "narratives_last_auto_refreshed_at")
+        UserDefaults.standard.removeObject(forKey: "activeGroupId")
+        UserDefaults.standard.removeObject(forKey: "activeGroupIdTimestamp")
+        UserDefaults.standard.removeObject(forKey: "activeExerciseId")
+        UserDefaults.standard.removeObject(forKey: "activeExerciseIdTimestamp")
+        UserDefaults.standard.removeObject(forKey: "lastSelectedExerciseId")
     }
 }

@@ -37,6 +37,8 @@ struct CheckInView: View {
     @State private var calculatorTokens: [String] = []
     @State private var currentCalcInput: String = ""
     @State private var repsInput: String = ""
+    @State private var weightInputIsFirstKeypress = false
+    @State private var repsInputIsFirstKeypress = false
 
     // Progress options state
     @State private var showExpandedProgressOptions = false
@@ -493,6 +495,13 @@ struct CheckInView: View {
                     selectedLiftIndex = firstUnloggedIndex
                 }
             }
+
+            // Restore persisted exercise selection (overrides defaults above)
+            if let restoredExerciseId = CheckInView.restoredActiveExerciseId(),
+               let index = activeGroupExercises.firstIndex(where: { $0.id == restoredExerciseId }) {
+                selectedLiftIndex = index
+            }
+
             loadDataForSelectedLift()
         }
         .onChange(of: selectedLiftIndex) { _, _ in
@@ -500,6 +509,7 @@ struct CheckInView: View {
             selectedAccessoryId = nil
             viewingDate = actualToday
             loadDataForSelectedLift()
+            persistActiveExercise(selectedGroupExercise?.id)
         }
         .onChange(of: activeGroupId) { _, newValue in
             selectedLiftIndex = 0
@@ -507,6 +517,7 @@ struct CheckInView: View {
             selectedAccessoryId = nil
             loadDataForSelectedLift()
             persistActiveGroup(newValue)
+            persistActiveExercise(activeGroupExercises.first?.id)
         }
         .sheet(isPresented: $showHub, onDismiss: {
             if let selectedId = hubSelectedExerciseId {
@@ -642,7 +653,7 @@ struct CheckInView: View {
                         .scaledToFit()
                         .frame(width: 24, height: 24)
                         .foregroundStyle(StrengthTier.elite.color)
-                        .alignmentGuide(.lastTextBaseline) { d in d[.bottom] }
+                        .alignmentGuide(.lastTextBaseline) { d in d[.bottom] - 4 }
                     Text(tier.title)
                         .font(.system(size: 22, weight: .bold))
                         .foregroundStyle(tier.color)
@@ -769,7 +780,24 @@ struct CheckInView: View {
                             ? (strengthTierResult.exerciseTiers.first(where: { $0.exercise.id == exercise.id })?.tier ?? .novice)
                             : nil
                         let highlightColor = Color.appAccent
-                        let displayName = shortDisplayName(for: exercise.name)
+                        let displayName: String = {
+                            let name = shortDisplayName(for: exercise.name)
+                            guard !isFundamental, name.count > 11 else { return name }
+                            // Find the last space at or before index 11
+                            let prefix = name.prefix(12)
+                            if let splitIndex = prefix.lastIndex(of: " ") {
+                                var result = name
+                                result.replaceSubrange(splitIndex...splitIndex, with: "\n")
+                                return result
+                            }
+                            // No space in first 11 chars — split at first space
+                            if let firstSpace = name.firstIndex(of: " ") {
+                                var result = name
+                                result.replaceSubrange(firstSpace...firstSpace, with: "\n")
+                                return result
+                            }
+                            return name
+                        }()
 
                         VStack(spacing: 4) {
                             Spacer()
@@ -783,7 +811,7 @@ struct CheckInView: View {
                             Text(displayName)
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundStyle(isSelected ? highlightColor.opacity(0.9) : .white.opacity(0.45))
-                                .frame(width: itemWidth - 8)
+                                .frame(width: itemWidth - 8, height: isFundamental ? nil : 30)
                                 .lineLimit(isFundamental ? 1 : 2)
                                 .multilineTextAlignment(.center)
                                 .minimumScaleFactor(0.7)
@@ -816,9 +844,9 @@ struct CheckInView: View {
                                     .padding(.bottom, 10)
                                 }
                             } else {
-                                // Reserve space matching progress bar area so non-tier tiles align
+                                // Reserve less space since non-tier text uses 2-line frame
                                 Spacer()
-                                    .frame(height: 18)
+                                    .frame(height: 4)
                             }
                         }
                         .frame(width: itemWidth)
@@ -916,17 +944,19 @@ struct CheckInView: View {
                     }
                 }
 
-                Button {
-                    hapticFeedback.impactOccurred()
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        showE1RMPopup = true
+                if e1rm > 0 {
+                    Button {
+                        hapticFeedback.impactOccurred()
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            showE1RMPopup = true
+                        }
+                    } label: {
+                        Image(systemName: "chart.line.uptrend.xyaxis")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.35))
                     }
-                } label: {
-                    Image(systemName: "chart.line.uptrend.xyaxis")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.35))
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
 
             // Hero e1RM
@@ -1854,6 +1884,7 @@ struct CheckInView: View {
             calculatorTokens = []
             let displayWeight = userProperties.preferredWeightUnit.fromLbs(weight).rounded1()
             currentCalcInput = displayWeight.formatted(.number.precision(.fractionLength(0...2)))
+            weightInputIsFirstKeypress = true
         }
     }
 
@@ -1896,6 +1927,15 @@ struct CheckInView: View {
     }
 
     private func handleCalcInput(_ digit: String) {
+        if weightInputIsFirstKeypress {
+            weightInputIsFirstKeypress = false
+            if digit == "." {
+                currentCalcInput = "0."
+            } else {
+                currentCalcInput = digit
+            }
+            return
+        }
         if digit == "." {
             if currentCalcInput.isEmpty { currentCalcInput = "0." }
             else if !currentCalcInput.contains(".") { currentCalcInput += "." }
@@ -2037,10 +2077,16 @@ struct CheckInView: View {
         )
         .onAppear {
             repsInput = "\(reps)"
+            repsInputIsFirstKeypress = true
         }
     }
 
     private func handleRepsInput(_ digit: String) {
+        if repsInputIsFirstKeypress {
+            repsInputIsFirstKeypress = false
+            if digit != "0" { repsInput = digit }
+            return
+        }
         if repsInput == "---" {
             if digit != "0" { repsInput = digit }
             return
@@ -2157,6 +2203,7 @@ struct CheckInView: View {
                         if let nextTierE1RM = StrengthTierData.nextTierMinimum(
                             name: ex.name, currentTier: currentTier, bodyweight: bodyweight, sex: sex
                         ),
+                           nextTierE1RM - e1rm <= 20,
                            let nextTier = StrengthTier(rawValue: currentTier.rawValue + 1),
                            let tierBreaker = OneRMCalculator.tierBreakerSuggestion(
                                current1RM: e1rm, targetE1RM: nextTierE1RM, increment: increment
@@ -2349,6 +2396,7 @@ struct CheckInView: View {
                                 .foregroundStyle(.white.opacity(0.5))
                         }
                         .frame(width: 56)
+                        .padding(.vertical, 4)
                     }
                     .buttonStyle(.plain)
 
@@ -2405,6 +2453,7 @@ struct CheckInView: View {
                                 .foregroundStyle(.white.opacity(0.5))
                         }
                         .frame(width: 36)
+                        .padding(.vertical, 4)
                     }
                     .buttonStyle(.plain)
 
@@ -2829,6 +2878,9 @@ struct CheckInView: View {
         // Create Estimated1RM (running max)
         let estimated = Estimated1RM(exercise: ex, value: after, setId: set.id)
 
+        // Capture overall tier before model write so we can detect tier-ups
+        let previousOverallTier = strengthTierResult.overallTier
+
         // Suppress tier display before model write to prevent spoiler during overlay
         if isFirstTierLog {
             suppressTierDisplay = true
@@ -2870,10 +2922,7 @@ struct CheckInView: View {
             let loggedAfterThis = tierResult.exerciseTiers.filter { $0.e1rm != nil }.count
             if loggedAfterThis >= 5 {
                 tierJourneyMode = .completion(tier: tierResult.overallTier)
-                NarrativeBadgeService.shared.notifyTierUnlocked()
-                Task {
-                    await NarrativeBadgeService.shared.fetchAndCacheStarterInsight()
-                }
+                Task { await NarrativeBadgeService.shared.triggerTierUnlock(tier: tierResult.overallTier) }
             } else {
                 tierJourneyMode = .progress(justLoggedId: ex.id)
             }
@@ -2881,6 +2930,20 @@ struct CheckInView: View {
                 showTierJourneyOverlay = true
             }
             return
+        }
+
+        // Overall tier-up detection (non-journey milestone that bumps overall tier)
+        if isMilestone {
+            let newOverallTier = strengthTierResult.overallTier
+            if newOverallTier > previousOverallTier && newOverallTier > .none {
+                tierJourneyMode = .completion(tier: newOverallTier)
+                Task { await NarrativeBadgeService.shared.triggerTierUnlock(tier: newOverallTier) }
+                suppressTierDisplay = true
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                    showTierJourneyOverlay = true
+                }
+                return
+            }
         }
 
         // Not a tier journey redirect — clear suppress flag
@@ -2976,6 +3039,9 @@ struct CheckInView: View {
             }
         }
 
+        // Capture overall tier before model write so we can detect tier-ups
+        let previousOverallTier = strengthTierResult.overallTier
+
         // Suppress tier display before model write to prevent spoiler during overlay
         // In calibration path, isMilestone with newTier > .none means first tier log
         if isMilestone {
@@ -2998,10 +3064,7 @@ struct CheckInView: View {
             let loggedAfterThis = tierResult.exerciseTiers.filter { $0.e1rm != nil }.count
             if loggedAfterThis >= 5 {
                 tierJourneyMode = .completion(tier: tierResult.overallTier)
-                NarrativeBadgeService.shared.notifyTierUnlocked()
-                Task {
-                    await NarrativeBadgeService.shared.fetchAndCacheStarterInsight()
-                }
+                Task { await NarrativeBadgeService.shared.triggerTierUnlock(tier: tierResult.overallTier) }
             } else {
                 tierJourneyMode = .progress(justLoggedId: exerciseForJourney.id)
             }
@@ -3011,6 +3074,22 @@ struct CheckInView: View {
             pendingCalibrationSet = nil
             pendingCalibrationEstimated = nil
             return
+        }
+
+        // Overall tier-up detection (non-journey milestone that bumps overall tier)
+        if isMilestone {
+            let newOverallTier = strengthTierResult.overallTier
+            if newOverallTier > previousOverallTier && newOverallTier > .none {
+                tierJourneyMode = .completion(tier: newOverallTier)
+                Task { await NarrativeBadgeService.shared.triggerTierUnlock(tier: newOverallTier) }
+                suppressTierDisplay = true
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                    showTierJourneyOverlay = true
+                }
+                pendingCalibrationSet = nil
+                pendingCalibrationEstimated = nil
+                return
+            }
         }
 
         // Not a tier journey redirect — clear suppress flag
@@ -3198,6 +3277,29 @@ struct CheckInView: View {
         } else {
             defaults.set(id.uuidString, forKey: "activeGroupId")
             defaults.set(Date(), forKey: "activeGroupIdTimestamp")
+        }
+    }
+
+    // MARK: - Active Exercise Persistence (UserDefaults, 6-hour expiry)
+
+    private static func restoredActiveExerciseId() -> UUID? {
+        let defaults = UserDefaults.standard
+        guard let idString = defaults.string(forKey: "activeExerciseId"),
+              let id = UUID(uuidString: idString),
+              let timestamp = defaults.object(forKey: "activeExerciseIdTimestamp") as? Date,
+              Date().timeIntervalSince(timestamp) < 6 * 3600
+        else { return nil }
+        return id
+    }
+
+    private func persistActiveExercise(_ id: UUID?) {
+        let defaults = UserDefaults.standard
+        if let id {
+            defaults.set(id.uuidString, forKey: "activeExerciseId")
+            defaults.set(Date(), forKey: "activeExerciseIdTimestamp")
+        } else {
+            defaults.removeObject(forKey: "activeExerciseId")
+            defaults.removeObject(forKey: "activeExerciseIdTimestamp")
         }
     }
 }

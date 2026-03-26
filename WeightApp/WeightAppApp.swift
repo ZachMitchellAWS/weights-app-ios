@@ -161,8 +161,8 @@ struct WeightAppApp: App {
                         // Silently re-register for push notifications if previously authorized
                         PushNotificationService.shared.refreshTokenIfAuthorized()
 
-                        // Check for new narrative badge (fetches API to update cache)
-                        await NarrativeBadgeService.shared.refreshFromAPI()
+                        // Check for new narrative badge (throttled to every 6 hours)
+                        await NarrativeBadgeService.shared.refreshOnAppOpen()
                     }
                 }
 
@@ -193,7 +193,7 @@ struct WeightAppApp: App {
             }
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active && authViewModel.isAuthenticated {
-                    NarrativeBadgeService.shared.refresh()
+                    Task { await NarrativeBadgeService.shared.refreshOnAppOpen() }
                 }
             }
             .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in

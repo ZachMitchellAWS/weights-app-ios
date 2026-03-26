@@ -52,6 +52,7 @@ struct MoreView: View {
     @State private var showUpsellPreview = false
     @State private var showExerciseIcons = false
     @State private var showAlertPreviews = false
+    @State private var showTierJourneyIntro = false
     @State private var showEntitlementDetails = false
     @State private var showLogExportSheet = false
     @State private var exportedLogText = ""
@@ -648,6 +649,22 @@ struct MoreView: View {
                     }
                 }
 
+                // Feedback Section
+                Section {
+                    NavigationLink {
+                        FeedbackView()
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "bubble.left.and.text.bubble.right")
+                                .foregroundStyle(Color.appAccent)
+                                .font(.system(size: 20))
+                            Text("Feedback")
+                                .foregroundStyle(Color.appAccent)
+                        }
+                        .padding(.horizontal, 4)
+                    }
+                }
+
                 // About Section (Expandable)
                 Section {
                     Button {
@@ -936,7 +953,7 @@ struct MoreView: View {
                             showAlertPreviews = true
                         } label: {
                             HStack {
-                                Text("Preview Alerts")
+                                Text("Post Logged Set Alerts")
                                     .foregroundStyle(.primary)
                                 Spacer()
                                 Image(systemName: "bell.badge")
@@ -952,6 +969,18 @@ struct MoreView: View {
                                     .foregroundStyle(.primary)
                                 Spacer()
                                 Image(systemName: "photo.on.rectangle")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        Button {
+                            showTierJourneyIntro = true
+                        } label: {
+                            HStack {
+                                Text("Show Tier Journey Intro")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "trophy")
                                     .foregroundStyle(Color.appAccent)
                             }
                         }
@@ -1369,6 +1398,15 @@ struct MoreView: View {
                 UpsellView { _ in
                     showUpsellPreview = false
                 }
+            }
+            .fullScreenCover(isPresented: $showTierJourneyIntro) {
+                TierJourneyOverlay(
+                    mode: .intro,
+                    exerciseTiers: TrendsCalculator.fundamentalExercises.map { ($0, nil, .none) },
+                    onDismiss: { showTierJourneyIntro = false },
+                    onNavigateToExercise: { _ in showTierJourneyIntro = false },
+                    onNavigateToStrength: { showTierJourneyIntro = false }
+                )
             }
             .sheet(isPresented: $showExerciseIcons) {
                 ExerciseIconsPreviewSheet(exercises: exercises)
@@ -2529,15 +2567,55 @@ struct AlertPreviewsSheet: View {
     @State private var selectedPreview: AlertPreviewType? = nil
 
     enum AlertPreviewType: String, CaseIterable, Identifiable {
+        // Set logged overlays
         case submitPR = "Set Logged (PR)"
-        case submitNearMax = "Set Logged (Near Max)"
+        case submitNearMax = "Set Logged (Redline)"
         case submitHard = "Set Logged (Hard)"
         case submitModerate = "Set Logged (Moderate)"
         case submitEasy = "Set Logged (Easy)"
+        // Milestone overlays
+        case milestoneNovice = "Milestone (Novice)"
+        case milestoneBeginner = "Milestone (Beginner)"
+        case milestoneIntermediate = "Milestone (Intermediate)"
+        case milestoneAdvanced = "Milestone (Advanced)"
+        case milestoneElite = "Milestone (Elite)"
+        case milestoneLegend = "Milestone (Legend)"
+        // Tier journey overlays
+        case tierIntro = "Tier Journey (Intro)"
+        case tierProgress1 = "Tier Journey (1 of 5)"
+        case tierProgress3 = "Tier Journey (3 of 5)"
+        case tierCompletionNovice = "Tier Unlocked (Novice)"
+        case tierCompletionIntermediate = "Tier Unlocked (Intermediate)"
+        case tierCompletionElite = "Tier Unlocked (Elite)"
+        // Other
         case cancel = "Not Logged"
         case confirmation = "Confirmation Dialog"
 
         var id: String { rawValue }
+
+        var section: String {
+            switch self {
+            case .submitPR, .submitNearMax, .submitHard, .submitModerate, .submitEasy:
+                return "Set Logged"
+            case .milestoneNovice, .milestoneBeginner, .milestoneIntermediate,
+                 .milestoneAdvanced, .milestoneElite, .milestoneLegend:
+                return "Milestone"
+            case .tierIntro, .tierProgress1, .tierProgress3,
+                 .tierCompletionNovice, .tierCompletionIntermediate, .tierCompletionElite:
+                return "Tier Journey"
+            case .cancel, .confirmation:
+                return "Other"
+            }
+        }
+    }
+
+    private var sections: [(String, [AlertPreviewType])] {
+        let ordered = ["Set Logged", "Milestone", "Tier Journey", "Other"]
+        let grouped = Dictionary(grouping: AlertPreviewType.allCases, by: \.section)
+        return ordered.compactMap { key in
+            guard let items = grouped[key] else { return nil }
+            return (key, items)
+        }
     }
 
     var body: some View {
@@ -2546,28 +2624,37 @@ struct AlertPreviewsSheet: View {
                 Color.black.ignoresSafeArea()
 
                 ScrollView {
-                    VStack(spacing: 16) {
-                        ForEach(AlertPreviewType.allCases) { previewType in
-                            Button {
-                                selectedPreview = previewType
-                            } label: {
-                                HStack {
-                                    Text(previewType.rawValue)
-                                        .foregroundStyle(.white)
-                                    Spacer()
-                                    Image(systemName: "chevron.right")
-                                        .foregroundStyle(.white.opacity(0.3))
+                    VStack(spacing: 20) {
+                        ForEach(sections, id: \.0) { sectionName, items in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(sectionName)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.white.opacity(0.5))
+                                    .padding(.horizontal, 4)
+
+                                ForEach(items) { previewType in
+                                    Button {
+                                        selectedPreview = previewType
+                                    } label: {
+                                        HStack {
+                                            Text(previewType.rawValue)
+                                                .foregroundStyle(.white)
+                                            Spacer()
+                                            Image(systemName: "chevron.right")
+                                                .foregroundStyle(.white.opacity(0.3))
+                                        }
+                                        .padding()
+                                        .background(Color(white: 0.15))
+                                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    }
                                 }
-                                .padding()
-                                .background(Color(white: 0.15))
-                                .cornerRadius(12)
                             }
                         }
                     }
                     .padding()
                 }
             }
-            .navigationTitle("Alert Previews")
+            .navigationTitle("Post Logged Set Alerts")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -2603,10 +2690,81 @@ struct AlertPreviewsSheet: View {
             SubmitOverlayPreview(didIncrease: false, delta: 0, intensityLabel: "Moderate", intensityColor: .setModerate)
         case .submitEasy:
             SubmitOverlayPreview(didIncrease: false, delta: 0, intensityLabel: "Easy", intensityColor: .setEasy)
+        case .milestoneNovice:
+            MilestoneOverlayPreview(tier: .novice, exerciseIcon: "BenchPressIcon", exerciseName: "Bench Press", targetLabel: "1 Set Logged")
+        case .milestoneBeginner:
+            MilestoneOverlayPreview(tier: .beginner, exerciseIcon: "SquatIcon", exerciseName: "Squats", targetLabel: "135 lbs")
+        case .milestoneIntermediate:
+            MilestoneOverlayPreview(tier: .intermediate, exerciseIcon: "DeadliftIcon", exerciseName: "Deadlifts", targetLabel: "225 lbs")
+        case .milestoneAdvanced:
+            MilestoneOverlayPreview(tier: .advanced, exerciseIcon: "BarbellRowIcon", exerciseName: "Barbell Row", targetLabel: "185 lbs")
+        case .milestoneElite:
+            MilestoneOverlayPreview(tier: .elite, exerciseIcon: "OverheadPressIcon", exerciseName: "Overhead Press", targetLabel: "155 lbs")
+        case .milestoneLegend:
+            MilestoneOverlayPreview(tier: .legend, exerciseIcon: "", exerciseName: "All Exercises", targetLabel: "Legend Tier")
+        case .tierIntro:
+            TierJourneyOverlay(
+                mode: .intro,
+                exerciseTiers: TrendsCalculator.fundamentalExercises.map { ($0, nil, .none) },
+                onDismiss: { selectedPreview = nil },
+                onNavigateToExercise: { _ in selectedPreview = nil },
+                onNavigateToStrength: { selectedPreview = nil }
+            )
+        case .tierProgress1:
+            TierJourneyOverlay(
+                mode: .progress(justLoggedId: Exercise.deadliftsId),
+                exerciseTiers: tierProgressTiers(loggedCount: 1),
+                onDismiss: { selectedPreview = nil },
+                onNavigateToExercise: { _ in selectedPreview = nil },
+                onNavigateToStrength: { selectedPreview = nil }
+            )
+        case .tierProgress3:
+            TierJourneyOverlay(
+                mode: .progress(justLoggedId: Exercise.benchPressId),
+                exerciseTiers: tierProgressTiers(loggedCount: 3),
+                onDismiss: { selectedPreview = nil },
+                onNavigateToExercise: { _ in selectedPreview = nil },
+                onNavigateToStrength: { selectedPreview = nil }
+            )
+        case .tierCompletionNovice:
+            TierJourneyOverlay(
+                mode: .completion(tier: .novice),
+                exerciseTiers: TrendsCalculator.fundamentalExercises.map { ($0, 135.0, .novice) },
+                onDismiss: { selectedPreview = nil },
+                onNavigateToExercise: { _ in selectedPreview = nil },
+                onNavigateToStrength: { selectedPreview = nil }
+            )
+        case .tierCompletionIntermediate:
+            TierJourneyOverlay(
+                mode: .completion(tier: .intermediate),
+                exerciseTiers: TrendsCalculator.fundamentalExercises.map { ($0, 225.0, .intermediate) },
+                onDismiss: { selectedPreview = nil },
+                onNavigateToExercise: { _ in selectedPreview = nil },
+                onNavigateToStrength: { selectedPreview = nil }
+            )
+        case .tierCompletionElite:
+            TierJourneyOverlay(
+                mode: .completion(tier: .elite),
+                exerciseTiers: TrendsCalculator.fundamentalExercises.map { ($0, 405.0, .elite) },
+                onDismiss: { selectedPreview = nil },
+                onNavigateToExercise: { _ in selectedPreview = nil },
+                onNavigateToStrength: { selectedPreview = nil }
+            )
         case .cancel:
             CancelOverlayPreview()
         case .confirmation:
             ConfirmationOverlayPreview(onDismiss: { selectedPreview = nil })
+        }
+    }
+
+    /// Sample exercise tiers for progress previews — first N exercises logged
+    private func tierProgressTiers(loggedCount: Int) -> [(exercise: TrendsCalculator.FundamentalExercise, e1rm: Double?, tier: StrengthTier)] {
+        TrendsCalculator.fundamentalExercises.enumerated().map { index, exercise in
+            if index < loggedCount {
+                return (exercise, 185.0, .novice)
+            } else {
+                return (exercise, nil, .none)
+            }
         }
     }
 
@@ -2768,6 +2926,78 @@ private struct CancelOverlayPreview: View {
             .scaleEffect(pulse ? 1.02 : 1.0)
             .onAppear {
                 withAnimation(.easeInOut(duration: 0.22).repeatCount(2, autoreverses: true)) {
+                    pulse = true
+                }
+            }
+        }
+    }
+}
+
+private struct MilestoneOverlayPreview: View {
+    let tier: StrengthTier
+    let exerciseIcon: String
+    let exerciseName: String
+    let targetLabel: String
+
+    @State private var pulse = false
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.15)
+                .ignoresSafeArea()
+
+            VStack(spacing: 12) {
+                Text("Milestone Achieved")
+                    .font(.bebasNeue(size: 24))
+                    .foregroundStyle(tier.color)
+
+                ZStack {
+                    Circle()
+                        .fill(tier.color.opacity(0.2))
+                        .frame(width: 72, height: 72)
+                    Circle()
+                        .stroke(tier.color.opacity(0.7), lineWidth: 3)
+                        .frame(width: 72, height: 72)
+                    if tier == .legend {
+                        Image(systemName: "crown.fill")
+                            .font(.system(size: 32, weight: .bold))
+                            .foregroundStyle(tier.color)
+                    } else {
+                        Image(exerciseIcon)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 40, height: 40)
+                            .foregroundStyle(tier.color)
+                    }
+                }
+
+                Text(exerciseName)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.85))
+
+                Text(targetLabel)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.65))
+
+                Text("See Milestones")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                    .background(tier.color, in: Capsule())
+                    .padding(.top, 4)
+                    .padding(.bottom, 4)
+            }
+            .padding(16)
+            .frame(width: 220)
+            .background(Color(white: 0.12), in: RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(tier.color.opacity(0.5), lineWidth: 1.5)
+            )
+            .scaleEffect(pulse ? 1.02 : 1.0)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.3).repeatCount(3, autoreverses: true).delay(0.2)) {
                     pulse = true
                 }
             }

@@ -87,6 +87,15 @@ struct BalanceView: View {
 
                 // BestLiftsWidget(allSets: allSets)
 
+                TierProgressionWidget(
+                    allEstimated1RM: allEstimated1RM,
+                    bodyweight: bodyweight,
+                    sex: sex,
+                    isPremium: isPremium,
+                    weightUnit: userProperties.preferredWeightUnit,
+                    showUpsell: $showUpsell
+                )
+
                 Text("Strength estimates are approximations based on your logged sets and standard formulas. Always train within your limits and consult a physician before beginning or modifying any exercise program.")
                     .font(.inter(size: 12))
                     .foregroundStyle(.white.opacity(0.4))

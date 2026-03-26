@@ -290,6 +290,18 @@ class APIService {
         )
     }
 
+    // MARK: - Feedback
+
+    func submitFeedback(message: String) async throws -> MessageResponse {
+        let body = ["message": message]
+        return try await request(
+            endpoint: "/user/feedback",
+            method: "POST",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
     // MARK: - Exercise Sync Endpoints
 
     func getExercises() async throws -> GetExercisesResponse {
@@ -512,6 +524,23 @@ class APIService {
     func getStarterInsight() async throws -> StarterInsightResponse {
         return try await request(
             endpoint: "/insights/starter",
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+
+    func postTierUnlock(tier: String) async throws -> TierUnlockResponse {
+        return try await request(
+            endpoint: "/insights/tier-unlock",
+            method: "POST",
+            body: ["tier": tier],
+            requiresAuth: true
+        )
+    }
+
+    func getTierUnlocks() async throws -> TierUnlocksListResponse {
+        return try await request(
+            endpoint: "/insights/tier-unlocks",
             method: "GET",
             requiresAuth: true
         )

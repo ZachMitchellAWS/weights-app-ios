@@ -211,7 +211,7 @@ private struct OnboardingFiveLiftsConcept: View {
                     .padding(.top, 4)
 
                 // Overall tier reveal (inside the card)
-                VStack(spacing: 4) {
+                VStack(spacing: 8) {
                     Text("STRENGTH TIER")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.5))
@@ -1178,6 +1178,7 @@ private struct OnboardingMilestonesConcept: View {
     @State private var exerciseTiers: [Int] = [0, 0, 0, 0, 0]
     @State private var exerciseProgress: [CGFloat] = [0, 0, 0, 0, 0]
     @State private var exerciseE1RMs: [Int] = [135, 115, 95, 85, 65]
+    @State private var overallTierIndex: Int = 0
     @State private var animationComplete = false
     @State private var animationTask: Task<Void, Never>?
 
@@ -1211,7 +1212,37 @@ private struct OnboardingMilestonesConcept: View {
                             .frame(maxWidth: .infinity)
                     }
                 }
-                .padding(20)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 40)
+
+                // Divider
+                Rectangle()
+                    .fill(Color.white.opacity(0.1))
+                    .frame(height: 1)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+
+                // Overall tier
+                VStack(spacing: 8) {
+                    Text("STRENGTH TIER")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .tracking(1.5)
+
+                    HStack(spacing: 8) {
+                        Image(tiers[overallTierIndex].icon)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 24, height: 24)
+                            .foregroundStyle(tiers[overallTierIndex].color)
+
+                        Text(tiers[overallTierIndex].title)
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(tiers[overallTierIndex].color)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
             }
             .background(Color(white: 0.12))
             .clipShape(RoundedRectangle(cornerRadius: 16))
@@ -1315,13 +1346,13 @@ private struct OnboardingMilestonesConcept: View {
         animationTask?.cancel()
         animationTask = Task {
             // Initial pause
-            try? await Task.sleep(for: .milliseconds(1200))
+            try? await Task.sleep(for: .milliseconds(300))
 
             for round in 0..<5 {
                 guard !Task.isCancelled else { return }
                 let order = roundOrders[round]
 
-                for exerciseIndex in order {
+                for (exerciseCount, exerciseIndex) in order.enumerated() {
                     guard !Task.isCancelled else { return }
 
                     let targetE1RM = startE1RMs[exerciseIndex] + e1rmIncrements[exerciseIndex] * (round + 1)
@@ -1348,13 +1379,18 @@ private struct OnboardingMilestonesConcept: View {
                         exerciseProgress[exerciseIndex] = 0
                     }
 
+                    // Fire callback early — after 1st exercise in round 0
+                    if round == 0 && exerciseCount == 0 {
+                        onAnimationComplete?()
+                    }
+
                     // Pause between exercises
                     try? await Task.sleep(for: .milliseconds(300))
                 }
 
-                // Fire callback after first round completes
-                if round == 0 {
-                    onAnimationComplete?()
+                // Advance overall tier after all exercises in this round complete
+                withAnimation(.easeOut(duration: 0.4)) {
+                    overallTierIndex = exerciseTiers.min() ?? 0
                 }
 
                 // Pause between rounds
@@ -1369,6 +1405,7 @@ private struct OnboardingMilestonesConcept: View {
 
     private func replayAnimation() {
         withAnimation(.easeOut(duration: 0.2)) {
+            overallTierIndex = 0
             exerciseTiers = [0, 0, 0, 0, 0]
             exerciseProgress = [0, 0, 0, 0, 0]
             exerciseE1RMs = startE1RMs

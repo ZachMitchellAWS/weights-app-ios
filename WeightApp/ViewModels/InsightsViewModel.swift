@@ -29,16 +29,17 @@ class InsightsViewModel {
         case error(String)
         case locked
         case freeNoTier
-        case freeWithTier(StrengthTier, StarterInsightResponse?)
+        case freeWithTier(StrengthTier)
     }
 
     var state: ViewState = .idle
-    var starterInsight: StarterInsightResponse?
+    var latestTierUnlock: TierUnlockItem?
+
+    private var audioPollTask: Task<Void, Never>?
 
     // MARK: - Cache Keys
 
     private static let cacheKey = "insights_cached_response"
-    private static let lastFetchedKey = "insights_last_fetched_at"
 
     // MARK: - Cached Data
 
@@ -47,56 +48,40 @@ class InsightsViewModel {
         return try? JSONDecoder().decode(WeeklyInsightsResponse.self, from: data)
     }
 
-    private var lastFetchedAt: Date? {
-        let interval = UserDefaults.standard.double(forKey: Self.lastFetchedKey)
-        return interval > 0 ? Date(timeIntervalSince1970: interval) : nil
-    }
-
     // MARK: - Lifecycle
 
     func onAppear(isPremium: Bool, hasLocalSetsThisWeek: Bool, overallTier: StrengthTier = .none) async {
-        // Free user → tier-aware state
+        // Always load latest tier unlock from cache
+        latestTierUnlock = NarrativeBadgeService.shared.cachedTierUnlocks.last
+
+        // Always do a full refresh when navigating to narratives tab
+        await NarrativeBadgeService.shared.refreshAllFromAPI()
+        latestTierUnlock = NarrativeBadgeService.shared.cachedTierUnlocks.last
+
         guard isPremium else {
             if overallTier != .none {
-                let cached = NarrativeBadgeService.shared.cachedStarterInsight
-                state = .freeWithTier(overallTier, cached)
-                NarrativeBadgeService.shared.markStarterViewedIfNeeded()
-                if cached != nil && cached?.audioUrl == nil {
-                    pollForStarterAudio(tier: overallTier)
-                }
+                state = .freeWithTier(overallTier)
             } else {
                 state = .freeNoTier
             }
             return
         }
 
-        // Premium user with a tier unlocked — show starter insight above weekly if cached
-        if overallTier != .none {
-            starterInsight = NarrativeBadgeService.shared.cachedStarterInsight
-        }
-
-        // Show cache immediately if available
+        // Show cache immediately, then fetch
         if let cached = cachedInsight, let sections = cached.sections, !sections.isEmpty {
             state = .loaded(cached)
-        }
-
-        // Determine if we need to fetch
-        let shouldFetch: Bool
-        if cachedInsight == nil {
-            shouldFetch = true
-        } else if let lastFetch = lastFetchedAt {
-            shouldFetch = Date().timeIntervalSince(lastFetch) > 12 * 60 * 60
         } else {
-            shouldFetch = true
+            state = .loading
         }
+        await fetchInsights(force: false, isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
 
-        if shouldFetch {
-            // Only show loading spinner if we have no cache
-            if cachedInsight == nil {
-                state = .loading
-            }
-            await fetchInsights(force: false, isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
-        }
+        // If content is loaded but audio is still missing, poll for it
+        startAudioPollIfNeeded(isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
+    }
+
+    func cancelAudioPoll() {
+        audioPollTask?.cancel()
+        audioPollTask = nil
     }
 
     // MARK: - Fetch
@@ -128,21 +113,17 @@ class InsightsViewModel {
     // MARK: - Response Mapping
 
     private func mapResponse(_ response: WeeklyInsightsResponse, hasLocalSetsThisWeek: Bool) {
-        // 202 processing
         if response.status == "processing" {
             state = .processing
             return
         }
 
-        // 200 with sections
         if let sections = response.sections, !sections.isEmpty {
             state = .loaded(response)
             saveCache(response)
-            NarrativeBadgeService.shared.refresh()
             return
         }
 
-        // 200 empty
         if hasLocalSetsThisWeek {
             let sundayDate = nextSundayFormatted()
             state = .empty(.setsLoggedWeekInProgress(sundayDate: sundayDate))
@@ -157,36 +138,54 @@ class InsightsViewModel {
         if let data = try? JSONEncoder().encode(response) {
             UserDefaults.standard.set(data, forKey: Self.cacheKey)
         }
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.lastFetchedKey)
     }
 
-    // MARK: - Helpers
+    // MARK: - Audio Polling
 
-    // MARK: - Starter Audio Polling
+    /// If loaded content is missing audio URLs, poll at the same cadence as
+    /// post-tier-unlock polling (15s / 30s / 45s / 60s) until audio resolves.
+    private func startAudioPollIfNeeded(isPremium: Bool, hasLocalSetsThisWeek: Bool) {
+        guard needsAudioPoll else { return }
 
-    func pollForStarterAudio(tier: StrengthTier) {
-        Task {
-            for _ in 0..<3 {
-                try? await Task.sleep(for: .seconds(10))
-                do {
-                    let response = try await APIService.shared.getStarterInsight()
-                    if response.audioUrl != nil {
-                        NarrativeBadgeService.shared.updateCachedStarterInsight(response)
-                        state = .freeWithTier(tier, response)
-                        return
-                    }
-                } catch {
-                    // Continue polling
-                }
+        audioPollTask?.cancel()
+        audioPollTask = Task {
+            let delays = [15, 30, 45, 60]
+            for delay in delays {
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { return }
+
+                // Re-fetch weekly insights
+                await fetchInsights(force: true, isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
+
+                // Re-fetch tier unlocks
+                await NarrativeBadgeService.shared.fetchAndCacheTierUnlocks()
+                latestTierUnlock = NarrativeBadgeService.shared.cachedTierUnlocks.last
+
+                if !needsAudioPoll { return }
             }
         }
     }
+
+    private var needsAudioPoll: Bool {
+        let weeklyNeedsAudio: Bool
+        if case .loaded(let response) = state,
+           let sections = response.sections, !sections.isEmpty {
+            weeklyNeedsAudio = sections.contains { $0.audioUrl == nil }
+        } else {
+            weeklyNeedsAudio = false
+        }
+
+        let tierNeedsAudio = latestTierUnlock != nil && latestTierUnlock?.audioUrl == nil
+
+        return weeklyNeedsAudio || tierNeedsAudio
+    }
+
+    // MARK: - Helpers
 
     private func nextSundayFormatted() -> String {
         let calendar = Calendar.current
         let today = Date()
         let weekday = calendar.component(.weekday, from: today)
-        // Sunday = 1, so days until Sunday = (8 - weekday) % 7, but if today is Sunday use 7
         let daysUntilSunday = weekday == 1 ? 7 : (8 - weekday)
         guard let sunday = calendar.date(byAdding: .day, value: daysUntilSunday, to: today) else {
             return "Sunday"

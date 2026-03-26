@@ -107,7 +107,7 @@ struct TrendsView: View {
                         .transition(.move(edge: .leading))
 
                         // Floating picker at bottom
-                        TrendsPicker(selectedTab: $trendsTab)
+                        TrendsPicker(selectedTab: $trendsTab, showNarrativesBadge: NarrativeBadgeService.shared.hasNewNarrative)
                             .padding(.top, 10)
                             .padding(.bottom, 6)
                             .background(Color(white: 0.10).ignoresSafeArea(.container, edges: .bottom))

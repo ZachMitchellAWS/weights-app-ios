@@ -23,6 +23,7 @@ enum TrendsTab: Int, CaseIterable {
 
 struct TrendsPicker: View {
     @Binding var selectedTab: TrendsTab
+    var showNarrativesBadge: Bool = false
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
 
     var body: some View {
@@ -61,6 +62,12 @@ struct TrendsPicker: View {
                             .foregroundStyle(selectedTab == tab ? .black : .white.opacity(0.5))
                             .frame(maxWidth: .infinity)
                             .contentShape(Rectangle())
+                            .overlay(alignment: .topLeading) {
+                                if tab == .narratives && showNarrativesBadge && selectedTab != .narratives {
+                                    PulsingBadge(color: .red, size: 8)
+                                        .offset(x: 8, y: 2)
+                                }
+                            }
                     }
                     .buttonStyle(.plain)
                     .frame(height: 40)
@@ -69,5 +76,33 @@ struct TrendsPicker: View {
         }
         .frame(height: 40)
         .padding(.horizontal, 16)
+    }
+}
+
+// MARK: - Pulsing Badge
+
+struct PulsingBadge: View {
+    var color: Color = .red
+    var size: CGFloat = 10
+
+    @State private var isPulsing = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(color.opacity(0.4))
+                .frame(width: size * 2, height: size * 2)
+                .scaleEffect(isPulsing ? 1 : 0.5)
+                .opacity(isPulsing ? 0 : 0.6)
+
+            Circle()
+                .fill(color)
+                .frame(width: size, height: size)
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: false)) {
+                isPulsing = true
+            }
+        }
     }
 }

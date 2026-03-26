@@ -95,38 +95,42 @@ struct TierJourneyOverlay: View {
     // MARK: - State C: Completion
 
     private func completionContent(tier: StrengthTier) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 0) {
             Text("Strength Tier Unlocked")
                 .font(.bebasNeue(size: 24))
                 .foregroundStyle(tier.color)
 
+            Spacer().frame(height: 16)
+
             ZStack {
-                // Pulsing glow ring
+                // Pulsing glow ring (two slow pulses, then stops)
                 Circle()
                     .fill(tier.color.opacity(0.3))
-                    .frame(width: 72, height: 72)
+                    .frame(width: 60, height: 60)
                     .scaleEffect(glowPhase)
                     .opacity(1.0 - (glowPhase - 1.0) / 0.6)
                     .onAppear {
-                        withAnimation(.easeOut(duration: 1.2).repeatForever(autoreverses: false)) {
+                        withAnimation(.easeOut(duration: 1.8).repeatCount(4, autoreverses: false)) {
                             glowPhase = 1.6
                         }
                     }
 
                 Circle()
                     .fill(tier.color.opacity(0.2))
-                    .frame(width: 72, height: 72)
+                    .frame(width: 60, height: 60)
 
                 Circle()
-                    .stroke(tier.color.opacity(0.7), lineWidth: 3)
-                    .frame(width: 72, height: 72)
+                    .stroke(tier.color.opacity(0.7), lineWidth: 2.5)
+                    .frame(width: 60, height: 60)
 
                 Image(tier.icon)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 40, height: 40)
+                    .frame(width: 34, height: 34)
                     .foregroundStyle(tier.color)
             }
+
+            Spacer().frame(height: 6)
 
             Text(tier.title)
                 .font(.bebasNeue(size: 28))

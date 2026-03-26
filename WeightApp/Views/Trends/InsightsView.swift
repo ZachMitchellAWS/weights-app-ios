@@ -8,6 +8,13 @@
 import SwiftUI
 import SwiftData
 
+// MARK: - Navigation Destination
+
+enum InsightsNavDestination: Hashable {
+    case tierUnlock(TierUnlockItem)
+    case weeklyInsights(WeeklyInsightsResponse)
+}
+
 struct InsightsView: View {
     @State private var viewModel = InsightsViewModel()
     @State private var audioPlayer = AudioPlayerManager()
@@ -51,49 +58,30 @@ struct InsightsView: View {
         ScrollView {
             VStack(spacing: 12) {
                 insightsHeader
-
-                switch viewModel.state {
-                case .idle:
-                    EmptyView()
-                case .locked:
-                    lockedContent
-                case .freeNoTier:
-                    freeNoTierContent
-                case .freeWithTier(let tier, let starterResponse):
-                    freeWithTierContent(tier: tier, response: starterResponse)
-                case .loading:
-                    loadingContent
-                case .empty(let reason):
-                    emptyContent(reason: reason)
-                case .processing:
-                    processingContent
-                case .loaded(let response):
-                    populatedContent(response: response)
-                case .error(let message):
-                    errorContent(message: message)
-                }
+                tierUnlocksSection
+                weeklySection
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 70)
         }
         .scrollIndicators(.hidden)
+        .navigationDestination(for: InsightsNavDestination.self) { destination in
+            switch destination {
+            case .tierUnlock(let item):
+                TierUnlockDetailView(item: item, audioPlayer: audioPlayer)
+            case .weeklyInsights(let response):
+                WeeklyInsightsDetailView(response: response, audioPlayer: audioPlayer)
+            }
+        }
         .refreshable {
-            guard isPremium else { return }
-            await viewModel.fetchInsights(force: true, isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
+            await viewModel.onAppear(isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek, overallTier: overallTier)
         }
         .task {
             await viewModel.onAppear(isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek, overallTier: overallTier)
             PushNotificationService.shared.requestPermissionIfNeeded()
-            if case .loaded(let response) = viewModel.state,
-               let weekStart = response.weekStartDate {
-                NarrativeBadgeService.shared.markViewed(weekStart: weekStart)
-            }
         }
-        .onChange(of: viewModel.state) {
-            if case .loaded(let response) = viewModel.state,
-               let weekStart = response.weekStartDate {
-                NarrativeBadgeService.shared.markViewed(weekStart: weekStart)
-            }
+        .onDisappear {
+            viewModel.cancelAudioPoll()
         }
         .fullScreenCover(isPresented: $showUpsell) {
             UpsellView(initialPage: 1) { _ in showUpsell = false }
@@ -133,28 +121,77 @@ struct InsightsView: View {
         .padding(.bottom, 4)
     }
 
-    // MARK: - Locked State (legacy fallback)
+    // MARK: - Tier Unlocks Section
 
-    private var lockedContent: some View {
-        freeNoTierContent
+    @ViewBuilder
+    private var tierUnlocksSection: some View {
+        VStack(spacing: 12) {
+            // Section header
+            HStack(spacing: 6) {
+                Image(systemName: "trophy.fill")
+                    .foregroundStyle(Color.appAccent)
+                    .font(.subheadline)
+                Text("Tier Unlocks")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+                Spacer()
+            }
+
+            if let tierUnlock = viewModel.latestTierUnlock {
+                NavigationLink(value: InsightsNavDestination.tierUnlock(tierUnlock)) {
+                    TierUnlockCompactRow(item: tierUnlock, showBadge: NarrativeBadgeService.shared.hasUnviewedTierUnlock)
+                }
+                .buttonStyle(.plain)
+            } else if overallTier == .none {
+                gettingStartedCard
+            }
+        }
     }
 
-    // MARK: - Free User, No Tier
+    // MARK: - Weekly Section
 
-    private var freeNoTierContent: some View {
-        VStack(spacing: 20) {
-            gettingStartedCard
+    @ViewBuilder
+    private var weeklySection: some View {
+        if isPremium {
+            switch viewModel.state {
+            case .idle:
+                EmptyView()
+            case .loading:
+                loadingContent
+            case .empty(let reason):
+                emptyContent(reason: reason)
+            case .processing:
+                processingContent
+            case .loaded(let response):
+                VStack(spacing: 12) {
+                    weeklyInsightsSectionHeader
+
+                    NavigationLink(value: InsightsNavDestination.weeklyInsights(response)) {
+                        WeeklyInsightsCompactRow(response: response, showBadge: NarrativeBadgeService.shared.hasUnviewedWeekly)
+                    }
+                    .buttonStyle(.plain)
+                }
+            case .error(let message):
+                errorContent(message: message)
+            case .locked, .freeNoTier, .freeWithTier:
+                weeklyInsightsPremiumSection
+            }
+        } else {
             weeklyInsightsPremiumSection
         }
     }
 
-    // MARK: - Free User, Tier Unlocked
+    // MARK: - Weekly Insights Section Header
 
-    @ViewBuilder
-    private func freeWithTierContent(tier: StrengthTier, response: StarterInsightResponse?) -> some View {
-        VStack(spacing: 20) {
-            StarterInsightCard(tier: tier, response: response, audioPlayer: audioPlayer)
-            weeklyInsightsPremiumSection
+    private var weeklyInsightsSectionHeader: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "sparkles")
+                .foregroundStyle(Color(red: 0xF5/255, green: 0x9E/255, blue: 0x0B/255))
+                .font(.subheadline)
+            Text("Weekly Insights")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.7))
+            Spacer()
         }
     }
 
@@ -191,35 +228,14 @@ struct InsightsView: View {
 
     private var weeklyInsightsPremiumSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
-                Image(systemName: "sparkles")
-                    .foregroundStyle(Color(red: 0xF5/255, green: 0x9E/255, blue: 0x0B/255))
-                    .font(.subheadline)
-                Text("Weekly Insights")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.7))
+            weeklyInsightsSectionHeader
 
-                Text("Premium")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.appAccent)
-                    .clipShape(Capsule())
+            Button {
+                showUpsell = true
+            } label: {
+                WeeklyInsightsPromoRow()
             }
-
-            VStack(spacing: 12) {
-                ForEach(InsightSectionStyle.allCases) { style in
-                    placeholderCard(style: style)
-                }
-            }
-            .premiumLocked(
-                title: "Premium Feature",
-                subtitle: "Unlock AI-powered weekly training insights with Premium.",
-                ctaText: "Learn More",
-                blurRadius: 6,
-                showUpsell: $showUpsell
-            )
+            .buttonStyle(.plain)
         }
     }
 
@@ -285,30 +301,6 @@ struct InsightsView: View {
         .padding(.vertical, 60)
     }
 
-    // MARK: - Populated State
-
-    @ViewBuilder
-    private func populatedContent(response: WeeklyInsightsResponse) -> some View {
-        // Show starter insight card for premium users who have one cached
-        if let starter = viewModel.starterInsight, starter.body != nil {
-            StarterInsightCard(tier: overallTier, response: starter, audioPlayer: audioPlayer)
-        }
-
-        if let sections = response.sections {
-            ForEach(sections, id: \.title) { section in
-                let style = InsightSectionStyle.from(title: section.title)
-                InsightSectionCard(section: section, style: style, audioPlayer: audioPlayer)
-            }
-
-            // AI Disclaimer
-            Text("This analysis is AI-generated and may contain inaccuracies.\nConsult a qualified professional before making changes to your training program.")
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(0.35))
-                .multilineTextAlignment(.center)
-                .padding(.top, 16)
-        }
-    }
-
     // MARK: - Error State
 
     private func errorContent(message: String) -> some View {
@@ -338,29 +330,6 @@ struct InsightsView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 40)
-    }
-
-    // MARK: - Placeholder Card (for blurred locked state)
-
-    private func placeholderCard(style: InsightSectionStyle) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: style.icon)
-                    .foregroundStyle(style.color)
-                    .font(.subheadline)
-                Text(style.title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.7))
-            }
-            Text("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.")
-                .font(.callout)
-                .foregroundStyle(.white.opacity(0.85))
-                .lineSpacing(4)
-        }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(white: 0.14))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     // MARK: - Date Range Formatting
@@ -394,6 +363,211 @@ struct InsightsView: View {
         let endStr = displayFormatter.string(from: endDate)
         let year = yearFormatter.string(from: endDate)
         return "\(startStr) – \(endStr), \(year)"
+    }
+}
+
+// MARK: - Tier Unlock Compact Row
+
+struct TierUnlockCompactRow: View {
+    let item: TierUnlockItem
+    var showBadge: Bool = false
+
+    private var tier: StrengthTier { item.strengthTier }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "trophy.fill")
+                .font(.title3)
+                .foregroundStyle(tier.color)
+                .shadow(color: tier.color.opacity(0.5), radius: 6)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(tier.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                Text("Strength Tier Unlocked")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+
+            Spacer()
+
+            if showBadge {
+                PulsingBadge(color: .red, size: 10)
+            }
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.3))
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity)
+        .background {
+            ZStack {
+                Color(white: 0.14)
+                tier.color.opacity(0.05)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(tier.color.opacity(0.3), lineWidth: 1)
+        }
+    }
+}
+
+// MARK: - Weekly Insights Compact Row
+
+struct WeeklyInsightsCompactRow: View {
+    let response: WeeklyInsightsResponse
+    var showBadge: Bool = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "sparkles")
+                .font(.title3)
+                .foregroundStyle(Color(red: 0xF5/255, green: 0x9E/255, blue: 0x0B/255))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Weekly Insights")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+
+                if let start = response.weekStartDate, let end = response.weekEndDate {
+                    Text(InsightsView.formatDateRange(start: start, end: end))
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+            }
+
+            Spacer()
+
+            // Section icons
+            HStack(spacing: 4) {
+                ForEach(InsightSectionStyle.allCases) { style in
+                    Image(systemName: style.icon)
+                        .font(.system(size: 10))
+                        .foregroundStyle(style.color)
+                }
+            }
+
+            if showBadge {
+                PulsingBadge(color: .red, size: 10)
+            }
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.3))
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity)
+        .background(Color(white: 0.14))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+// MARK: - Weekly Insights Promo Row (Free Users)
+
+struct WeeklyInsightsPromoRow: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "lock.fill")
+                .font(.title3)
+                .foregroundStyle(.white.opacity(0.4))
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("Weekly Insights")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+
+                    Text("Premium")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.appAccent)
+                        .clipShape(Capsule())
+                }
+                Text("Unlock AI-powered training insights")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.3))
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity)
+        .background(Color(white: 0.14))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Color.appAccent.opacity(0.2), lineWidth: 1)
+        }
+    }
+}
+
+// MARK: - Tier Unlock Detail View
+
+struct TierUnlockDetailView: View {
+    let item: TierUnlockItem
+    var audioPlayer: AudioPlayerManager
+
+    var body: some View {
+        ScrollView {
+            TierUnlockCard(item: item, audioPlayer: audioPlayer)
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+        }
+        .scrollIndicators(.hidden)
+        .background(Color(white: 0.08))
+        .navigationTitle(item.strengthTier.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            NarrativeBadgeService.shared.markTierUnlockViewed(tier: item.tier)
+        }
+    }
+}
+
+// MARK: - Weekly Insights Detail View
+
+struct WeeklyInsightsDetailView: View {
+    let response: WeeklyInsightsResponse
+    var audioPlayer: AudioPlayerManager
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                if let sections = response.sections {
+                    ForEach(sections, id: \.title) { section in
+                        let style = InsightSectionStyle.from(title: section.title)
+                        InsightSectionCard(section: section, style: style, audioPlayer: audioPlayer)
+                    }
+
+                    Text("This analysis is AI-generated and may contain inaccuracies.\nConsult a qualified professional before making changes to your training program.")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.35))
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 16)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 40)
+        }
+        .scrollIndicators(.hidden)
+        .background(Color(white: 0.08))
+        .navigationTitle("Weekly Insights")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            if let weekStart = response.weekStartDate {
+                NarrativeBadgeService.shared.markWeeklyViewed(weekStart: weekStart)
+            }
+        }
     }
 }
 
@@ -450,7 +624,83 @@ enum InsightSectionStyle: String, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - Starter Insight Card
+// MARK: - Tier Unlock Card
+
+struct TierUnlockCard: View {
+    let item: TierUnlockItem
+    var audioPlayer: AudioPlayerManager
+
+    private static let amberAccent = Color(red: 0xF5/255, green: 0x9E/255, blue: 0x0B/255)
+
+    private var tier: StrengthTier { item.strengthTier }
+    private var audioTitle: String { "Tier Unlock — \(tier.title)" }
+
+    private var isPlaying: Bool {
+        audioPlayer.currentlyPlayingSectionTitle == audioTitle && audioPlayer.isPlaying
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Strength Tier Unlocked")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Self.amberAccent)
+                    .textCase(.uppercase)
+                    .tracking(0.5)
+
+                if item.audioUrl != nil {
+                    Spacer()
+                    Button {
+                        guard let urlString = item.audioUrl,
+                              let url = URL(string: urlString) else { return }
+                        audioPlayer.toggle(url: url, sectionTitle: audioTitle)
+                    } label: {
+                        Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(tier.color)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            HStack(spacing: 10) {
+                Image(systemName: "brain.fill")
+                    .font(.title2)
+                    .foregroundStyle(tier.color)
+                    .shadow(color: tier.color.opacity(0.6), radius: 8)
+
+                Text("Congratulations on reaching \(tier.title)!")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+            }
+
+            Text(item.body)
+                .font(.callout)
+                .foregroundStyle(.white.opacity(0.85))
+                .lineSpacing(4)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(tier.color)
+                .frame(width: 3)
+        }
+        .background {
+            ZStack {
+                Color(white: 0.14)
+                tier.color.opacity(0.05)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Self.amberAccent.opacity(0.3), lineWidth: 1)
+        }
+    }
+}
+
+// MARK: - Starter Insight Card (kept for backward compatibility)
 
 struct StarterInsightCard: View {
     let tier: StrengthTier

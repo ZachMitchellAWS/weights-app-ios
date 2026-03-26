@@ -235,6 +235,7 @@ class AuthViewModel: ObservableObject {
 
         onDataCleanup()
         SyncService.shared.clearOnLogout()
+        NarrativeBadgeService.shared.clearOnLogout()
         KeychainService.shared.clearTokens()
         isOnboardingPending = false
         isAuthenticated = false

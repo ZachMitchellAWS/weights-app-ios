@@ -37,7 +37,7 @@ struct ContentView: View {
             LazyView(TrendsView(selectedSetData: selectedSetData, selectedTab: $selectedTab))
                 .tabItem { Label("Progress", systemImage: "chart.line.uptrend.xyaxis") }
                 .tag(0)
-                .badge(narrativeBadge.hasNewNarrative ? 1 : 0)
+                .badge(narrativeBadge.hasNewNarrative && selectedTab != 0 ? 1 : 0)
 
             Group {
                 if UITestMode.isEnabled {
