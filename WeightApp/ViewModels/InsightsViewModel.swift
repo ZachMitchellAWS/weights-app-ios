@@ -34,6 +34,7 @@ class InsightsViewModel {
 
     var state: ViewState = .idle
 
+    private var isFetching = false
     private var audioPollTask: Task<Void, Never>?
 
     // MARK: - Cache Keys
@@ -79,6 +80,10 @@ class InsightsViewModel {
     // MARK: - Fetch
 
     func fetchInsights(force: Bool, isPremium: Bool = false, hasLocalSetsThisWeek: Bool = false) async {
+        guard !isFetching else { return }
+        isFetching = true
+        defer { isFetching = false }
+
         do {
             let response = try await APIService.shared.getWeeklyInsights()
             mapResponse(response, hasLocalSetsThisWeek: hasLocalSetsThisWeek)

@@ -12,8 +12,20 @@ struct InsightsView: View {
     @State private var viewModel = InsightsViewModel()
     var audioPlayer: AudioPlayerManager
     @Query private var entitlementRecords: [EntitlementGrant]
-    @Query private var allLiftSets: [LiftSet]
-    @Query(filter: #Predicate<Estimated1RM> { !$0.deleted }, sort: \Estimated1RM.createdAt) private var allEstimated1RM: [Estimated1RM]
+    private static var thisWeekSetsDescriptor: FetchDescriptor<LiftSet> {
+        let weekStart = Calendar.current.dateInterval(of: .weekOfYear, for: Date())?.start ?? Date()
+        return FetchDescriptor<LiftSet>(
+            predicate: #Predicate { !$0.deleted && $0.createdAt >= weekStart }
+        )
+    }
+    @Query(thisWeekSetsDescriptor) private var thisWeekSets: [LiftSet]
+    private static var estimated1RMsDescriptor: FetchDescriptor<Estimated1RM> {
+        let cutoff = Calendar.current.date(byAdding: .month, value: -12, to: Date())!
+        return FetchDescriptor<Estimated1RM>(
+            predicate: #Predicate { !$0.deleted && $0.createdAt >= cutoff }
+        )
+    }
+    @Query(estimated1RMsDescriptor) private var allEstimated1RM: [Estimated1RM]
     @Query private var userPropertiesItems: [UserProperties]
     @State private var showUpsell = false
 
@@ -32,12 +44,7 @@ struct InsightsView: View {
         return PremiumOverride.isEnabled || EntitlementGrant.isPremium(entitlementRecords)
     }
 
-    private var hasLocalSetsThisWeek: Bool {
-        let calendar = Calendar.current
-        let now = Date()
-        guard let weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start else { return false }
-        return allLiftSets.contains { $0.createdAt >= weekStart }
-    }
+    private var hasLocalSetsThisWeek: Bool { !thisWeekSets.isEmpty }
 
     var body: some View {
         ScrollView {

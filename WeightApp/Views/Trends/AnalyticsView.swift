@@ -74,7 +74,7 @@ struct AnalyticsView: View {
                     LazyVStack(spacing: 16) {
                         reportCardButton
 
-                        MonthlySnapshotWidget(allSets: allSets)
+                        MonthlySnapshotWidget(allSets: allSets, allEstimated1RM: allEstimated1RM)
 
                         FrequencyCalendarWidget(allSets: allSets, isPremium: isPremium, showUpsell: $showUpsell)
 

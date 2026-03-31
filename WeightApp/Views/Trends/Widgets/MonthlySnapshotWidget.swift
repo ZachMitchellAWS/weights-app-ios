@@ -9,17 +9,13 @@ import SwiftUI
 
 struct MonthlySnapshotWidget: View {
     let allSets: [LiftSet]
+    let allEstimated1RM: [Estimated1RM]
 
-    private var summary: TrendsCalculator.MonthlySummary {
-        TrendsCalculator.monthlySummary(from: allSets)
-    }
-
-    private var distribution: TrendsCalculator.IntensityDistribution {
-        TrendsCalculator.intensityDistribution(from: allSets, days: 30)
-    }
+    @State private var summary: TrendsCalculator.MonthlySummary?
+    @State private var distribution: TrendsCalculator.IntensityDistribution?
 
     private var buckets: [(bucket: TrendsCalculator.IntensityBucket, count: Int, percentage: Double)] {
-        let dist = distribution
+        guard let dist = distribution else { return [] }
         return [
             (.easy, dist.easy, dist.percentage(for: .easy)),
             (.moderate, dist.moderate, dist.percentage(for: .moderate)),
@@ -36,10 +32,10 @@ struct MonthlySnapshotWidget: View {
     }
 
     var body: some View {
-        WidgetCard(title: monthName, subtitle: "\(allSets.count) sets, \(allSets.filter(\.isBaselineSet).count) baseline, dist total: \(distribution.total), buckets: \(buckets.count)") {
+        WidgetCard(title: monthName, subtitle: "This month") {
             if allSets.isEmpty {
                 EmptyWidgetState(icon: "chart.bar.xaxis", message: "Log sets to see your monthly snapshot")
-            } else {
+            } else if let summary, let distribution {
                 VStack(spacing: 12) {
                     // Intensity bar
                     GeometryReader { geometry in
@@ -102,6 +98,10 @@ struct MonthlySnapshotWidget: View {
                     }
                 }
             }
+        }
+        .task(id: allSets.count) {
+            summary = TrendsCalculator.monthlySummary(from: allSets)
+            distribution = TrendsCalculator.intensityDistribution(from: allSets, estimated1RMs: allEstimated1RM, days: 30)
         }
     }
 

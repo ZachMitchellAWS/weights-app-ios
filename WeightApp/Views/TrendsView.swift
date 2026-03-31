@@ -134,24 +134,6 @@ struct TrendsView: View {
                     consumePendingTrendsTab()
                 }
             }
-            .safeAreaInset(edge: .bottom) {
-                if syncService.isSyncingLiftSet {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: Color.appAccent))
-                            .scaleEffect(0.8)
-
-                        Text(syncService.liftSetSyncProgress ?? "Syncing...")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.7))
-
-                        Spacer()
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Color(white: 0.1))
-                }
-            }
         }
     }
 

@@ -98,7 +98,7 @@ struct TrendsCalculator {
         case moderate = "Moderate"
         case hard = "Hard"
         case redline = "Redline"
-        case pr = "PR"
+        case pr = "Progress"
 
         var color: String {
             switch self {
@@ -145,7 +145,7 @@ struct TrendsCalculator {
         }
     }
 
-    static func intensityDistribution(from sets: [LiftSet], days: Int = 30) -> IntensityDistribution {
+    static func intensityDistribution(from sets: [LiftSet], estimated1RMs: [Estimated1RM] = [], days: Int = 30) -> IntensityDistribution {
         let calendar = Calendar.current
         guard let cutoffDate = calendar.date(byAdding: .day, value: -days, to: Date()) else {
             return IntensityDistribution()
@@ -153,79 +153,48 @@ struct TrendsCalculator {
 
         var distribution = IntensityDistribution()
 
-        // Walk each exercise session-by-session. Within a session, classify all
-        // sets against the pre-session max so that warm-up progressions don't
-        // cascade into false PRs. Update the running max only between sessions.
+        // Mirrors HistoryView.buildEffortCache() exactly: all-time running max
+        // per exercise, baseline sets use calibrated e1RM from Estimated1RM table.
+        let e1rmBySetId = Dictionary(uniqueKeysWithValues: estimated1RMs.compactMap { e1rm -> (UUID, Double)? in
+            return (e1rm.setId, e1rm.value)
+        })
         let byExercise = Dictionary(grouping: sets) { $0.exercise?.id }
 
         for (_, exerciseSets) in byExercise {
             let sorted = exerciseSets.sorted { $0.createdAt < $1.createdAt }
-
-            // Group into sessions by calendar day in the set's timezone
-            var sessions: [[LiftSet]] = []
-            var currentSession: [LiftSet] = []
-            var currentDay: DateComponents?
+            var runningMax: Double = 0
 
             for set in sorted {
-                let tz = TimeZone(identifier: set.createdTimezone) ?? .current
-                var cal = Calendar.current
-                cal.timeZone = tz
-                let day = cal.dateComponents([.year, .month, .day], from: set.createdAt)
+                let estimated = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
+                let isInWindow = set.createdAt >= cutoffDate
 
-                if day != currentDay {
-                    if !currentSession.isEmpty { sessions.append(currentSession) }
-                    currentSession = [set]
-                    currentDay = day
-                } else {
-                    currentSession.append(set)
-                }
-            }
-            if !currentSession.isEmpty { sessions.append(currentSession) }
-
-            var currentMax: Double = 0
-            let isSingleSession = sessions.count == 1
-
-            for session in sessions {
-                let preSessionMax = currentMax
-                // Running max of non-baseline sets within this session,
-                // used as fallback reference when this is the only session.
-                var intraSessionMax: Double = 0
-
-                for set in session {
-                    let estimated = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
-
-                    // Baseline sets seed the running max but aren't classified
-                    if set.isBaselineSet {
-                        if set.weight > 0 && estimated > currentMax {
-                            currentMax = estimated
+                if set.isBaselineSet {
+                    // Baseline: use calibrated e1RM (from Estimated1RM table) as reference
+                    let baselineE1RM = e1rmBySetId[set.id] ?? estimated
+                    if isInWindow {
+                        let pct = baselineE1RM > 0 ? estimated / baselineE1RM : 0
+                        let bucket = IntensityBucket.from(percent1RM: pct)
+                        switch bucket {
+                        case .pr: distribution.pr += 1
+                        case .redline: distribution.redline += 1
+                        case .hard: distribution.hard += 1
+                        case .moderate: distribution.moderate += 1
+                        case .easy: distribution.easy += 1
                         }
-                        continue
                     }
+                    runningMax = max(runningMax, baselineE1RM)
+                    continue
+                }
 
-                    let isInWindow = set.createdAt >= cutoffDate
-
-                    // Use preSessionMax normally; for single-session data, fall back
-                    // to currentMax (includes baseline-calibrated values) or intra-session
-                    // running max so first-day users see the intensity bar.
-                    let referenceMax: Double
-                    if preSessionMax > 0 {
-                        referenceMax = preSessionMax
-                    } else if isSingleSession {
-                        referenceMax = currentMax > 0 ? currentMax : intraSessionMax
-                    } else {
-                        referenceMax = 0
-                    }
-
+                // Zero-weight sets: rep-based classification (same as history)
+                if set.weight == 0 {
                     if isInWindow {
                         let bucket: IntensityBucket
-                        if referenceMax <= 0 {
-                            // No reference — first set for this exercise; treat as PR
-                            bucket = .pr
-                        } else if set.weight > 0 && estimated > referenceMax {
-                            bucket = .pr
-                        } else {
-                            let percent1RM = estimated / referenceMax
-                            bucket = IntensityBucket.from(percent1RM: percent1RM)
+                        switch set.reps {
+                        case 12...: bucket = .redline
+                        case 9..<12: bucket = .hard
+                        case 6..<9: bucket = .moderate
+                        default: bucket = .easy
                         }
                         switch bucket {
                         case .pr: distribution.pr += 1
@@ -235,15 +204,32 @@ struct TrendsCalculator {
                         case .easy: distribution.easy += 1
                         }
                     }
+                    continue
+                }
 
-                    // Track running max
-                    if set.weight > 0 && estimated > currentMax {
-                        currentMax = estimated
-                    }
-                    if set.weight > 0 && estimated > intraSessionMax {
-                        intraSessionMax = estimated
+                // Normal set: compare to all-time running max
+                let isPR = runningMax > 0 && estimated > runningMax
+
+                if isInWindow {
+                    if isPR {
+                        distribution.pr += 1
+                    } else if runningMax > 0 {
+                        let percent1RM = estimated / runningMax
+                        let bucket = IntensityBucket.from(percent1RM: percent1RM)
+                        switch bucket {
+                        case .pr: distribution.pr += 1
+                        case .redline: distribution.redline += 1
+                        case .hard: distribution.hard += 1
+                        case .moderate: distribution.moderate += 1
+                        case .easy: distribution.easy += 1
+                        }
+                    } else {
+                        // First set ever for this exercise — treat as PR
+                        distribution.pr += 1
                     }
                 }
+
+                runningMax = max(runningMax, estimated)
             }
         }
 

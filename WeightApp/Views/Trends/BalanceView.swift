@@ -49,8 +49,9 @@ struct BalanceView: View {
     @Query(setsDescriptor) private var allSets: [LiftSet]
 
     private static var estimated1RMsDescriptor: FetchDescriptor<Estimated1RM> {
+        let cutoff = Calendar.current.date(byAdding: .month, value: -12, to: Date())!
         return FetchDescriptor<Estimated1RM>(
-            predicate: #Predicate { !$0.deleted }
+            predicate: #Predicate { !$0.deleted && $0.createdAt >= cutoff }
         )
     }
     @Query(estimated1RMsDescriptor) private var allEstimated1RM: [Estimated1RM]

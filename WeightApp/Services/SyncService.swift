@@ -24,6 +24,7 @@ class SyncService: ObservableObject {
     @Published var liftSetSyncProgress: String?
     @Published var isSyncingEstimated1RM = false
     @Published var estimated1RMSyncProgress: String?
+    @Published var initialSyncComplete = false
 
     // MARK: - Persisted Sync State
 
@@ -68,7 +69,9 @@ class SyncService: ObservableObject {
         }
     }
 
-    private init() {}
+    private init() {
+        initialSyncComplete = syncState.syncComplete
+    }
 
     // MARK: - Configuration
 
@@ -200,6 +203,7 @@ class SyncService: ObservableObject {
         // All done
         state.syncComplete = true
         syncState = state
+        initialSyncComplete = true
         SyncLogger.sync.info("Initial sync complete")
     }
 
@@ -258,6 +262,9 @@ class SyncService: ObservableObject {
             userProperties.biologicalSex = response.biologicalSex
             if let weightUnit = response.weightUnit {
                 userProperties.weightUnit = weightUnit
+            }
+            if let hasMetStrength = response.hasMetStrengthTierConditions {
+                userProperties.hasMetStrengthTierConditions = hasMetStrength
             }
 
             try? context.save()
@@ -474,6 +481,7 @@ class SyncService: ObservableObject {
         await syncLiftSetsAndEstimated1RM(resumeState: &state)
         state.syncComplete = true
         syncState = state
+        initialSyncComplete = true
     }
 
     /// Resumable version that persists pagination state after each page.
@@ -506,10 +514,10 @@ class SyncService: ObservableObject {
                 context.autosaveEnabled = false
 
                 // Build dedup dictionaries once upfront
-                let existingLiftSet = (try? context.fetch(FetchDescriptor<LiftSet>())) ?? []
+                let existingLiftSet = (try? context.fetch(FetchDescriptor<LiftSet>(predicate: #Predicate { !$0.deleted }))) ?? []
                 var liftSetById = Dictionary(uniqueKeysWithValues: existingLiftSet.map { ($0.id, $0) })
 
-                let existingE1RMs = (try? context.fetch(FetchDescriptor<Estimated1RM>())) ?? []
+                let existingE1RMs = (try? context.fetch(FetchDescriptor<Estimated1RM>(predicate: #Predicate { !$0.deleted }))) ?? []
                 var e1rmById = Dictionary(uniqueKeysWithValues: existingE1RMs.map { ($0.id, $0) })
 
                 // Cache exercise lookup
@@ -1625,6 +1633,7 @@ class SyncService: ObservableObject {
 
     func clearOnLogout() {
         SyncLogger.sync.info("Clearing sync state on logout")
+        initialSyncComplete = false
         retryQueue.clearAll()
         UserDefaults.standard.removeObject(forKey: Self.syncStateKey)
         UserDefaults.standard.removeObject(forKey: "insights_cached_response")

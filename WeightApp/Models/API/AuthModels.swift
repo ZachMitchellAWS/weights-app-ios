@@ -84,6 +84,7 @@ struct UserPropertiesRequest: Codable {
     var clearStepsGoal: Bool = false
     var clearProteinGoal: Bool = false
     var clearBodyweightTarget: Bool = false
+    var hasMetStrengthTierConditions: Bool?
 
     private enum CodingKeys: String, CodingKey {
         case bodyweight, availableChangePlates, minReps, maxReps
@@ -92,6 +93,7 @@ struct UserPropertiesRequest: Codable {
         case activeSetPlanId = "activeSetPlanTemplateId"
         case stepsGoal, proteinGoal, bodyweightTarget
         case timezone
+        case hasMetStrengthTierConditions
     }
 
     func encode(to encoder: Encoder) throws {
@@ -141,6 +143,9 @@ struct UserPropertiesRequest: Codable {
         if let timezone = timezone {
             try container.encode(timezone, forKey: .timezone)
         }
+        if let hasMetStrengthTierConditions = hasMetStrengthTierConditions {
+            try container.encode(hasMetStrengthTierConditions, forKey: .hasMetStrengthTierConditions)
+        }
     }
 }
 
@@ -157,6 +162,7 @@ struct UserPropertiesResponse: Codable {
     let proteinGoal: Int?
     let bodyweightTarget: Double?
     let timezone: String?
+    let hasMetStrengthTierConditions: Bool?
     let createdDatetime: String
     let lastModifiedDatetime: String
 
@@ -165,6 +171,7 @@ struct UserPropertiesResponse: Codable {
         case biologicalSex, weightUnit
         case activeSetPlanId = "activeSetPlanTemplateId"
         case stepsGoal, proteinGoal, bodyweightTarget, timezone
+        case hasMetStrengthTierConditions
         case createdDatetime, lastModifiedDatetime
     }
 }

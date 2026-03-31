@@ -25,6 +25,7 @@ final class UserProperties {
     var timezoneIdentifier: String?
     var biologicalSex: String?
     var weightUnit: String = "lbs"
+    var hasMetStrengthTierConditions: Bool = false
 
     /// Computed accessor for the preferred WeightUnit enum
     var preferredWeightUnit: WeightUnit {

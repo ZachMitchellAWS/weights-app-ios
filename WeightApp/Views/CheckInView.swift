@@ -7,12 +7,20 @@ struct CheckInView: View {
 
     @Query(filter: #Predicate<Exercise> { !$0.deleted }, sort: \Exercise.createdAt) private var exercises: [Exercise]
     @Query private var userPropertiesItems: [UserProperties]
-    @Query(filter: #Predicate<Estimated1RM> { !$0.deleted }, sort: \Estimated1RM.createdAt) private var allEstimated1RM: [Estimated1RM]
+    private static var estimated1RMsDescriptor: FetchDescriptor<Estimated1RM> {
+        let cutoff = Calendar.current.date(byAdding: .month, value: -12, to: Date())!
+        return FetchDescriptor<Estimated1RM>(
+            predicate: #Predicate { !$0.deleted && $0.createdAt >= cutoff },
+            sortBy: [SortDescriptor(\.createdAt)]
+        )
+    }
+    @Query(estimated1RMsDescriptor) private var allEstimated1RM: [Estimated1RM]
     @Query(filter: #Predicate<SetPlan> { !$0.deleted }) private var allTemplates: [SetPlan]
     @Query(filter: #Predicate<ExerciseGroup> { !$0.deleted }) private var allGroups: [ExerciseGroup]
     @Query private var entitlementRecords: [EntitlementGrant]
 
     @ObservedObject var selectedSetData: SelectedSetData
+    @ObservedObject private var syncService = SyncService.shared
     @Binding var selectedTab: Int
 
     // MARK: - State
@@ -63,6 +71,12 @@ struct CheckInView: View {
     @State private var overlayMilestoneExerciseName: String = ""
     @State private var overlayMilestoneTargetLabel: String = ""
 
+    // Sync overlay state
+    @State private var showSyncOverlay = false
+    @State private var syncOverlayDismissed = false
+    @State private var showSyncDismissConfirmation = false
+    @State private var syncPulsePhase = false
+
     // Tier journey overlay state
     @AppStorage("hasSeenTierIntro") private var hasSeenTierIntro = false
     @State private var showTierJourneyOverlay = false
@@ -80,8 +94,8 @@ struct CheckInView: View {
     @State private var progressOptionsHighlighted = false
     @State private var logSetFlashActive = false
     @State private var hasAppeared = false
-    @State private var weightIsSet: Bool = true
-    @State private var repsIsSet: Bool = true
+    @State private var weightIsSet: Bool = false
+    @State private var repsIsSet: Bool = false
     @State private var weightHighlight: Bool = false
     @State private var repsHighlight: Bool = false
     @State private var focusedPanelVisible: Bool = true
@@ -189,6 +203,11 @@ struct CheckInView: View {
     private var current1RM: Double {
         if let latest = estimated1RMsForExercise.first {
             return latest.value
+        }
+        // Fallback to reactive @Query when manual fetch hasn't populated yet
+        if let exerciseId = selectedExercise?.id,
+           let fromQuery = allEstimated1RM.filter({ $0.exercise?.id == exerciseId }).max(by: { $0.createdAt < $1.createdAt }) {
+            return fromQuery.value
         }
         return 0
     }
@@ -523,30 +542,66 @@ struct CheckInView: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 .zIndex(23)
             }
+            // Sync in progress overlay
+            if showSyncOverlay {
+                syncInProgressOverlay
+                    .transition(.opacity)
+                    .zIndex(25)
+            }
+        }
+        .onChange(of: syncService.initialSyncComplete) { _, complete in
+            if complete {
+                if showSyncOverlay {
+                    withAnimation(.easeOut(duration: 0.4)) {
+                        showSyncOverlay = false
+                    }
+                }
+                // Reload exercise data after a brief delay to let SwiftData process commits
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    loadDataForSelectedLift()
+                }
+                // Now safe to evaluate tier journey (user properties are synced)
+                evaluateTierJourney()
+            }
+        }
+        .confirmationDialog("Sync in Progress", isPresented: $showSyncDismissConfirmation, titleVisibility: .visible) {
+            Button("Continue Anyway") {
+                syncOverlayDismissed = true
+                withAnimation(.easeOut(duration: 0.3)) {
+                    showSyncOverlay = false
+                }
+            }
+            Button("Keep Waiting", role: .cancel) { }
+        } message: {
+            Text("Your data is still syncing. Logging sets before sync completes may cause duplicates or inconsistencies.")
         }
         .onAppear {
             guard !hasAppeared else { return }
             hasAppeared = true
 
-            // Show tier journey intro for fresh users (no animation to avoid flash of bare check-in view)
-            if !hasSeenTierIntro,
-               strengthTierResult.overallTier == .none,
-               strengthTierResult.exerciseTiers.allSatisfy({ $0.e1rm == nil }) {
-                tierJourneyMode = .intro
-                showTierJourneyOverlay = true
+            // Show sync overlay if sync hasn't completed and user hasn't dismissed it
+            if !syncService.initialSyncComplete && !syncOverlayDismissed {
+                showSyncOverlay = true
             }
-            // Resume tier journey for users who haven't finished logging all 5 exercises
-            // (only if we have no e1RM records at all — avoids false trigger during sync)
-            else if hasSeenTierIntro,
-                    allEstimated1RM.isEmpty,
-                    strengthTierResult.overallTier == .none,
-                    strengthTierResult.exerciseTiers.contains(where: { $0.e1rm == nil }) {
-                if strengthTierResult.exerciseTiers.allSatisfy({ $0.e1rm == nil }) {
-                    tierJourneyMode = .intro
-                } else {
-                    tierJourneyMode = .progress(justLoggedId: nil)
+
+            // Only evaluate tier journey if sync is already done (e.g., subsequent app opens)
+            if syncService.initialSyncComplete {
+                evaluateTierJourney()
+            }
+        }
+        .onChange(of: allEstimated1RM.count) { oldCount, newCount in
+            // Reload exercise data whenever e1RM count increases and sets are empty.
+            // e1RMs and lift sets sync together, so this covers lift set data arriving.
+            if newCount > oldCount && setsForExercise.isEmpty {
+                loadDataForSelectedLift()
+            }
+
+            // Re-evaluate after sync populates data (only on first transition from 0)
+            // Don't evaluate during calibration — the applyCalibration path handles tier journey
+            if oldCount == 0 && newCount > 0 {
+                if !showTierJourneyOverlay && pendingCalibrationSet == nil {
+                    evaluateTierJourney()
                 }
-                showTierJourneyOverlay = true
             }
 
             // In none state, default to first unlogged exercise
@@ -1214,6 +1269,39 @@ struct CheckInView: View {
 
     // MARK: - Sets Widget
 
+    // MARK: - Tier Journey Evaluation
+
+    private func evaluateTierJourney() {
+        if userProperties.hasMetStrengthTierConditions { return }
+
+        // Don't show journey if sync hasn't populated data yet for a returning user
+        let syncComplete = syncService.initialSyncComplete
+        let hasData = !allEstimated1RM.isEmpty
+
+        // Show tier journey intro for fresh users (no e1RM data at all)
+        if !hasSeenTierIntro,
+           strengthTierResult.overallTier == .none,
+           strengthTierResult.exerciseTiers.allSatisfy({ $0.e1rm == nil }) {
+            // Only show if sync is done OR user genuinely has no data
+            if syncComplete || !hasData {
+                tierJourneyMode = .intro
+                showTierJourneyOverlay = true
+            }
+        }
+        // Resume tier journey for users who haven't finished logging all 5 exercises
+        else if hasSeenTierIntro,
+                syncComplete,
+                strengthTierResult.overallTier == .none,
+                strengthTierResult.exerciseTiers.contains(where: { $0.e1rm == nil }) {
+            if strengthTierResult.exerciseTiers.allSatisfy({ $0.e1rm == nil }) {
+                tierJourneyMode = .intro
+            } else {
+                tierJourneyMode = .progress(justLoggedId: nil)
+            }
+            showTierJourneyOverlay = true
+        }
+    }
+
     private func intensityColor(for set: LiftSet) -> Color {
         // Use the e1RM that existed *before* this set was logged (same as LegacyCheckInView)
         let priorE1RM = estimated1RMsForExercise
@@ -1265,7 +1353,10 @@ struct CheckInView: View {
 
     @ViewBuilder
     private var setsWidgetCard: some View {
-        if setsForExercise.isEmpty && isViewingToday {
+        // Don't show "log first set" if we have e1RM data from @Query — sets just haven't loaded yet
+        let exerciseId = selectedExercise?.id
+        let hasE1RMFromQuery = exerciseId != nil && allEstimated1RM.contains(where: { $0.exercise?.id == exerciseId })
+        if setsForExercise.isEmpty && isViewingToday && !hasE1RMFromQuery {
             setsWidgetEmptyState
         } else {
             setsWidgetContent
@@ -1679,19 +1770,23 @@ struct CheckInView: View {
     @ViewBuilder
     private var progressOptionsContent: some View {
         if current1RM <= 0 || selectedExercise == nil {
-            VStack(spacing: 8) {
+            VStack(spacing: 12) {
                 Image(systemName: "chart.line.uptrend.xyaxis")
-                    .font(.system(size: 22, weight: .light))
-                    .foregroundStyle(Color.appAccent.opacity(0.4))
+                    .font(.system(size: 28, weight: .light))
+                    .foregroundStyle(Color.appAccent.opacity(0.5))
 
                 Text(selectedExercise?.exerciseLoadType == .bodyweightPlusSingleLoad
                      ? "Log a weighted set to unlock suggestions"
                      : "Log a set to unlock suggestions")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.4))
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+
+                Text("Personalized weight and rep targets will appear here")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.3))
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
+            .padding(.vertical, 24)
         } else {
             let filtered = filteredSuggestions
 
@@ -2699,6 +2794,74 @@ struct CheckInView: View {
 
     // MARK: - Overlays
 
+    // MARK: - Sync In Progress Overlay
+
+    private var syncInProgressOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.85)
+                .ignoresSafeArea()
+
+            VStack(spacing: 20) {
+                // X dismiss button
+                HStack {
+                    Spacer()
+                    Button {
+                        showSyncDismissConfirmation = true
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundStyle(.white.opacity(0.3))
+                            .padding(10)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer()
+
+                // Animated icon
+                ZStack {
+                    Circle()
+                        .stroke(Color.appAccent.opacity(syncPulsePhase ? 0.3 : 0.1), lineWidth: 2)
+                        .frame(width: 80, height: 80)
+
+                    Circle()
+                        .stroke(Color.appAccent.opacity(syncPulsePhase ? 0.15 : 0.05), lineWidth: 1)
+                        .frame(width: 100, height: 100)
+
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 28))
+                        .foregroundStyle(Color.appAccent)
+                        .rotationEffect(.degrees(syncPulsePhase ? 360 : 0))
+                }
+                .frame(width: 100, height: 100)
+                .drawingGroup()
+                .onAppear {
+                    withAnimation(.linear(duration: 3.0).repeatForever(autoreverses: false)) {
+                        syncPulsePhase = true
+                    }
+                }
+
+                Text("Syncing Your Data")
+                    .font(.bebasNeue(size: 24))
+                    .foregroundStyle(.white)
+
+                Text(syncService.liftSetSyncProgress ?? "Preparing…")
+                    .font(.inter(size: 13))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .animation(.easeInOut(duration: 0.2), value: syncService.liftSetSyncProgress)
+
+                Text("Hang tight — we're pulling in your training history.")
+                    .font(.inter(size: 13))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+
+                Spacer()
+            }
+            .padding(.top, 10)
+        }
+    }
+
     private var submitOverlay: some View {
         ZStack {
             Color.black.opacity(0.15)
@@ -2970,27 +3133,12 @@ struct CheckInView: View {
         // Capture overall tier before model write so we can detect tier-ups
         let previousOverallTier = strengthTierResult.overallTier
 
-        // Suppress tier display before model write to prevent spoiler during overlay
-        if isFirstTierLog {
-            suppressTierDisplay = true
-        }
-
-        modelContext.insert(estimated)
-        try? modelContext.save()
-
-        // Breadcrumb for set logging
-        let crumb = Breadcrumb(level: .info, category: "training")
-        crumb.message = "Set logged: \(ex.name) \(set.weight)×\(set.reps)"
-        SentrySDK.addBreadcrumb(crumb)
-
-        // Sync to backend
-        Task {
-            await SyncService.shared.syncLiftSet(set, isPremiumOnClient: isPremium)
-            await SyncService.shared.syncEstimated1RM(estimated)
-        }
-
-        // First weighted set: defer data refresh until calibration is applied
+        // First weighted set: defer model save and data refresh until calibration is applied
         if isFirstWeightedSet {
+            // Suppress tier display before model write to prevent spoiler during overlay
+            if isFirstTierLog {
+                suppressTierDisplay = true
+            }
             if ex.exerciseLoadType == .bodyweightPlusSingleLoad && weight <= 10 && reps < 5 {
                 pendingCalibrationSet = set
                 pendingCalibrationEstimated = estimated
@@ -3007,6 +3155,22 @@ struct CheckInView: View {
             return
         }
 
+        // Non-first-weighted-set: save model and sync now
+        if isFirstTierLog {
+            suppressTierDisplay = true
+        }
+        modelContext.insert(estimated)
+        try? modelContext.save()
+
+        let crumb = Breadcrumb(level: .info, category: "training")
+        crumb.message = "Set logged: \(ex.name) \(set.weight)×\(set.reps)"
+        SentrySDK.addBreadcrumb(crumb)
+
+        Task {
+            await SyncService.shared.syncLiftSet(set, isPremiumOnClient: isPremium)
+            await SyncService.shared.syncEstimated1RM(estimated)
+        }
+
         // Refresh data (weight/reps are preserved since loadDataForExercise no longer touches them)
         loadDataForExercise(ex.id)
 
@@ -3017,6 +3181,14 @@ struct CheckInView: View {
             if loggedAfterThis >= 5 {
                 tierJourneyMode = .completion(tier: tierResult.overallTier)
                 Task { await NarrativeBadgeService.shared.triggerTierUnlock(tier: tierResult.overallTier) }
+                if let props = userPropertiesItems.first, !props.hasMetStrengthTierConditions {
+                    props.hasMetStrengthTierConditions = true
+                    try? modelContext.save()
+                    Task {
+                        let request = UserPropertiesRequest(hasMetStrengthTierConditions: true)
+                        _ = try? await APIService.shared.updateUserProperties(request)
+                    }
+                }
             } else {
                 tierJourneyMode = .progress(justLoggedId: ex.id)
             }
@@ -3032,6 +3204,14 @@ struct CheckInView: View {
             if newOverallTier > previousOverallTier && newOverallTier > .none {
                 tierJourneyMode = .completion(tier: newOverallTier)
                 Task { await NarrativeBadgeService.shared.triggerTierUnlock(tier: newOverallTier) }
+                if let props = userPropertiesItems.first, !props.hasMetStrengthTierConditions {
+                    props.hasMetStrengthTierConditions = true
+                    try? modelContext.save()
+                    Task {
+                        let request = UserPropertiesRequest(hasMetStrengthTierConditions: true)
+                        _ = try? await APIService.shared.updateUserProperties(request)
+                    }
+                }
                 suppressTierDisplay = true
                 withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                     showTierJourneyOverlay = true
@@ -3143,8 +3323,11 @@ struct CheckInView: View {
         }
 
         estimated.value = calibratedValue
+        modelContext.insert(estimated)
+        try? modelContext.save()
 
         Task {
+            await SyncService.shared.syncLiftSet(set, isPremiumOnClient: isPremium)
             await SyncService.shared.syncEstimated1RM(estimated)
         }
 
@@ -3159,6 +3342,14 @@ struct CheckInView: View {
             if loggedAfterThis >= 5 {
                 tierJourneyMode = .completion(tier: tierResult.overallTier)
                 Task { await NarrativeBadgeService.shared.triggerTierUnlock(tier: tierResult.overallTier) }
+                if let props = userPropertiesItems.first, !props.hasMetStrengthTierConditions {
+                    props.hasMetStrengthTierConditions = true
+                    try? modelContext.save()
+                    Task {
+                        let request = UserPropertiesRequest(hasMetStrengthTierConditions: true)
+                        _ = try? await APIService.shared.updateUserProperties(request)
+                    }
+                }
             } else {
                 tierJourneyMode = .progress(justLoggedId: exerciseForJourney.id)
             }
@@ -3176,6 +3367,14 @@ struct CheckInView: View {
             if newOverallTier > previousOverallTier && newOverallTier > .none {
                 tierJourneyMode = .completion(tier: newOverallTier)
                 Task { await NarrativeBadgeService.shared.triggerTierUnlock(tier: newOverallTier) }
+                if let props = userPropertiesItems.first, !props.hasMetStrengthTierConditions {
+                    props.hasMetStrengthTierConditions = true
+                    try? modelContext.save()
+                    Task {
+                        let request = UserPropertiesRequest(hasMetStrengthTierConditions: true)
+                        _ = try? await APIService.shared.updateUserProperties(request)
+                    }
+                }
                 suppressTierDisplay = true
                 withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                     showTierJourneyOverlay = true
