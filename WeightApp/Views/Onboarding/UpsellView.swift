@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import StoreKit
+import Sentry
 
 struct UpsellView: View {
     let initialPage: Int
@@ -30,9 +31,6 @@ struct UpsellView: View {
     // Entrance animation states
     @State private var titleOpacity: Double = 0
     @State private var badgeGlow: Double = 0
-    @State private var centerScale: CGFloat = 0.5
-    @State private var centerOpacity: Double = 0
-    @State private var satelliteProgress: [Double] = Array(repeating: 0, count: 5)
     @State private var carouselOpacity: Double = 0
     @State private var pricingOpacity: Double = 0
     @State private var ctaOpacity: Double = 0
@@ -53,22 +51,22 @@ struct UpsellView: View {
             .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Header Section
+                // Header — icon + TRAIN SMARTER + badge
                 headerSection
-                    .padding(.top, 32)
+                    .padding(.top, 66)
                     .task {
                         await purchaseService.loadProducts()
                     }
 
                 Spacer()
-                    .frame(height: 20)
+                    .frame(height: 12)
 
                 // Benefits Carousel
                 benefitsCarousel
                     .opacity(carouselOpacity)
 
                 Spacer()
-                    .frame(height: 20)
+                    .frame(height: 14)
 
                 // Pricing Section
                 pricingSection
@@ -76,12 +74,11 @@ struct UpsellView: View {
                     .opacity(pricingOpacity)
 
                 Spacer()
-                    .frame(minHeight: 8)
+                    .frame(height: 16)
 
                 // Subscribe Button
                 subscribeButton
                     .padding(.horizontal, 24)
-                    .padding(.top, 8)
                     .padding(.bottom, 10)
                     .opacity(ctaOpacity)
 
@@ -92,7 +89,7 @@ struct UpsellView: View {
                     .font(.inter(size: 12))
                     .foregroundStyle(.white.opacity(0.5))
                     .multilineTextAlignment(.center)
-                    .padding(.bottom, 16)
+                    .padding(.bottom, 8)
                     .opacity(ctaOpacity)
 
                 // Footer Links
@@ -120,35 +117,53 @@ struct UpsellView: View {
                 badgeGlow = 1.0
             }
 
-            // 0.3s — Center icon springs in
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.3)) {
-                centerScale = 1.0
-                centerOpacity = 1.0
-            }
-
-            // 0.4s — Carousel container fades in
-            withAnimation(.easeOut(duration: 0.4).delay(0.4)) {
+            // 0.3s — Carousel container fades in
+            withAnimation(.easeOut(duration: 0.4).delay(0.3)) {
                 carouselOpacity = 1.0
             }
 
-            // 0.5–0.9s — Satellites stagger in (on constellation page)
-            for i in 0..<5 {
-                let delay = 0.5 + Double(i) * 0.08
-                withAnimation(.spring(response: 0.5, dampingFraction: 0.75).delay(delay)) {
-                    satelliteProgress[i] = 1.0
-                }
-            }
-
-            // 1.0s — Pricing section fades in
-            withAnimation(.easeOut(duration: 0.4).delay(1.0)) {
+            // 0.7s — Pricing section fades in
+            withAnimation(.easeOut(duration: 0.4).delay(0.7)) {
                 pricingOpacity = 1.0
             }
 
-            // 1.2s — Subscribe button + X fades in
-            withAnimation(.easeOut(duration: 0.4).delay(1.2)) {
+            // 0.9s — Subscribe button + X fades in
+            withAnimation(.easeOut(duration: 0.4).delay(0.9)) {
                 ctaOpacity = 1.0
             }
         }
+    }
+
+    // MARK: - Dismiss Button
+
+    // MARK: - Header Section
+
+    private var headerSection: some View {
+        VStack(spacing: 8) {
+            // Unlock Your Strength
+            HStack(spacing: 6) {
+                Text("Unlock")
+                    .font(.bebasNeue(size: 32))
+                    .foregroundStyle(.white)
+                Text("Your Strength")
+                    .font(.bebasNeue(size: 32))
+                    .foregroundStyle(Color.appAccent)
+            }
+
+            // GO PREMIUM badge
+            Text("GO PREMIUM")
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(2.5)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 7)
+                        .strokeBorder(.white.opacity(0.5), lineWidth: 1)
+                )
+                .shadow(color: Color.appAccent.opacity(badgeGlow * 0.3), radius: 10, x: 0, y: 0)
+        }
+        .opacity(titleOpacity)
     }
 
     // MARK: - Dismiss Button
@@ -169,51 +184,16 @@ struct UpsellView: View {
         .padding(.top, 24)
     }
 
-    // MARK: - Header Section
-
-    private var headerSection: some View {
-        // "GO PREMIUM" badge
-        Text("GO PREMIUM")
-            .font(.system(size: 13, weight: .semibold))
-            .tracking(3)
-            .foregroundStyle(.white)
-            .padding(.horizontal, 22)
-            .padding(.vertical, 7)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(.white.opacity(0.5), lineWidth: 1)
-            )
-            .shadow(color: Color.appAccent.opacity(badgeGlow * 0.3), radius: 10, x: 0, y: 0)
-            .opacity(titleOpacity)
-    }
-
     // MARK: - Benefits Carousel
 
     private let totalPages = SubscriptionConfig.premiumFeatures.count + 1
 
-    private struct SatelliteInfo {
-        let label: String
-        let icon: String
-        let color: Color
-        let offset: CGPoint
-    }
-
-    private var satellites: [SatelliteInfo] {
-        let features = SubscriptionConfig.premiumFeatures
-        return [
-            SatelliteInfo(label: "Narratives", icon: features[0].icon, color: features[0].color, offset: CGPoint(x: -95, y: -110)),
-            SatelliteInfo(label: "Balance", icon: features[1].icon, color: features[1].color, offset: CGPoint(x: 100, y: -90)),
-            SatelliteInfo(label: "Analytics", icon: features[2].icon, color: features[2].color, offset: CGPoint(x: -110, y: 40)),
-            SatelliteInfo(label: "Set Plans", icon: features[3].icon, color: features[3].color, offset: CGPoint(x: 105, y: 60)),
-            SatelliteInfo(label: "Progress Card", icon: features[4].icon, color: features[4].color, offset: CGPoint(x: 0, y: 140)),
-        ]
-    }
-
     private var benefitsCarousel: some View {
         ZStack(alignment: .bottom) {
             TabView(selection: $currentPage) {
-                // Page 0: Constellation overview
-                constellationPage
+                // Page 0: Overview
+                overviewPage
+                    .padding(.horizontal, 20)
                     .tag(0)
 
                 // Pages 1–N: Individual feature cards
@@ -223,12 +203,15 @@ struct UpsellView: View {
                         ProgressCardFeatureCard()
                             .padding(.horizontal, 20)
                             .tag(index + 1)
+                    } else if feature.title == "Weekly Insights" {
+                        WeeklyInsightsFeatureCard()
+                            .padding(.horizontal, 20)
+                            .tag(index + 1)
                     } else {
-                        FeatureCard(
+                        PremiumFeatureCard(
                             icon: feature.icon,
                             title: feature.title,
-                            description: feature.description,
-                            accentColor: feature.color
+                            bullets: feature.bullets
                         )
                         .padding(.horizontal, 20)
                         .tag(index + 1)
@@ -236,101 +219,63 @@ struct UpsellView: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
-            .frame(height: 380)
+            .frame(height: 350)
 
-            // Page indicators overlaid at the bottom
-            HStack(spacing: 8) {
-                ForEach(0..<totalPages, id: \.self) { index in
-                    Circle()
-                        .fill(index == currentPage ? Color.appAccent : Color.white.opacity(0.25))
-                        .frame(width: 7, height: 7)
+            // Page indicators + swipe hint overlaid at the bottom
+            VStack(spacing: 6) {
+                HStack(spacing: 8) {
+                    ForEach(0..<totalPages, id: \.self) { index in
+                        Circle()
+                            .fill(index == currentPage ? Color.appAccent : Color.white.opacity(0.25))
+                            .frame(width: 7, height: 7)
+                    }
                 }
+
+                HStack(spacing: 4) {
+                    Text("Swipe to explore")
+                        .font(.inter(size: 10))
+                        .foregroundStyle(.white.opacity(0.4))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8))
+                        .foregroundStyle(.white.opacity(0.4))
+                }
+                .opacity(currentPage == totalPages - 1 ? 0 : 1)
             }
-            .padding(.bottom, 12)
+            .padding(.bottom, 14)
         }
     }
 
-    // MARK: - Constellation Page (page 0 of carousel)
+    // MARK: - Overview Page (page 0 of carousel)
 
-    private var constellationPage: some View {
-        GeometryReader { geo in
-            let center = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
+    private var overviewPage: some View {
+        ZStack(alignment: .bottomTrailing) {
+            // Dark background
+            Color(white: 0.10)
 
-            ZStack {
-                // Connecting lines + dots
-                ForEach(0..<satellites.count, id: \.self) { i in
-                    let sat = satellites[i]
-                    let endPoint = CGPoint(x: center.x + sat.offset.x, y: center.y + sat.offset.y)
+            // Bull figure — amber, bottom-right, cropped at hips
+            Image("PoseFromBehind")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .foregroundStyle(Color.appAccent)
+                .frame(height: 260)
+                .offset(x: 20, y: 30)
 
-                    // Line from center to satellite
-                    Path { path in
-                        path.move(to: center)
-                        path.addLine(to: endPoint)
-                    }
-                    .stroke(.white.opacity(0.08), lineWidth: 0.5)
-                    .opacity(satelliteProgress[i])
+            // Scrolling feature column — spans full height
+            HStack(spacing: 0) {
+                ScrollingFeatureColumn(direction: .down)
+                    .frame(width: 160)
+                    .padding(.leading, 18)
 
-                    // Faint dots along the line
-                    constellationDots(from: center, to: endPoint, index: i)
-                        .opacity(satelliteProgress[i])
-                }
-
-                // Center — LiftTheBullIcon
-                Image("LiftTheBullIcon")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 64, height: 64)
-                    .foregroundStyle(Color.appAccent)
-                    .shadow(color: Color.appAccent.opacity(0.4), radius: 16, x: 0, y: 0)
-                    .scaleEffect(centerScale)
-                    .opacity(centerOpacity)
-                    .position(center)
-
-                // Satellites
-                ForEach(0..<satellites.count, id: \.self) { i in
-                    let sat = satellites[i]
-                    let pos = CGPoint(x: center.x + sat.offset.x, y: center.y + sat.offset.y)
-
-                    VStack(spacing: 6) {
-                        // Icon in colored circle
-                        Image(systemName: sat.icon)
-                            .font(.system(size: 28))
-                            .foregroundStyle(sat.color)
-                            .frame(width: 48, height: 48)
-                            .background(
-                                Circle()
-                                    .fill(sat.color.opacity(0.18))
-                            )
-                            .shadow(color: sat.color.opacity(0.3), radius: 8, x: 0, y: 2)
-
-                        // Label
-                        Text(sat.label)
-                            .font(.inter(size: 11))
-                            .foregroundStyle(.white.opacity(0.7))
-                    }
-                    .scaleEffect(satelliteProgress[i])
-                    .opacity(satelliteProgress[i])
-                    .position(pos)
-                }
+                Spacer()
             }
         }
-    }
-
-    private func constellationDots(from start: CGPoint, to end: CGPoint, index: Int) -> some View {
-        let fractions: [CGFloat] = [0.3, 0.55, 0.78]
-        return ZStack {
-            ForEach(0..<fractions.count, id: \.self) { j in
-                let t = fractions[j]
-                let x = start.x + (end.x - start.x) * t
-                let y = start.y + (end.y - start.y) * t
-                // Offset dots slightly for organic feel
-                let jitter = CGFloat((index * 3 + j * 7) % 5) - 2.0
-                Circle()
-                    .fill(.white.opacity(0.06))
-                    .frame(width: 3, height: 3)
-                    .position(x: x + jitter, y: y + jitter)
-            }
-        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 338)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.appAccent.opacity(0.2), lineWidth: 1)
+        )
     }
 
     // MARK: - Pricing Section
@@ -425,6 +370,10 @@ struct UpsellView: View {
         isProcessing = true
         errorMessage = nil
 
+        let purchaseCrumb = Breadcrumb(level: .info, category: "purchase")
+        purchaseCrumb.message = "Purchase initiated: \(product.id)"
+        SentrySDK.addBreadcrumb(purchaseCrumb)
+
         do {
             let userId = KeychainService.shared.getUserId()
             let transaction = try await purchaseService.purchase(product, userId: userId)
@@ -442,17 +391,21 @@ struct UpsellView: View {
             )
 
             // Update local premium status
-            await EntitlementsService.shared.updateLocalEntitlements(
+            EntitlementsService.shared.updateLocalEntitlements(
                 from: response,
                 context: modelContext
             )
 
             isProcessing = false
+            let successCrumb = Breadcrumb(level: .info, category: "purchase")
+            successCrumb.message = "Subscription purchased: \(product.id)"
+            SentrySDK.addBreadcrumb(successCrumb)
             onComplete(true)
         } catch {
             isProcessing = false
             if !(error is CancellationError) {
                 errorMessage = error.localizedDescription
+                SentrySDK.capture(error: error)
             }
         }
     }
@@ -460,22 +413,25 @@ struct UpsellView: View {
     // MARK: - Footer Links
 
     private var footerLinks: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 0) {
             Button("Terms and Conditions") {
                 safariURL = SubscriptionConfig.termsURL
             }
             .font(.inter(size: 12))
             .foregroundStyle(.white.opacity(0.5))
+            .frame(maxWidth: .infinity, alignment: .trailing)
 
             Text("|")
                 .font(.inter(size: 12))
                 .foregroundStyle(.white.opacity(0.5))
+                .padding(.horizontal, 10)
 
             Button("Privacy Policy") {
                 safariURL = SubscriptionConfig.privacyURL
             }
             .font(.inter(size: 12))
             .foregroundStyle(.white.opacity(0.5))
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
@@ -552,77 +508,262 @@ private struct PlanCard: View {
     }
 }
 
-// MARK: - Feature Card
+// MARK: - Premium Feature Card
 
-private struct FeatureCard: View {
+private struct PremiumFeatureCard: View {
     let icon: String
     let title: String
-    let description: String
-    let accentColor: Color
+    let bullets: [(icon: String, text: String, color: Color)]
+
+    private let accentColor: Color = .appAccent
 
     var body: some View {
-        VStack(spacing: 14) {
-            // Icon with colored circle background and glow
-            Image(systemName: icon)
-                .font(.system(size: 36))
-                .foregroundStyle(accentColor)
-                .frame(width: 64, height: 64)
-                .background(
-                    Circle()
-                        .fill(accentColor.opacity(0.18))
+        HStack(spacing: 0) {
+            // Left side — header unit + bullets
+            VStack(spacing: 0) {
+                Spacer().frame(height: 16)
+
+                Image(systemName: icon)
+                    .font(.system(size: 24))
+                    .foregroundStyle(accentColor)
+                    .shadow(color: accentColor.opacity(0.4), radius: 8, x: 0, y: 2)
+
+                Spacer().frame(height: 8)
+
+                Text("PREMIUM")
+                    .font(.inter(size: 9))
+                    .tracking(3)
+                    .foregroundStyle(accentColor.opacity(0.7))
+
+                Text(title)
+                    .font(.bebasNeue(size: 26))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+
+                Spacer().frame(height: 5)
+
+                Rectangle()
+                    .fill(accentColor)
+                    .frame(width: 24, height: 2)
+
+                Spacer().frame(height: 14)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(bullets.indices, id: \.self) { i in
+                        featureItem(
+                            icon: bullets[i].icon,
+                            text: bullets[i].text,
+                            color: bullets[i].color
+                        )
+                    }
+                }
+
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 8)
+
+            // Right side — placeholder for screenshot
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(white: 0.15))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(accentColor.opacity(0.15), lineWidth: 1)
                 )
-                .shadow(color: accentColor.opacity(0.3), radius: 12, x: 0, y: 4)
-
-            Text(title)
-                .font(.interSemiBold(size: 16))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-
-            Text(description)
-                .font(.inter(size: 13))
-                .foregroundStyle(.white.opacity(0.65))
-                .multilineTextAlignment(.center)
-                .lineLimit(4)
-
-            Spacer()
-
-            // Accent divider
-            Rectangle()
-                .fill(accentColor.opacity(0.25))
-                .frame(height: 1)
-                .padding(.horizontal, 8)
+                .frame(width: 130, height: 280)
+                .shadow(color: accentColor.opacity(0.2), radius: 16, x: -2, y: 0)
+                .padding(.trailing, 12)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 346)
-        .padding(16)
+        .frame(height: 306)
+        .padding(.vertical, 16)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(
-                    LinearGradient(
-                        colors: [accentColor.opacity(0.08), Color(white: 0.10)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
+                .fill(Color(white: 0.10))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
                         .stroke(accentColor.opacity(0.2), lineWidth: 1)
                 )
         )
     }
+
+    private func featureItem(icon: String, text: String, color: Color) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 11))
+                .foregroundStyle(color)
+                .frame(width: 16)
+            Text(text)
+                .font(.inter(size: 11))
+                .foregroundStyle(.white.opacity(0.7))
+        }
+    }
+}
+
+// MARK: - Weekly Insights Feature Card
+
+private struct WeeklyInsightsFeatureCard: View {
+    private let accentColor: Color = .appAccent
+    private let feature = SubscriptionConfig.premiumFeatures[0]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            // Left side — header unit + bullets
+            VStack(spacing: 0) {
+                Spacer().frame(height: 16)
+
+                Image(systemName: feature.icon)
+                    .font(.system(size: 24))
+                    .foregroundStyle(accentColor)
+                    .shadow(color: accentColor.opacity(0.4), radius: 8, x: 0, y: 2)
+
+                Spacer().frame(height: 8)
+
+                Text("PREMIUM")
+                    .font(.inter(size: 9))
+                    .tracking(3)
+                    .foregroundStyle(accentColor.opacity(0.7))
+
+                Text(feature.title)
+                    .font(.bebasNeue(size: 26))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+
+                Spacer().frame(height: 5)
+
+                Rectangle()
+                    .fill(accentColor)
+                    .frame(width: 24, height: 2)
+
+                Spacer().frame(height: 14)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(feature.bullets.indices, id: \.self) { i in
+                        HStack(spacing: 8) {
+                            Image(systemName: feature.bullets[i].icon)
+                                .font(.system(size: 11))
+                                .foregroundStyle(feature.bullets[i].color)
+                                .frame(width: 16)
+                            Text(feature.bullets[i].text)
+                                .font(.inter(size: 11))
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
+                    }
+                }
+
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 8)
+
+            // Right side — mini phone preview of insights tab
+            miniInsightsPreview
+                .padding(.trailing, 12)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 306)
+        .padding(.vertical, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(white: 0.10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(accentColor.opacity(0.2), lineWidth: 1)
+                )
+        )
+    }
+
+    // Miniature representation of the insights tab
+    private var miniInsightsPreview: some View {
+        VStack(spacing: 0) {
+            // Mini header
+            VStack(spacing: 2) {
+                HStack(spacing: 2) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 4))
+                        .foregroundStyle(Color.appAccent)
+                    Text("WEEKLY INSIGHTS")
+                        .font(.system(size: 4, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+                Text("Mar 24 – Mar 30, 2026")
+                    .font(.system(size: 3))
+                    .foregroundStyle(.white.opacity(0.4))
+            }
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+
+            // Mini section cards
+            VStack(spacing: 3) {
+                ForEach(InsightSectionStyle.allCases) { style in
+                    miniSectionCard(style: style)
+                }
+            }
+            .padding(.horizontal, 4)
+
+            Spacer()
+        }
+        .frame(width: 110, height: 280)
+        .background(Color(white: 0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
+        )
+    }
+
+    private func miniSectionCard(style: InsightSectionStyle) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 3) {
+                Image(systemName: style.icon)
+                    .font(.system(size: 4))
+                    .foregroundStyle(style.color)
+                    .frame(width: 8, height: 8)
+                    .background(style.color.opacity(0.15))
+                    .clipShape(RoundedRectangle(cornerRadius: 2))
+
+                Text(style.title)
+                    .font(.system(size: 3.5, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+
+                Spacer()
+            }
+
+            // Fake text lines
+            VStack(alignment: .leading, spacing: 1.5) {
+                RoundedRectangle(cornerRadius: 0.5)
+                    .fill(Color.white.opacity(0.15))
+                    .frame(height: 1.5)
+                RoundedRectangle(cornerRadius: 0.5)
+                    .fill(Color.white.opacity(0.12))
+                    .frame(height: 1.5)
+                RoundedRectangle(cornerRadius: 0.5)
+                    .fill(Color.white.opacity(0.08))
+                    .frame(width: 60, height: 1.5)
+            }
+        }
+        .padding(4)
+        .overlay(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 3)
+                .fill(style.color)
+                .frame(width: 1.5)
+        }
+        .background(Color(white: 0.14))
+        .clipShape(RoundedRectangle(cornerRadius: 3))
+    }
 }
 
 // MARK: - Progress Card Feature Card
 
 private struct ProgressCardFeatureCard: View {
-    private let accentColor: Color = .setPR
+    private let accentColor: Color = .appAccent
 
     var body: some View {
         HStack(spacing: 0) {
             // Left side — marketing text
             VStack(spacing: 0) {
                 // Header block — icon, premium, progress card, divider
-                Spacer().frame(height: 28)
+                Spacer().frame(height: 16)
 
                 Image(systemName: "square.and.arrow.up.fill")
                     .font(.system(size: 24))
@@ -662,22 +803,17 @@ private struct ProgressCardFeatureCard: View {
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 8)
 
-            // Right side — progress card image in black container
+            // Right side — progress card image
             Image("IdealizedProgressCard")
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(height: 230)
-                .padding(6)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.black)
-                        .shadow(color: accentColor.opacity(0.2), radius: 16, x: -2, y: 0)
-                )
+                .frame(height: 280)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                .shadow(color: accentColor.opacity(0.25), radius: 16, x: -2, y: 0)
                 .padding(.trailing, 12)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 346)
+        .frame(height: 306)
         .padding(.vertical, 16)
         .background(
             RoundedRectangle(cornerRadius: 16)
@@ -699,5 +835,68 @@ private struct ProgressCardFeatureCard: View {
                 .font(.inter(size: 11))
                 .foregroundStyle(.white.opacity(0.7))
         }
+    }
+}
+
+// MARK: - Scrolling Feature Column
+
+private struct ScrollingFeatureColumn: View {
+    enum Direction { case up, down }
+    let direction: Direction
+
+    private let accentColor: Color = .appAccent
+    private let features = SubscriptionConfig.premiumFeatures
+
+    @State private var offset: CGFloat = 0
+
+    private var itemHeight: CGFloat { 127 }
+    private var totalHeight: CGFloat { itemHeight * CGFloat(features.count) }
+
+    var body: some View {
+        GeometryReader { geo in
+            VStack(spacing: 12) {
+                ForEach(0..<features.count * 3, id: \.self) { i in
+                    let feature = features[i % features.count]
+                    miniFeatureUnit(icon: feature.icon, title: feature.title)
+                }
+            }
+            .offset(y: direction == .up
+                ? -totalHeight + offset
+                : -(totalHeight * 2) + totalHeight - offset)
+            .onAppear {
+                withAnimation(
+                    .linear(duration: Double(features.count) * 8)
+                    .repeatForever(autoreverses: false)
+                ) {
+                    offset = totalHeight
+                }
+            }
+        }
+        .clipped()
+    }
+
+    private func miniFeatureUnit(icon: String, title: String) -> some View {
+        VStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 24))
+                .foregroundStyle(accentColor)
+
+            Text("PREMIUM")
+                .font(.system(size: 9, weight: .medium))
+                .tracking(2)
+                .foregroundStyle(accentColor.opacity(0.7))
+
+            Text(title)
+                .font(.bebasNeue(size: 21))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Rectangle()
+                .fill(accentColor)
+                .frame(width: 26, height: 2)
+        }
+        .frame(width: 145, height: 115)
     }
 }

@@ -2112,8 +2112,6 @@ struct LegacyCheckInView: View {
     }
 
     private var setComparisonView: some View {
-        let standardSequence = SetPlan.builtInTemplates.first(where: { $0.id == SetPlan.standardId })?.sequence ?? ["easy", "easy", "moderate", "moderate", "hard", "pr"]
-
         return Group {
             if selectedExercises == nil {
                 // Empty state — colorful placeholder tiles

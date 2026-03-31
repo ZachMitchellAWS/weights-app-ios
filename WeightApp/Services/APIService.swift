@@ -7,6 +7,7 @@
 
 import Foundation
 import OSLog
+import Sentry
 
 enum APIError: Error, LocalizedError {
     case invalidURL
@@ -115,9 +116,13 @@ class APIService {
                 throw APIError.decodingError(error)
             }
         } catch let error as APIError {
+            if case .unauthorized = error { } else {
+                SentrySDK.capture(error: error)
+            }
             throw error
         } catch {
             SyncLogger.api.error("Network error: \(method) \(endpoint) — \(error)")
+            SentrySDK.capture(error: error)
             throw APIError.networkError(error)
         }
     }
@@ -616,9 +621,13 @@ class APIService {
                 throw APIError.decodingError(error)
             }
         } catch let error as APIError {
+            if case .unauthorized = error { } else {
+                SentrySDK.capture(error: error)
+            }
             throw error
         } catch {
             SyncLogger.api.error("Network error: \(method) \(endpoint) — \(error)")
+            SentrySDK.capture(error: error)
             throw APIError.networkError(error)
         }
     }

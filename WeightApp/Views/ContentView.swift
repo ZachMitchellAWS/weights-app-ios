@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Combine
+import Sentry
 
 class SelectedSetData: ObservableObject {
     @Published var exerciseId: UUID?
@@ -58,6 +59,9 @@ struct ContentView: View {
         .toolbarBackground(.visible, for: .tabBar)
         .onChange(of: selectedTab) { _, newTab in
             hapticFeedback.impactOccurred()
+            let crumb = Breadcrumb(level: .info, category: "navigation")
+            crumb.message = "Tab: \(["Progress", "Lift", "More"][newTab])"
+            SentrySDK.addBreadcrumb(crumb)
             if newTab == 0 && narrativeBadge.hasNewNarrative {
                 selectedSetData.pendingTrendsTab = .narratives
             }

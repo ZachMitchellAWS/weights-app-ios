@@ -36,7 +36,7 @@ struct MonthlySnapshotWidget: View {
     }
 
     var body: some View {
-        WidgetCard(title: monthName, subtitle: "This month") {
+        WidgetCard(title: monthName, subtitle: "\(allSets.count) sets, \(allSets.filter(\.isBaselineSet).count) baseline, dist total: \(distribution.total), buckets: \(buckets.count)") {
             if allSets.isEmpty {
                 EmptyWidgetState(icon: "chart.bar.xaxis", message: "Log sets to see your monthly snapshot")
             } else {

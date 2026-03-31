@@ -17,6 +17,7 @@ class NarrativeBadgeService {
     var hasNewNarrative: Bool = false
     private(set) var hasUnviewedTierUnlock: Bool = false
     private(set) var hasUnviewedWeekly: Bool = false
+    private(set) var tierUnlocks: [TierUnlockItem] = []
 
     private static let lastViewedKey = "insights_last_viewed_week"
     private static let cacheKey = "insights_cached_response"
@@ -28,7 +29,9 @@ class NarrativeBadgeService {
     private static let starterInsightCacheKey = "starterInsightCachedResponse"
     private static let starterInsightViewedKey = "starterInsightViewed"
 
-    private init() {}
+    private init() {
+        tierUnlocks = cachedTierUnlocks
+    }
 
     // MARK: - Unified Refresh
 
@@ -70,9 +73,8 @@ class NarrativeBadgeService {
     func evaluateBadge() {
         hasUnviewedWeekly = checkUnviewedWeekly()
         hasUnviewedTierUnlock = checkUnviewedTierUnlock()
-        let shouldBadge = hasUnviewedWeekly || hasUnviewedTierUnlock
-        hasNewNarrative = shouldBadge
-        UNUserNotificationCenter.current().setBadgeCount(shouldBadge ? 1 : 0)
+        hasNewNarrative = hasUnviewedWeekly
+        UNUserNotificationCenter.current().setBadgeCount(hasUnviewedWeekly ? 1 : 0)
     }
 
     private func checkUnviewedWeekly() -> Bool {
@@ -108,9 +110,8 @@ class NarrativeBadgeService {
     }
 
     private func updateOverallBadge() {
-        let shouldBadge = hasUnviewedWeekly || hasUnviewedTierUnlock
-        hasNewNarrative = shouldBadge
-        UNUserNotificationCenter.current().setBadgeCount(shouldBadge ? 1 : 0)
+        hasNewNarrative = hasUnviewedWeekly
+        UNUserNotificationCenter.current().setBadgeCount(hasUnviewedWeekly ? 1 : 0)
     }
 
     // MARK: - Clear on Logout
@@ -124,6 +125,7 @@ class NarrativeBadgeService {
         UserDefaults.standard.removeObject(forKey: Self.lastAutoRefreshedKey)
         UserDefaults.standard.removeObject(forKey: Self.starterInsightCacheKey)
         UserDefaults.standard.removeObject(forKey: Self.starterInsightViewedKey)
+        tierUnlocks = []
         hasNewNarrative = false
         hasUnviewedTierUnlock = false
         hasUnviewedWeekly = false
@@ -139,8 +141,8 @@ class NarrativeBadgeService {
         do {
             let _ = try await APIService.shared.postTierUnlock(tier: tier.title)
         } catch { }
-        // Poll with front-loaded intervals: 5s, 5s, 5s, 10s, 15s, 20s (cumulative: 5, 10, 15, 25, 40, 60)
-        await pollForNewNarrative(delays: [5, 5, 5, 10, 15, 20])
+        // Poll every 5s for up to 60s total
+        await pollForNewNarrative(delays: Array(repeating: 5, count: 12))
     }
 
     /// Poll backend for updated narratives. Stops early if cache changes AND has audio.
@@ -151,11 +153,8 @@ class NarrativeBadgeService {
             try? await Task.sleep(for: .seconds(delay))
             await refreshAllFromAPI()
             let after = cachedTierUnlocks
-            if after != beforeTierUnlocks {
-                hasNewNarrative = true
-                if after.last?.audioUrl != nil {
-                    return
-                }
+            if after != beforeTierUnlocks && after.last?.audioUrl != nil {
+                return
             }
         }
     }
@@ -172,6 +171,7 @@ class NarrativeBadgeService {
             // Client-side migration: clear old starter keys on first successful fetch
             UserDefaults.standard.removeObject(forKey: Self.starterInsightCacheKey)
             UserDefaults.standard.removeObject(forKey: Self.starterInsightViewedKey)
+            tierUnlocks = cachedTierUnlocks
         } catch {
             // Silent fail — use existing cache
         }

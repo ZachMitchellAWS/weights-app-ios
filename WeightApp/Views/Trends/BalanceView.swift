@@ -10,10 +10,14 @@ import SwiftData
 import Charts
 
 struct BalanceView: View {
+    @Binding var trendsTab: TrendsTab
     @Query private var userPropertiesArray: [UserProperties]
     @Query private var entitlementRecords: [EntitlementGrant]
     @Environment(\.modelContext) private var modelContext
     @State private var showUpsell = false
+    @State private var showInsightUpsell = false
+    var audioPlayer: AudioPlayerManager
+    @State private var previousTierUnlockCount: Int = NarrativeBadgeService.shared.tierUnlocks.count
 
     private var isPremium: Bool {
         if FreeOverride.isEnabled { return false }
@@ -25,6 +29,14 @@ struct BalanceView: View {
         let props = UserProperties()
         modelContext.insert(props)
         return props
+    }
+
+    private var currentOverallTier: StrengthTier {
+        TrendsCalculator.strengthTierAssessment(
+            from: allEstimated1RM,
+            bodyweight: userProperties.bodyweight ?? 0,
+            biologicalSex: userProperties.biologicalSex ?? "male"
+        ).overallTier
     }
 
     private static var setsDescriptor: FetchDescriptor<LiftSet> {
@@ -65,6 +77,9 @@ struct BalanceView: View {
                 )
                 .id("strengthTierWidget")
 
+                StrengthInsightWidget(audioPlayer: audioPlayer, showUpsell: $showInsightUpsell, isPremium: isPremium, trendsTab: $trendsTab, currentOverallTier: currentOverallTier)
+                    .id("strengthInsightWidget")
+
                 StrengthMilestonesWidget(
                     allEstimated1RM: allEstimated1RM,
                     bodyweight: userProperties.bodyweight,
@@ -84,6 +99,20 @@ struct BalanceView: View {
                 } else {
                     lockedBalanceWidget
                 }
+
+                PushPullRatioWidget(
+                    allSets: allSets,
+                    isPremium: isPremium,
+                    showUpsell: $showUpsell
+                )
+
+                BalanceOverTimeWidget(
+                    allEstimated1RM: allEstimated1RM,
+                    bodyweight: bodyweight,
+                    sex: sex,
+                    isPremium: isPremium,
+                    showUpsell: $showUpsell
+                )
 
                 // BestLiftsWidget(allSets: allSets)
 
@@ -111,7 +140,7 @@ struct BalanceView: View {
             if selectedSetData.pendingScrollToStrengthTop {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     withAnimation {
-                        proxy.scrollTo("strengthMilestonesWidget", anchor: .top)
+                        proxy.scrollTo("strengthTierWidget", anchor: .top)
                     }
                 }
                 selectedSetData.pendingScrollToStrengthTop = false
@@ -121,16 +150,46 @@ struct BalanceView: View {
             if shouldScroll {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     withAnimation {
-                        proxy.scrollTo("strengthMilestonesWidget", anchor: .top)
+                        proxy.scrollTo("strengthTierWidget", anchor: .top)
                     }
                 }
                 selectedSetData.pendingScrollToStrengthTop = false
             }
         }
+        .onChange(of: NarrativeBadgeService.shared.tierUnlocks.count) { _, newCount in
+            if newCount > previousTierUnlockCount {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation {
+                        proxy.scrollTo("strengthInsightWidget", anchor: .top)
+                    }
+                }
+            }
+            previousTierUnlockCount = newCount
+        }
         } // ScrollViewReader
+        .task {
+            await refreshTierUnlockAudio()
+        }
         .fullScreenCover(isPresented: $showUpsell) {
             UpsellView { _ in showUpsell = false }
         }
+        .fullScreenCover(isPresented: $showInsightUpsell) {
+            UpsellView(initialPage: 1) { _ in showInsightUpsell = false }
+        }
+    }
+
+    // MARK: - Tier Unlock Audio Refresh
+
+    /// Single fetch to refresh presigned URLs for an existing tier unlock.
+    /// New content polling is owned by NarrativeBadgeService.triggerTierUnlock.
+    private func refreshTierUnlockAudio() async {
+        let service = NarrativeBadgeService.shared
+        guard let latest = service.tierUnlocks.last,
+              let generatedAt = latest.generatedAt,
+              StrengthInsightWidget.isWithinThreeDays(generatedAt),
+              latest.audioUrl != nil else { return }
+
+        await service.fetchAndCacheTierUnlocks()
     }
 
     // MARK: - Strength Balance Widget

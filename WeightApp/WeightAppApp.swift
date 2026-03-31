@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import Sentry
 
 @main
 struct WeightAppApp: App {
@@ -24,6 +25,20 @@ struct WeightAppApp: App {
     let modelContainer: ModelContainer
 
     init() {
+        // Initialize Sentry
+        SentrySDK.start { options in
+            options.dsn = "https://73f9a7fbe9001ee3fcbb9247a04f7803@o4511134320033792.ingest.us.sentry.io/4511134323638272"
+            options.enableAutoSessionTracking = true
+            options.enableAppHangTracking = true
+            options.enableMetricKit = true
+            #if DEBUG
+            options.debug = true
+            options.environment = "development"
+            #else
+            options.environment = APIConfig.environment == "production" ? "production" : "staging"
+            #endif
+        }
+
         // Clear stale keychain tokens on fresh install.
         // UserDefaults is wiped on uninstall but Keychain persists,
         // so if the flag is missing we know this is a new install.
@@ -38,10 +53,21 @@ struct WeightAppApp: App {
 
         // Create the model container
         do {
-            modelContainer = try ModelContainer(for: Exercise.self, LiftSet.self, UserProperties.self, Estimated1RM.self, EntitlementGrant.self, SetPlan.self, AccessoryGoalCheckin.self, ExerciseGroup.self)
+            modelContainer = try ModelContainer(
+                for: Exercise.self, LiftSet.self, UserProperties.self,
+                Estimated1RM.self, EntitlementGrant.self, SetPlan.self,
+                AccessoryGoalCheckin.self, ExerciseGroup.self,
+                migrationPlan: AppMigrationPlan.self
+            )
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
          }
+
+        // Restore Sentry user identity from Keychain if logged in
+        if let userId = KeychainService.shared.getUserId() {
+            let sentryUser = Sentry.User(userId: userId)
+            SentrySDK.setUser(sentryUser)
+        }
     }
 
     var body: some Scene {
@@ -86,11 +112,11 @@ struct WeightAppApp: App {
                         }
                     } else {
                         if showWelcome {
-                            WelcomeView(splashVisible: showSplash) {
+                            WelcomeView(onContinue: {
                                 withAnimation(.easeInOut(duration: 0.4)) {
                                     showWelcome = false
                                 }
-                            }
+                            }, splashVisible: showSplash)
                             .transition(.opacity)
                         } else if showSafetyDisclaimer {
                             SafetyDisclaimerView {

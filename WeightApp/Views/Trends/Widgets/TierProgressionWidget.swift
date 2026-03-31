@@ -54,12 +54,14 @@ struct TierProgressionWidget: View {
     }
 
     var body: some View {
-        WidgetCard(title: "Tier Progression") {
-            if isPremium {
+        if isPremium {
+            WidgetCard(title: "Tier Progression", subtitle: "e1RM over time") {
                 premiumContent
-            } else {
-                lockedContent
+            } trailing: {
+                exercisePicker
             }
+        } else {
+            lockedContent
         }
     }
 
@@ -68,8 +70,6 @@ struct TierProgressionWidget: View {
     @ViewBuilder
     private var premiumContent: some View {
         VStack(alignment: .leading, spacing: 12) {
-            exercisePicker
-
             if dataPoints.isEmpty {
                 EmptyWidgetState(
                     icon: "chart.line.uptrend.xyaxis",
@@ -102,6 +102,10 @@ struct TierProgressionWidget: View {
                 lineColor: StrengthTier.advanced.color
             )
         }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(white: 0.14))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
         .premiumLocked(
             title: "Unlock Tier Progression",
             subtitle: "Track your strength journey through the tiers",
@@ -158,23 +162,6 @@ struct TierProgressionWidget: View {
         let activeTier: StrengthTier = showAllTiers ? .advanced : currentTier
 
         return Chart {
-            // Tier zone bands
-            ForEach(bands, id: \.tier) { band in
-                let bandMin = max(band.minLbs, yDomain.lowerBound)
-                let bandMax = min(band.maxLbs, yDomain.upperBound)
-                if bandMax > bandMin {
-                    RectangleMark(
-                        yStart: .value("Min", bandMin),
-                        yEnd: .value("Max", bandMax)
-                    )
-                    .foregroundStyle(
-                        band.tier.color.opacity(
-                            fakeBandOpacity ?? (band.tier == activeTier ? 0.15 : 0.08)
-                        )
-                    )
-                }
-            }
-
             // Progression line
             ForEach(dataPoints) { point in
                 LineMark(
@@ -197,7 +184,16 @@ struct TierProgressionWidget: View {
         }
         .chartYScale(domain: yDomain)
         .chartXAxis {
-            AxisMarks(values: .automatic(desiredCount: 3)) { _ in
+            AxisMarks(values: .stride(by: .weekOfYear)) { _ in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                    .foregroundStyle(Color.white.opacity(0.08))
+                AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                    .font(.inter(size: 9))
+                    .foregroundStyle(Color.white.opacity(0.5))
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .trailing) { _ in
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
                     .foregroundStyle(Color.white.opacity(0.08))
                 AxisValueLabel()
@@ -205,13 +201,25 @@ struct TierProgressionWidget: View {
                     .foregroundStyle(Color.white.opacity(0.4))
             }
         }
-        .chartYAxis {
-            AxisMarks(position: .leading) { _ in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                    .foregroundStyle(Color.white.opacity(0.08))
-                AxisValueLabel()
-                    .font(.inter(size: 9))
-                    .foregroundStyle(Color.white.opacity(0.4))
+        .chartBackground { proxy in
+            GeometryReader { geo in
+                let plotArea = geo[proxy.plotFrame!]
+                ForEach(bands, id: \.tier) { band in
+                    let bandMin = max(band.minLbs, yDomain.lowerBound)
+                    let bandMax = min(band.maxLbs, yDomain.upperBound)
+                    if bandMax > bandMin {
+                        let yTop = proxy.position(forY: bandMax) ?? 0
+                        let yBot = proxy.position(forY: bandMin) ?? 0
+                        let height = yBot - yTop
+
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(band.tier.color.opacity(
+                                fakeBandOpacity ?? (band.tier == activeTier ? 0.15 : 0.08)
+                            ))
+                            .frame(width: plotArea.width, height: height)
+                            .position(x: plotArea.midX, y: yTop + height / 2)
+                    }
+                }
             }
         }
         .chartOverlay { proxy in

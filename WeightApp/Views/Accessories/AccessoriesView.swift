@@ -100,19 +100,19 @@ struct AccessoriesView: View {
         .navigationTitle("Accessories")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showStepsInput) {
-            AccessoryInputSheet(metricType: "steps") { value, date in
+            AccessoryInputSheet(metricType: "steps", onSave: { value, date in
                 saveCheckin(metricType: "steps", value: value, date: date)
-            }
+            })
         }
         .sheet(isPresented: $showProteinInput) {
-            AccessoryInputSheet(metricType: "protein") { value, date in
+            AccessoryInputSheet(metricType: "protein", onSave: { value, date in
                 saveCheckin(metricType: "protein", value: value, date: date)
-            }
+            })
         }
         .sheet(isPresented: $showBodyWeightInput) {
-            AccessoryInputSheet(metricType: "bodyweight", weightUnit: userProperties.preferredWeightUnit) { value, date in
+            AccessoryInputSheet(metricType: "bodyweight", onSave: { value, date in
                 saveCheckin(metricType: "bodyweight", value: value, date: date)
-            }
+            }, weightUnit: userProperties.preferredWeightUnit)
         }
         .sheet(isPresented: $showStepsHistory) {
             AccessoryHistoryView(

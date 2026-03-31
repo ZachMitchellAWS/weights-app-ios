@@ -61,11 +61,17 @@ struct AnalyticsView: View {
         return index + 1
     }
 
+    /// Page index for the Advanced Analytics feature in the upsell carousel
+    private var analyticsUpsellPage: Int {
+        let index = SubscriptionConfig.premiumFeatures.firstIndex { $0.title == "Advanced Analytics" } ?? 2
+        return index + 1
+    }
+
     var body: some View {
         Group {
             if isLoaded {
                 ScrollView {
-                    VStack(spacing: 16) {
+                    LazyVStack(spacing: 16) {
                         reportCardButton
 
                         MonthlySnapshotWidget(allSets: allSets)
@@ -76,11 +82,11 @@ struct AnalyticsView: View {
 
                         OneRMProgressionWidget(allEstimated1RM: allEstimated1RM, allExerciseNames: exercises.map(\.name))
 
-                        ExerciseVolumeWidget(allSets: allSets)
+                        WeeklyVolumeWidget(allSets: allSets, weightUnit: userProperties?.preferredWeightUnit ?? .lbs, isPremium: isPremium, showUpsell: $showUpsell)
 
-                        WeeklyVolumeWidget(allSets: allSets, weightUnit: userProperties?.preferredWeightUnit ?? .lbs)
+                        ExerciseVolumeWidget(allSets: allSets, weightUnit: userProperties?.preferredWeightUnit ?? .lbs, isPremium: isPremium, showUpsell: $showUpsell)
 
-                        SetIntensityWidget(allSets: allSets, allEstimated1RM: allEstimated1RM, weightUnit: userProperties?.preferredWeightUnit ?? .lbs)
+                        SetIntensityWidget(allSets: allSets, allEstimated1RM: allEstimated1RM, weightUnit: userProperties?.preferredWeightUnit ?? .lbs, isPremium: isPremium, showUpsell: $showUpsell)
 
                         PRTimelineWidget(allEstimated1RM: allEstimated1RM, isPremium: isPremium, showUpsell: $showUpsell, weightUnit: userProperties?.preferredWeightUnit ?? .lbs)
                     }
@@ -89,7 +95,7 @@ struct AnalyticsView: View {
                     .padding(.bottom, 60)
                 }
                 .fullScreenCover(isPresented: $showUpsell) {
-                    UpsellView { _ in showUpsell = false }
+                    UpsellView(initialPage: analyticsUpsellPage) { _ in showUpsell = false }
                 }
                 .fullScreenCover(isPresented: $showReportCardUpsell) {
                     UpsellView(initialPage: progressCardUpsellPage) { _ in showReportCardUpsell = false }

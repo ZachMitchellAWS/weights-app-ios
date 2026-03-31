@@ -7,29 +7,37 @@
 
 import SwiftUI
 
-struct WidgetCard<Content: View>: View {
+struct WidgetCard<Content: View, Trailing: View>: View {
     let title: String
     let subtitle: String?
     @ViewBuilder let content: () -> Content
+    @ViewBuilder let trailing: () -> Trailing
 
-    init(title: String, subtitle: String? = nil, @ViewBuilder content: @escaping () -> Content) {
+    init(title: String, subtitle: String? = nil, @ViewBuilder content: @escaping () -> Content, @ViewBuilder trailing: @escaping () -> Trailing) {
         self.title = title
         self.subtitle = subtitle
         self.content = content
+        self.trailing = trailing
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.7))
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.7))
 
-                if let subtitle = subtitle {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.4))
+                    if let subtitle = subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.4))
+                    }
                 }
+
+                Spacer()
+
+                trailing()
             }
 
             content()
@@ -39,6 +47,15 @@ struct WidgetCard<Content: View>: View {
         .background(Color(white: 0.14))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         // .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.4), lineWidth: 1.5))
+    }
+}
+
+extension WidgetCard where Trailing == EmptyView {
+    init(title: String, subtitle: String? = nil, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title
+        self.subtitle = subtitle
+        self.content = content
+        self.trailing = { EmptyView() }
     }
 }
 

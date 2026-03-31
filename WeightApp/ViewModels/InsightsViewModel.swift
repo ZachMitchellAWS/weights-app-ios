@@ -33,7 +33,6 @@ class InsightsViewModel {
     }
 
     var state: ViewState = .idle
-    var latestTierUnlock: TierUnlockItem?
 
     private var audioPollTask: Task<Void, Never>?
 
@@ -51,13 +50,6 @@ class InsightsViewModel {
     // MARK: - Lifecycle
 
     func onAppear(isPremium: Bool, hasLocalSetsThisWeek: Bool, overallTier: StrengthTier = .none) async {
-        // Always load latest tier unlock from cache
-        latestTierUnlock = NarrativeBadgeService.shared.cachedTierUnlocks.last
-
-        // Always do a full refresh when navigating to narratives tab
-        await NarrativeBadgeService.shared.refreshAllFromAPI()
-        latestTierUnlock = NarrativeBadgeService.shared.cachedTierUnlocks.last
-
         guard isPremium else {
             if overallTier != .none {
                 state = .freeWithTier(overallTier)
@@ -157,27 +149,17 @@ class InsightsViewModel {
                 // Re-fetch weekly insights
                 await fetchInsights(force: true, isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
 
-                // Re-fetch tier unlocks
-                await NarrativeBadgeService.shared.fetchAndCacheTierUnlocks()
-                latestTierUnlock = NarrativeBadgeService.shared.cachedTierUnlocks.last
-
                 if !needsAudioPoll { return }
             }
         }
     }
 
     private var needsAudioPoll: Bool {
-        let weeklyNeedsAudio: Bool
         if case .loaded(let response) = state,
            let sections = response.sections, !sections.isEmpty {
-            weeklyNeedsAudio = sections.contains { $0.audioUrl == nil }
-        } else {
-            weeklyNeedsAudio = false
+            return sections.contains { $0.audioUrl == nil }
         }
-
-        let tierNeedsAudio = latestTierUnlock != nil && latestTierUnlock?.audioUrl == nil
-
-        return weeklyNeedsAudio || tierNeedsAudio
+        return false
     }
 
     // MARK: - Helpers

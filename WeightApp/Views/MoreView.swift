@@ -7,7 +7,6 @@
 
 import SwiftUI
 import SwiftData
-import UserNotifications
 
 struct MoreView: View {
     @ObservedObject var authViewModel: AuthViewModel
@@ -17,11 +16,8 @@ struct MoreView: View {
     @Query(filter: #Predicate<Exercise> { !$0.deleted }) private var exercises: [Exercise]
 
     @State private var showAccount = false
-    @State private var showSettings = false
     @State private var showDeveloper = false
     @State private var showAbout = false
-    @State private var showWeightInput = false
-    @State private var showPlateSelection = false
 
     @State private var showDataPopulatedAlert = false
     @State private var showTodayDataPopulatedAlert = false
@@ -73,16 +69,11 @@ struct MoreView: View {
     @State private var syncFailed = false
     @State private var copiedToast: String?
     @State private var showAPIValidation = false
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var notificationStatus: UNAuthorizationStatus?
     @State private var isExportingIdealCard = false
     @State private var idealCardExportResult: String?
     @State private var showIdealCardShareSheet = false
     @State private var idealCardImage: UIImage?
 
-    @State private var tempBodyweight: Double = 180
-    @State private var showBiologicalSexPicker = false
-    @State private var repRangeDebounceTask: Task<Void, Never>?
 
     private var userProperties: UserProperties {
         if let props = userPropertiesItems.first { return props }
@@ -243,6 +234,12 @@ struct MoreView: View {
                                 lineWidth: 1.5
                             )
                     )
+                    .contentShape(RoundedRectangle(cornerRadius: 12))
+                    .onTapGesture {
+                        if !isPremium {
+                            showUpsellPreview = true
+                        }
+                    }
                     .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                     .listRowBackground(Color.clear)
                 }
@@ -360,7 +357,7 @@ struct MoreView: View {
                                 isSyncingPurchases = true
                                 do {
                                     let response = try await EntitlementsService.shared.processTransactions(originalTransactionIds: [])
-                                    await EntitlementsService.shared.updateLocalEntitlements(
+                                    EntitlementsService.shared.updateLocalEntitlements(
                                         from: response,
                                         context: modelContext
                                     )
@@ -431,124 +428,19 @@ struct MoreView: View {
                     }
                 }
 
-                // Settings Section (Expandable)
+                // Settings Section
                 Section {
-                    Button {
-                        withAnimation {
-                            showSettings.toggle()
-                        }
+                    NavigationLink {
+                        SettingsView()
                     } label: {
                         HStack(spacing: 12) {
                             Image(systemName: "gearshape")
                                 .foregroundStyle(Color.appAccent)
                                 .font(.system(size: 20))
                             Text("Settings")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Image(systemName: showSettings ? "chevron.down" : "chevron.right")
-                                .foregroundStyle(.white.opacity(0.3))
-                                .font(.system(size: 14))
+                                .foregroundStyle(Color.appAccent)
                         }
                         .padding(.horizontal, 4)
-                    }
-
-                    if showSettings {
-                        // Profile Section
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Profile")
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.5))
-                                .padding(.leading, 32)
-
-                            Button {
-                                let unit = userProperties.preferredWeightUnit
-                                let defaultBW: Double = unit == .kg ? 82 : 180
-                                tempBodyweight = userProperties.bodyweight.map { unit.fromLbs($0).rounded() } ?? defaultBW
-                                showWeightInput = true
-                            } label: {
-                                HStack {
-                                    Text("Bodyweight")
-                                        .foregroundStyle(.white.opacity(0.7))
-                                        .font(.subheadline)
-                                        .padding(.leading, 40)
-                                    Spacer()
-                                    if let bodyweight = userProperties.bodyweight {
-                                        Text("\(userProperties.preferredWeightUnit.formatWeight(bodyweight)) \(userProperties.preferredWeightUnit.label)")
-                                            .foregroundStyle(.white.opacity(0.5))
-                                    } else {
-                                        Text("Not Set")
-                                            .foregroundStyle(.white.opacity(0.5))
-                                    }
-                                }
-                            }
-                            .sheet(isPresented: $showWeightInput) {
-                                weightInputSheet
-                            }
-
-                            Button {
-                                showBiologicalSexPicker = true
-                            } label: {
-                                HStack {
-                                    Text("Biological Sex")
-                                        .foregroundStyle(.white.opacity(0.7))
-                                        .font(.subheadline)
-                                        .padding(.leading, 40)
-                                    Spacer()
-                                    Text(userProperties.biologicalSex?.capitalized ?? "Not Set")
-                                        .foregroundStyle(.white.opacity(0.5))
-                                }
-                            }
-
-                            HStack {
-                                Text("Weight Unit")
-                                    .foregroundStyle(.white.opacity(0.7))
-                                    .font(.subheadline)
-                                    .padding(.leading, 40)
-                                Spacer()
-                                Picker("Weight Unit", selection: Binding(
-                                    get: { userProperties.preferredWeightUnit },
-                                    set: { newUnit in
-                                        userProperties.preferredWeightUnit = newUnit
-                                        try? modelContext.save()
-                                        Task { await SyncService.shared.updateWeightUnit(newUnit.rawValue) }
-                                    }
-                                )) {
-                                    ForEach(WeightUnit.allCases, id: \.self) { unit in
-                                        Text(unit.label).tag(unit)
-                                    }
-                                }
-                                .pickerStyle(.segmented)
-                                .frame(width: 120)
-                            }
-                        }
-                        .padding(.vertical, 4)
-
-                        // Progress Options Section
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Progress Options")
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.5))
-                                .padding(.leading, 32)
-
-                            // Available Change Plates
-                            Button {
-                                showPlateSelection = true
-                            } label: {
-                                HStack {
-                                    Text("Available Change Plates")
-                                        .foregroundStyle(.white.opacity(0.7))
-                                        .font(.subheadline)
-                                        .padding(.leading, 40)
-                                    Spacer()
-                                    Image(systemName: "chevron.right")
-                                        .foregroundStyle(.white.opacity(0.3))
-                                        .font(.system(size: 12))
-                                }
-                            }
-
-                            repRangesSection
-                        }
-                        .padding(.vertical, 4)
                     }
                 }
 
@@ -565,63 +457,6 @@ struct MoreView: View {
                                 .foregroundStyle(Color.appAccent)
                         }
                         .padding(.horizontal, 4)
-                    }
-                }
-
-                // Notifications Section
-                Section {
-                    Button {
-                        if let status = notificationStatus, status == .denied {
-                            if let url = URL(string: UIApplication.openSettingsURLString) {
-                                UIApplication.shared.open(url)
-                            }
-                        } else if notificationStatus == .notDetermined {
-                            PushNotificationService.shared.requestPermissionIfNeeded()
-                            // Re-check status after a short delay
-                            Task {
-                                try? await Task.sleep(for: .seconds(1))
-                                await refreshNotificationStatus()
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "bell.badge")
-                                .foregroundStyle(Color.appAccent)
-                                .font(.system(size: 20))
-                            Text("Notifications")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            if let status = notificationStatus {
-                                switch status {
-                                case .authorized, .provisional:
-                                    Text("Enabled")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.white.opacity(0.4))
-                                case .denied:
-                                    Text("Open Settings")
-                                        .font(.subheadline)
-                                        .foregroundStyle(Color.appAccent)
-                                    Image(systemName: "arrow.up.forward.app")
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(Color.appAccent)
-                                case .notDetermined:
-                                    Text("Enable")
-                                        .font(.subheadline)
-                                        .foregroundStyle(Color.appAccent)
-                                @unknown default:
-                                    EmptyView()
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 4)
-                    }
-                }
-                .task {
-                    await refreshNotificationStatus()
-                }
-                .onChange(of: scenePhase) { _, newPhase in
-                    if newPhase == .active {
-                        Task { await refreshNotificationStatus() }
                     }
                 }
 
@@ -651,7 +486,7 @@ struct MoreView: View {
 
                 // Feedback Section
                 Section {
-                    NavigationLink {
+                     NavigationLink {
                         FeedbackView()
                     } label: {
                         HStack(spacing: 12) {
@@ -1015,6 +850,18 @@ struct MoreView: View {
                         }
 
                         HStack {
+                            Text("Force Insight (No Audio)")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Toggle("", isOn: Binding(
+                                get: { UserDefaults.standard.bool(forKey: "debugForceInsightNoAudio") },
+                                set: { UserDefaults.standard.set($0, forKey: "debugForceInsightNoAudio") }
+                            ))
+                            .labelsHidden()
+                            .tint(Color.appAccent)
+                        }
+
+                        HStack {
                             Text("Legacy Check-In")
                                 .foregroundStyle(.primary)
                             Spacer()
@@ -1052,7 +899,7 @@ struct MoreView: View {
                                     let response = try await EntitlementsService.shared.processTransactions(
                                         originalTransactionIds: ["2000001123058480"]
                                     )
-                                    await EntitlementsService.shared.updateLocalEntitlements(
+                                    EntitlementsService.shared.updateLocalEntitlements(
                                         from: response,
                                         context: modelContext
                                     )
@@ -1376,24 +1223,6 @@ struct MoreView: View {
                 #endif
             }
             .navigationBarTitleDisplayMode(.inline)
-            .confirmationDialog("Biological Sex", isPresented: $showBiologicalSexPicker) {
-                Button("Male") {
-                    userProperties.biologicalSex = "male"
-                    Task { await SyncService.shared.updateBiologicalSex("male") }
-                }
-                Button("Female") {
-                    userProperties.biologicalSex = "female"
-                    Task { await SyncService.shared.updateBiologicalSex("female") }
-                }
-                Button("Clear", role: .destructive) {
-                    userProperties.biologicalSex = nil
-                    Task { await SyncService.shared.updateBiologicalSex(nil) }
-                }
-                Button("Cancel", role: .cancel) {}
-            }
-            .fullScreenCover(isPresented: $showPlateSelection) {
-                AvailableChangePlatesView()
-            }
             .fullScreenCover(isPresented: $showUpsellPreview) {
                 UpsellView { _ in
                     showUpsellPreview = false
@@ -1610,153 +1439,10 @@ struct MoreView: View {
         }
     }
 
-    private func refreshNotificationStatus() async {
-        let settings = await UNUserNotificationCenter.current().notificationSettings()
-        await MainActor.run {
-            notificationStatus = settings.authorizationStatus
-        }
-    }
-
-    private func scheduleRepRangeSync() {
-        repRangeDebounceTask?.cancel()
-        let min = userProperties.progressMinReps
-        let max = userProperties.progressMaxReps
-        repRangeDebounceTask = Task {
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            guard !Task.isCancelled else { return }
-            await SyncService.shared.updateProgressRepRange(
-                minReps: min, maxReps: max
-            )
-        }
-    }
-
-    private var repRangesSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Progress Options Rep Range")
-                .foregroundStyle(.white.opacity(0.7))
-                .font(.subheadline)
-                .padding(.leading, 40)
-
-            // e1RM ↑ (Progress)
-            HStack {
-                Text("e1RM ↑")
-                    .foregroundStyle(Color.setPR)
-                    .font(.caption)
-                    .padding(.leading, 40)
-                Spacer()
-                Text("\(userProperties.progressMinReps)–\(userProperties.progressMaxReps) reps")
-                    .foregroundStyle(.white.opacity(0.5))
-                    .font(.caption)
-            }
-            RangeSliderView(
-                minValue: Binding(
-                    get: { Double(userProperties.progressMinReps) },
-                    set: { userProperties.progressMinReps = Int($0); try? modelContext.save(); scheduleRepRangeSync() }
-                ),
-                maxValue: Binding(
-                    get: { Double(userProperties.progressMaxReps) },
-                    set: { userProperties.progressMaxReps = Int($0); try? modelContext.save(); scheduleRepRangeSync() }
-                ),
-                bounds: 1...12,
-                minSpan: Double(UserProperties.minRepRangeSpan)
-            )
-            .padding(.horizontal, 40)
-        }
-    }
-
     private func showCopiedToast(_ message: String) {
         copiedToast = message
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             copiedToast = nil
-        }
-    }
-
-    // MARK: - Weight Input Sheet
-
-    private var weightInputSheet: some View {
-        NavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
-
-                VStack(spacing: 16) {
-                    Spacer()
-                        .frame(height: 8)
-
-                    Text("Set Bodyweight")
-                        .font(.title2.weight(.bold))
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.white)
-
-                    Text("Your bodyweight is used for calculating 1RM on bodyweight exercises")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.7))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
-
-                    Spacer()
-                        .frame(height: 20)
-
-                    // Weight Picker
-                    HStack(spacing: 0) {
-                        Picker("Weight", selection: $tempBodyweight) {
-                            ForEach(Array(stride(from: userProperties.preferredWeightUnit.bodyweightPickerRange.lowerBound, through: userProperties.preferredWeightUnit.bodyweightPickerRange.upperBound, by: 1.0)), id: \.self) { weight in
-                                Text("\(Int(weight))")
-                                    .tag(weight)
-                            }
-                        }
-                        .pickerStyle(.wheel)
-                        .frame(maxWidth: .infinity)
-
-                        Text(userProperties.preferredWeightUnit.label)
-                            .font(.title2.weight(.bold))
-                            .foregroundStyle(.white.opacity(0.7))
-                            .padding(.trailing, 40)
-                    }
-                    .frame(height: 200)
-
-                    Spacer()
-
-                    // Buttons
-                    HStack(spacing: 16) {
-                        Button {
-                            let defaultBW: Double = userProperties.preferredWeightUnit == .kg ? 82 : 180
-                            tempBodyweight = defaultBW
-                            userProperties.bodyweight = nil
-                            try? modelContext.save()
-                            showWeightInput = false
-                            Task { await SyncService.shared.updateBodyweight(nil) }
-                        } label: {
-                            Text("Clear")
-                                .font(.headline)
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 50)
-                                .background(Color.white.opacity(0.1))
-                                .cornerRadius(12)
-                        }
-
-                        Button {
-                            let lbsValue = userProperties.preferredWeightUnit.toLbs(tempBodyweight)
-                            userProperties.bodyweight = lbsValue
-                            try? modelContext.save()
-                            showWeightInput = false
-                            Task { await SyncService.shared.updateBodyweight(lbsValue) }
-                        } label: {
-                            Text("Done")
-                                .font(.headline)
-                                .foregroundStyle(.black)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 50)
-                                .background(Color.appAccent)
-                                .cornerRadius(12)
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 20)
-                }
-            }
-            .presentationDetents([.height(500)])
-            .presentationDragIndicator(.visible)
         }
     }
 

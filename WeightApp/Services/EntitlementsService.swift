@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftData
+import Sentry
 
 // MARK: - Response DTOs
 
@@ -149,6 +150,7 @@ class EntitlementsService {
             updateLocalEntitlements(from: response, context: context)
         } catch {
             print("EntitlementsService: Failed to sync: \(error)")
+            SentrySDK.capture(error: error)
         }
     }
 

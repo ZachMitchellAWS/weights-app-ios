@@ -8,6 +8,7 @@
 import Foundation
 import SwiftData
 import Combine
+import Sentry
 import OSLog
 
 @MainActor
@@ -132,6 +133,7 @@ class SyncService: ObservableObject {
                 syncState = state
             } catch {
                 SyncLogger.sync.error("Initial exercise sync failed: \(error)")
+                SentrySDK.capture(error: error)
             }
         } else {
             SyncLogger.sync.debug("Step 2: Exercise already synced, skipping")
@@ -264,6 +266,7 @@ class SyncService: ObservableObject {
             KeychainService.shared.saveUserProperties(createdDatetime: response.createdDatetime)
         } catch {
             SyncLogger.sync.error("Failed to sync user properties: \(error.localizedDescription)")
+            SentrySDK.capture(error: error)
             // Don't block exercise sync - user properties are not critical
         }
     }
@@ -491,8 +494,15 @@ class SyncService: ObservableObject {
 
         do {
             // Run the entire paginated sync in a single background context
+            let sendableContainer = container
+            let initialLS = totalLiftSet
+            let initialE1RM = totalE1RMs
+            let initialLSDone = liftSetsDone
+            let initialE1RMDone = e1rmsDone
+            let initialLSToken = liftSetPageToken
+            let initialE1RMToken = e1rmPageToken
             let (finalLiftSet, finalE1RMs, finalLSDone, finalE1RMDone, finalLSToken, finalE1RMToken) = try await Task.detached {
-                let context = ModelContext(container)
+                let context = ModelContext(sendableContainer)
                 context.autosaveEnabled = false
 
                 // Build dedup dictionaries once upfront
@@ -506,12 +516,12 @@ class SyncService: ObservableObject {
                 let allExercises = (try? context.fetch(FetchDescriptor<Exercise>())) ?? []
                 let exerciseById = Dictionary(uniqueKeysWithValues: allExercises.map { ($0.id, $0) })
 
-                var tLS = totalLiftSet
-                var tE1RM = totalE1RMs
-                var lsDone = liftSetsDone
-                var e1rmDone = e1rmsDone
-                var lsToken = liftSetPageToken
-                var e1rmToken = e1rmPageToken
+                var tLS = initialLS
+                var tE1RM = initialE1RM
+                var lsDone = initialLSDone
+                var e1rmDone = initialE1RMDone
+                var lsToken = initialLSToken
+                var e1rmToken = initialE1RMToken
                 var pagesSinceSave = 0
 
                 while !lsDone || !e1rmDone {
@@ -575,21 +585,29 @@ class SyncService: ObservableObject {
                         pagesSinceSave = 0
 
                         // Persist cursors so a crash can resume from here
+                        let snapLS = lsToken
+                        let snapE1RM = e1rmToken
+                        let snapTLS = tLS
+                        let snapTE1RM = tE1RM
+                        let snapLSDone = lsDone
+                        let snapE1RMDone = e1rmDone
                         await MainActor.run {
                             var s = self.syncState
-                            s.liftSetPageToken = lsToken
-                            s.estimated1RMPageToken = e1rmToken
-                            s.liftSetsFetched = tLS
-                            s.estimated1RMsFetched = tE1RM
-                            s.liftSetsComplete = lsDone
-                            s.estimated1RMsComplete = e1rmDone
+                            s.liftSetPageToken = snapLS
+                            s.estimated1RMPageToken = snapE1RM
+                            s.liftSetsFetched = snapTLS
+                            s.estimated1RMsFetched = snapTE1RM
+                            s.liftSetsComplete = snapLSDone
+                            s.estimated1RMsComplete = snapE1RMDone
                             self.syncState = s
                         }
                     }
 
                     // Update progress on main actor
+                    let progressLS = tLS
+                    let progressE1RM = tE1RM
                     await MainActor.run {
-                        self.liftSetSyncProgress = "Synced \(tLS) sets, \(tE1RM) 1RMs..."
+                        self.liftSetSyncProgress = "Synced \(progressLS) sets, \(progressE1RM) 1RMs..."
                     }
                 }
 
@@ -609,6 +627,7 @@ class SyncService: ObservableObject {
             SyncLogger.sync.info("Completed interleaved sync: \(totalLiftSet) lift sets + \(totalE1RMs) estimated 1RMs")
         } catch {
             SyncLogger.sync.error("Failed during interleaved sync: \(error.localizedDescription)")
+            SentrySDK.capture(error: error)
         }
 
         // Persist final state
@@ -665,6 +684,7 @@ class SyncService: ObservableObject {
             SyncLogger.sync.debug("Synced lift set \(liftSet.id)")
         } catch {
             SyncLogger.sync.error("Failed to sync lift set \(liftSet.id): \(error.localizedDescription)")
+            SentrySDK.capture(error: error)
             retryQueue.addPendingLiftSetCreate(liftSetId: liftSet.id)
         }
     }
@@ -682,6 +702,7 @@ class SyncService: ObservableObject {
             }
         } catch {
             SyncLogger.sync.error("Failed to batch sync \(liftSets.count) lift sets: \(error.localizedDescription)")
+            SentrySDK.capture(error: error)
             for liftSet in liftSets {
                 retryQueue.addPendingLiftSetCreate(liftSetId: liftSet.id)
             }
@@ -752,8 +773,9 @@ class SyncService: ObservableObject {
     private func importLiftSetsFromBackend(_ dtos: [LiftSetDTO]) async {
         guard let container = modelContainer else { return }
         let sendableDtos = dtos
+        let sendableContainer = container
         await Task.detached {
-            let context = ModelContext(container)
+            let context = ModelContext(sendableContainer)
             context.autosaveEnabled = false
 
             let existingLiftSet = (try? context.fetch(FetchDescriptor<LiftSet>())) ?? []
@@ -831,6 +853,7 @@ class SyncService: ObservableObject {
             SyncLogger.sync.debug("Synced estimated 1RM \(estimated1RM.id)")
         } catch {
             SyncLogger.sync.error("Failed to sync estimated 1RM \(estimated1RM.id): \(error.localizedDescription)")
+            SentrySDK.capture(error: error)
             retryQueue.addPendingEstimated1RMCreate(estimated1RMId: estimated1RM.id, liftSetId: estimated1RM.setId)
         }
     }
@@ -848,6 +871,7 @@ class SyncService: ObservableObject {
             }
         } catch {
             SyncLogger.sync.error("Failed to batch sync \(estimated1RMs.count) estimated 1RMs: \(error.localizedDescription)")
+            SentrySDK.capture(error: error)
             for estimated1RM in estimated1RMs {
                 retryQueue.addPendingEstimated1RMCreate(estimated1RMId: estimated1RM.id, liftSetId: estimated1RM.setId)
             }
@@ -914,8 +938,9 @@ class SyncService: ObservableObject {
     private func importEstimated1RMFromBackend(_ dtos: [Estimated1RMDTO]) async {
         guard let container = modelContainer else { return }
         let sendableDtos = dtos
+        let sendableContainer = container
         await Task.detached {
-            let context = ModelContext(container)
+            let context = ModelContext(sendableContainer)
             context.autosaveEnabled = false
 
             let existingEstimated1RM = (try? context.fetch(FetchDescriptor<Estimated1RM>())) ?? []
@@ -1042,8 +1067,9 @@ class SyncService: ObservableObject {
     private func importSetPlansFromBackend(_ dtos: [SetPlanDTO]) async {
         guard let container = modelContainer else { return }
         let sendableDtos = dtos
+        let sendableContainer = container
         await Task.detached {
-            let context = ModelContext(container)
+            let context = ModelContext(sendableContainer)
             context.autosaveEnabled = false
 
             let existingTemplates = (try? context.fetch(FetchDescriptor<SetPlan>())) ?? []
@@ -1183,8 +1209,9 @@ class SyncService: ObservableObject {
     private func importGroupsFromBackend(_ dtos: [GroupDTO]) async {
         guard let container = modelContainer else { return }
         let sendableDtos = dtos
+        let sendableContainer = container
         await Task.detached {
-            let context = ModelContext(container)
+            let context = ModelContext(sendableContainer)
             context.autosaveEnabled = false
 
             let existingGroups = (try? context.fetch(FetchDescriptor<ExerciseGroup>())) ?? []
@@ -1411,8 +1438,9 @@ class SyncService: ObservableObject {
     private func importExercisesFromBackend(_ dtos: [ExerciseDTO]) async {
         guard let container = modelContainer else { return }
         let sendableDtos = dtos
+        let sendableContainer = container
         await Task.detached {
-            let context = ModelContext(container)
+            let context = ModelContext(sendableContainer)
             context.autosaveEnabled = false
 
             let existingExercises = (try? context.fetch(FetchDescriptor<Exercise>())) ?? []
@@ -1561,8 +1589,9 @@ class SyncService: ObservableObject {
     private func importAccessoryGoalCheckinsFromBackend(_ dtos: [AccessoryGoalCheckinDTO]) async {
         guard let container = modelContainer else { return }
         let sendableDtos = dtos
+        let sendableContainer = container
         await Task.detached {
-            let context = ModelContext(container)
+            let context = ModelContext(sendableContainer)
             context.autosaveEnabled = false
 
             let existingCheckins = (try? context.fetch(FetchDescriptor<AccessoryGoalCheckin>())) ?? []

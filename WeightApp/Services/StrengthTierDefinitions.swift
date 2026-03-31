@@ -41,7 +41,7 @@ enum StrengthTier: Int, CaseIterable, Comparable {
         case .beginner: return Color(red: 0.29, green: 0.56, blue: 0.85)   // blue
         case .intermediate: return Color(red: 0.13, green: 0.72, blue: 0.79) // teal
         case .advanced: return Color(red: 0.13, green: 0.77, blue: 0.37)   // green
-        case .elite: return Color(red: 0.96, green: 0.65, blue: 0.14)      // amber
+        case .elite: return .appAccent                                      // amber
         case .legend: return Color(red: 0.80, green: 0.52, blue: 0.96)     // violet
         }
     }

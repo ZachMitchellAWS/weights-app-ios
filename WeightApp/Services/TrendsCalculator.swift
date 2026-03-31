@@ -43,6 +43,54 @@ struct TrendsCalculator {
         return weeklyVolume(from: exerciseSets, weeks: weeks)
     }
 
+    // MARK: - Volume Bands
+
+    struct VolumeBand {
+        let threshold: Double   // percentage offset from average (-0.8, -0.5, -0.2, 0.2, 0.5, 0.8)
+        let value: Double       // absolute volume value at this threshold
+    }
+
+    /// Computes reference lines for volume charts based on ~13-week rolling average.
+    /// Returns the average and band thresholds at ±20%, ±50%, ±80%.
+    static func volumeBands(from sets: [LiftSet], exerciseName: String? = nil) -> (average: Double, bands: [VolumeBand]) {
+        let filtered: [LiftSet]
+        if let name = exerciseName {
+            filtered = sets.filter { $0.exercise?.name == name }
+        } else {
+            filtered = Array(sets)
+        }
+
+        let data = weeklyVolume(from: filtered, weeks: 13)
+        guard !data.isEmpty else { return (0, []) }
+
+        let avg = data.map(\.volume).reduce(0, +) / Double(data.count)
+        guard avg > 0 else { return (0, []) }
+
+        let thresholds: [Double] = [-0.8, -0.5, -0.2, 0.2, 0.5, 0.8]
+        let bands = thresholds.map { t in
+            VolumeBand(threshold: t, value: avg * (1.0 + t))
+        }
+        return (avg, bands)
+    }
+
+    /// Returns the color for a volume value based on its position relative to the average.
+    static func volumeBandColor(volume: Double, average: Double) -> Color {
+        guard average > 0 else { return .appAccent }
+        let pct = (volume - average) / average
+
+        if pct < -0.8 {
+            return Color(white: 0.4)            // light gray — minimal activity
+        } else if pct < -0.5 {
+            return .setModerate                  // cyan
+        } else if pct < -0.2 {
+            return .setHard                      // purple
+        } else if pct <= 0.2 {
+            return .setEasy                      // green — near average
+        } else {
+            return .appAccent                    // amber — above average
+        }
+    }
+
     // MARK: - Intensity Distribution
 
     enum IntensityBucket: String, CaseIterable {
@@ -135,9 +183,13 @@ struct TrendsCalculator {
             if !currentSession.isEmpty { sessions.append(currentSession) }
 
             var currentMax: Double = 0
+            let isSingleSession = sessions.count == 1
 
             for session in sessions {
                 let preSessionMax = currentMax
+                // Running max of non-baseline sets within this session,
+                // used as fallback reference when this is the only session.
+                var intraSessionMax: Double = 0
 
                 for set in session {
                     let estimated = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
@@ -152,12 +204,27 @@ struct TrendsCalculator {
 
                     let isInWindow = set.createdAt >= cutoffDate
 
-                    if isInWindow && preSessionMax > 0 {
+                    // Use preSessionMax normally; for single-session data, fall back
+                    // to currentMax (includes baseline-calibrated values) or intra-session
+                    // running max so first-day users see the intensity bar.
+                    let referenceMax: Double
+                    if preSessionMax > 0 {
+                        referenceMax = preSessionMax
+                    } else if isSingleSession {
+                        referenceMax = currentMax > 0 ? currentMax : intraSessionMax
+                    } else {
+                        referenceMax = 0
+                    }
+
+                    if isInWindow {
                         let bucket: IntensityBucket
-                        if set.weight > 0 && estimated > preSessionMax {
+                        if referenceMax <= 0 {
+                            // No reference — first set for this exercise; treat as PR
+                            bucket = .pr
+                        } else if set.weight > 0 && estimated > referenceMax {
                             bucket = .pr
                         } else {
-                            let percent1RM = estimated / preSessionMax
+                            let percent1RM = estimated / referenceMax
                             bucket = IntensityBucket.from(percent1RM: percent1RM)
                         }
                         switch bucket {
@@ -169,9 +236,12 @@ struct TrendsCalculator {
                         }
                     }
 
-                    // Track session max for post-session update
+                    // Track running max
                     if set.weight > 0 && estimated > currentMax {
                         currentMax = estimated
+                    }
+                    if set.weight > 0 && estimated > intraSessionMax {
+                        intraSessionMax = estimated
                     }
                 }
             }
@@ -749,6 +819,159 @@ struct TrendsCalculator {
         let biggestMover = withTrend.max(by: { abs($0.trendDelta!) < abs($1.trendDelta!) })!
         let direction = biggestMover.trendDelta! > 0 ? "improved" : "declined"
         return "Over \(period), \(biggestMover.exerciseName) has \(direction) the most in balance."
+    }
+
+    // MARK: - Weekly Strength Balance History
+
+    struct WeeklyBalanceSnapshot: Identifiable {
+        let id = UUID()
+        let weekStart: Date
+        let tierSpread: Int          // 0 = Symmetrical, 4+ = Lopsided
+        let category: BalanceCategory
+    }
+
+    /// Computes weekly balance category snapshots over the past N weeks.
+    /// At each week boundary, uses the latest e1RM up to that point for each fundamental exercise.
+    static func weeklyBalanceHistory(
+        from estimated1RMs: [Estimated1RM],
+        bodyweight: Double,
+        sex: BiologicalSex,
+        weeks: Int = 8
+    ) -> [WeeklyBalanceSnapshot] {
+        let calendar = Calendar.current
+        let now = Date()
+        let fundamentalIds = Set(fundamentalExercises.map(\.id))
+        let relevant = estimated1RMs.filter { rec in
+            guard let eid = rec.exercise?.id else { return false }
+            return fundamentalIds.contains(eid)
+        }
+
+        var snapshots: [WeeklyBalanceSnapshot] = []
+
+        for weeksAgo in (0..<weeks).reversed() {
+            guard let weekEnd = calendar.date(byAdding: .weekOfYear, value: -weeksAgo, to: now) else { continue }
+            let weekStart = calendar.startOfWeek(for: weekEnd)
+
+            // Get latest e1RM for each exercise up to this week's end
+            let recordsUpToWeek = relevant.filter { $0.createdAt <= weekEnd }
+            let grouped = Dictionary(grouping: recordsUpToWeek) { $0.exercise!.id }
+
+            var tiers: [StrengthTier] = []
+            for exercise in fundamentalExercises {
+                guard let records = grouped[exercise.id],
+                      let latest = records.max(by: { $0.createdAt < $1.createdAt }) else { continue }
+                let tier = StrengthTierData.tierForExercise(
+                    name: exercise.name,
+                    e1rm: latest.value,
+                    bodyweight: bodyweight,
+                    sex: sex
+                )
+                tiers.append(tier)
+            }
+
+            guard tiers.count >= 2 else { continue }
+
+            let spread = (tiers.max()?.rawValue ?? 0) - (tiers.min()?.rawValue ?? 0)
+            let category: BalanceCategory
+            switch spread {
+            case 0: category = .symmetrical
+            case 1: category = .balanced
+            case 2: category = .uneven
+            case 3: category = .skewed
+            default: category = .lopsided
+            }
+
+            snapshots.append(WeeklyBalanceSnapshot(weekStart: weekStart, tierSpread: spread, category: category))
+        }
+
+        return snapshots
+    }
+
+    // MARK: - Movement Ratios
+
+    struct MovementRatio {
+        let pushVolume: Double
+        let pullVolume: Double
+        let hingeVolume: Double
+        let squatVolume: Double
+        let coreVolume: Double
+
+        var upperVolume: Double { pushVolume + pullVolume }
+        var lowerVolume: Double { hingeVolume + squatVolume }
+
+        /// 0.0 = all pull, 0.5 = balanced, 1.0 = all push
+        var pushPullRatio: Double {
+            let total = pushVolume + pullVolume
+            guard total > 0 else { return 0.5 }
+            return pushVolume / total
+        }
+
+        /// 0.0 = all lower, 0.5 = balanced, 1.0 = all upper
+        var upperLowerRatio: Double {
+            let total = upperVolume + lowerVolume
+            guard total > 0 else { return 0.5 }
+            return upperVolume / total
+        }
+
+        var totalVolume: Double { pushVolume + pullVolume + hingeVolume + squatVolume + coreVolume }
+    }
+
+    static func movementRatios(from sets: [LiftSet], days: Int = 30) -> MovementRatio {
+        let calendar = Calendar.current
+        guard let cutoff = calendar.date(byAdding: .day, value: -days, to: Date()) else {
+            return MovementRatio(pushVolume: 0, pullVolume: 0, hingeVolume: 0, squatVolume: 0, coreVolume: 0)
+        }
+
+        let recent = sets.filter { $0.createdAt >= cutoff && !$0.deleted }
+
+        var push = 0.0, pull = 0.0, hinge = 0.0, squat = 0.0, core = 0.0
+
+        for set in recent {
+            let volume = set.weight * Double(set.reps)
+            guard let movementType = set.exercise?.movementType else { continue }
+            switch movementType.lowercased() {
+            case "push": push += volume
+            case "pull": pull += volume
+            case "hinge": hinge += volume
+            case "squat": squat += volume
+            case "core": core += volume
+            default: break
+            }
+        }
+
+        return MovementRatio(pushVolume: push, pullVolume: pull, hingeVolume: hinge, squatVolume: squat, coreVolume: core)
+    }
+
+    static func weeklyMovementRatios(from sets: [LiftSet], weeks: Int = 8) -> [(weekStart: Date, ratio: MovementRatio)] {
+        let calendar = Calendar.current
+        guard let cutoff = calendar.date(byAdding: .weekOfYear, value: -weeks, to: Date()) else {
+            return []
+        }
+
+        let recent = sets.filter { $0.createdAt >= cutoff && !$0.deleted }
+        let grouped = Dictionary(grouping: recent) { set -> Date in
+            calendar.startOfWeek(for: set.createdAt)
+        }
+
+        var result: [(weekStart: Date, ratio: MovementRatio)] = []
+        for (weekStart, weekSets) in grouped {
+            var push = 0.0, pull = 0.0, hinge = 0.0, squat = 0.0, core = 0.0
+            for set in weekSets {
+                let volume = set.weight * Double(set.reps)
+                guard let movementType = set.exercise?.movementType else { continue }
+                switch movementType.lowercased() {
+                case "push": push += volume
+                case "pull": pull += volume
+                case "hinge": hinge += volume
+                case "squat": squat += volume
+                case "core": core += volume
+                default: break
+                }
+            }
+            result.append((weekStart: weekStart, ratio: MovementRatio(pushVolume: push, pullVolume: pull, hingeVolume: hinge, squatVolume: squat, coreVolume: core)))
+        }
+
+        return result.sorted { $0.weekStart < $1.weekStart }
     }
 
     // MARK: - Strength Tier Assessment

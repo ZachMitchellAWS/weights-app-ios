@@ -56,7 +56,7 @@ extension View {
     func premiumLocked(
         title: String,
         subtitle: String,
-        ctaText: String = "Premium",
+        ctaText: String = "Go Premium",
         blurRadius: CGFloat = 6,
         showUpsell: Binding<Bool>
     ) -> some View {

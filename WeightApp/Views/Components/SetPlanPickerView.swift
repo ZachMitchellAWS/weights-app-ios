@@ -301,6 +301,13 @@ struct SetPlanCatalogView: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(isActive ? Color.appAccent : Color.white.opacity(0.1), lineWidth: isActive ? 2 : 1)
         )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            hapticFeedback.impactOccurred()
+            userProperties.activeSetPlanId = template.id
+            try? modelContext.save()
+            Task { await SyncService.shared.updateActiveSetPlan(template.id) }
+        }
     }
 
     @ViewBuilder
@@ -345,6 +352,13 @@ struct SetPlanCatalogView: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(isActive ? Color.appAccent : Color.white.opacity(0.1), lineWidth: isActive ? 2 : 1)
         )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            hapticFeedback.impactOccurred()
+            userProperties.activeSetPlanId = nil
+            try? modelContext.save()
+            Task { await SyncService.shared.updateActiveSetPlan(nil) }
+        }
     }
 
     private func saveAndSyncTemplate(_ template: SetPlan) {

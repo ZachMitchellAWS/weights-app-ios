@@ -2,7 +2,7 @@ import SwiftUI
 
 enum TierJourneyMode {
     case intro
-    case progress(justLoggedId: UUID)
+    case progress(justLoggedId: UUID?)
     case completion(tier: StrengthTier)
 }
 

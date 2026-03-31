@@ -7,7 +7,7 @@
 
 import OSLog
 
-enum SyncLogger {
+nonisolated enum SyncLogger {
     static let sync = Logger(subsystem: "com.weightapp", category: "sync")
     static let api = Logger(subsystem: "com.weightapp", category: "api")
     static let retry = Logger(subsystem: "com.weightapp", category: "retry")

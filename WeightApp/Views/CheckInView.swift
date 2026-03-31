@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import Sentry
 
 struct CheckInView: View {
     @Environment(\.modelContext) private var modelContext
@@ -78,12 +79,14 @@ struct CheckInView: View {
     @State private var scrollProxy: ScrollViewProxy?
     @State private var progressOptionsHighlighted = false
     @State private var logSetFlashActive = false
+    @State private var hasAppeared = false
     @State private var weightIsSet: Bool = true
     @State private var repsIsSet: Bool = true
     @State private var weightHighlight: Bool = false
     @State private var repsHighlight: Bool = false
     @State private var focusedPanelVisible: Bool = true
     @State private var showE1RMPopup: Bool = false
+    @State private var showE1RMUpsell: Bool = false
     @State private var safeAreaTopInset: CGFloat = 59
 
     // MARK: - Computed
@@ -454,7 +457,54 @@ struct CheckInView: View {
                     )
                     .padding(.horizontal, 16)
                     .padding(.top, 14)
-                    .padding(.bottom, 18)
+                    .padding(.bottom, 14)
+
+                    Rectangle()
+                        .fill(Color.white.opacity(0.06))
+                        .frame(height: 1)
+                        .padding(.horizontal, 16)
+
+                    if isPremium {
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                showE1RMPopup = false
+                            }
+                            selectedTab = 0
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text("View Full Analytics")
+                                    .font(.interSemiBold(size: 13))
+                                Image(systemName: "arrow.right")
+                                    .font(.system(size: 11, weight: .semibold))
+                            }
+                            .foregroundStyle(Color.appAccent)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                showE1RMPopup = false
+                            }
+                            showE1RMUpsell = true
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "lock.fill")
+                                    .font(.system(size: 11, weight: .semibold))
+                                Text("Unlock Full Analytics")
+                                    .font(.interSemiBold(size: 13))
+                            }
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                            .background(Color.appAccent)
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                    }
                 }
                 .background(
                     LinearGradient(
@@ -475,11 +525,27 @@ struct CheckInView: View {
             }
         }
         .onAppear {
+            guard !hasAppeared else { return }
+            hasAppeared = true
+
             // Show tier journey intro for fresh users (no animation to avoid flash of bare check-in view)
             if !hasSeenTierIntro,
                strengthTierResult.overallTier == .none,
                strengthTierResult.exerciseTiers.allSatisfy({ $0.e1rm == nil }) {
                 tierJourneyMode = .intro
+                showTierJourneyOverlay = true
+            }
+            // Resume tier journey for users who haven't finished logging all 5 exercises
+            // (only if we have no e1RM records at all — avoids false trigger during sync)
+            else if hasSeenTierIntro,
+                    allEstimated1RM.isEmpty,
+                    strengthTierResult.overallTier == .none,
+                    strengthTierResult.exerciseTiers.contains(where: { $0.e1rm == nil }) {
+                if strengthTierResult.exerciseTiers.allSatisfy({ $0.e1rm == nil }) {
+                    tierJourneyMode = .intro
+                } else {
+                    tierJourneyMode = .progress(justLoggedId: nil)
+                }
                 showTierJourneyOverlay = true
             }
 
@@ -530,6 +596,7 @@ struct CheckInView: View {
                     selectedAccessoryId = selectedId
                     loadDataForExercise(selectedId)
                 }
+                hubSelectedExerciseId = nil
             }
             hubDeepLinkExerciseId = nil
             hubSection = .exercises
@@ -579,6 +646,9 @@ struct CheckInView: View {
             Button("Redline") { applyCalibration(effort: .progress) }
         } message: {
             Text("This helps estimate your 1RM for better suggestions.")
+        }
+        .fullScreenCover(isPresented: $showE1RMUpsell) {
+            UpsellView(initialPage: 3) { _ in showE1RMUpsell = false }
         }
     }
 
@@ -681,6 +751,7 @@ struct CheckInView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             selectedSetData.pendingTrendsTab = .strength
+            selectedSetData.pendingScrollToStrengthTop = true
             selectedTab = 0
         }
     }
@@ -780,23 +851,19 @@ struct CheckInView: View {
                             ? (strengthTierResult.exerciseTiers.first(where: { $0.exercise.id == exercise.id })?.tier ?? .novice)
                             : nil
                         let highlightColor = Color.appAccent
-                        let displayName: String = {
+                        let (nameLine1, nameLine2): (String, String?) = {
                             let name = shortDisplayName(for: exercise.name)
-                            guard !isFundamental, name.count > 11 else { return name }
+                            guard !isFundamental, name.count > 11 else { return (name, nil) }
                             // Find the last space at or before index 11
                             let prefix = name.prefix(12)
                             if let splitIndex = prefix.lastIndex(of: " ") {
-                                var result = name
-                                result.replaceSubrange(splitIndex...splitIndex, with: "\n")
-                                return result
+                                return (String(name[name.startIndex..<splitIndex]), String(name[name.index(after: splitIndex)...]))
                             }
                             // No space in first 11 chars — split at first space
                             if let firstSpace = name.firstIndex(of: " ") {
-                                var result = name
-                                result.replaceSubrange(firstSpace...firstSpace, with: "\n")
-                                return result
+                                return (String(name[name.startIndex..<firstSpace]), String(name[name.index(after: firstSpace)...]))
                             }
-                            return name
+                            return (name, nil)
                         }()
 
                         VStack(spacing: 4) {
@@ -808,13 +875,31 @@ struct CheckInView: View {
                                 .frame(width: 40, height: 40)
                                 .foregroundStyle(isSelected ? highlightColor : .white.opacity(0.5))
 
-                            Text(displayName)
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(isSelected ? highlightColor.opacity(0.9) : .white.opacity(0.45))
-                                .frame(width: itemWidth - 8, height: isFundamental ? nil : 30)
-                                .lineLimit(isFundamental ? 1 : 2)
-                                .multilineTextAlignment(.center)
-                                .minimumScaleFactor(0.7)
+                            if isFundamental {
+                                Text(nameLine1)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(isSelected ? highlightColor.opacity(0.9) : .white.opacity(0.45))
+                                    .lineLimit(1)
+                                    .multilineTextAlignment(.center)
+                                    .minimumScaleFactor(0.7)
+                            } else {
+                                VStack(spacing: 0) {
+                                    Text(nameLine1)
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundStyle(isSelected ? highlightColor.opacity(0.9) : .white.opacity(0.45))
+                                        .frame(width: itemWidth - 8)
+                                        .lineLimit(1)
+                                        .multilineTextAlignment(.center)
+                                    Text(nameLine2 ?? "")
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundStyle(isSelected ? highlightColor.opacity(0.9) : .white.opacity(0.45))
+                                        .frame(width: itemWidth - 8)
+                                        .lineLimit(1)
+                                        .multilineTextAlignment(.center)
+                                        .opacity(nameLine2 != nil ? 1 : 0)
+                                }
+                                .frame(width: itemWidth - 8, height: 30)
+                            }
 
                             // Progress bar or checklist checkmark (only for fundamental exercises)
                             if let fundEx = fundamentalExercise, let tierVal = tier {
@@ -866,9 +951,16 @@ struct CheckInView: View {
                         .contentShape(Rectangle())
                         .onTapGesture {
                             hapticFeedback.impactOccurred()
+                            let wasAccessoryMode = isAccessoryMode
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 selectedLiftIndex = index
                                 isAccessoryMode = false
+                                selectedAccessoryId = nil
+                            }
+                            // If we were in accessory mode and selectedLiftIndex didn't change,
+                            // onChange won't fire, so reload manually
+                            if wasAccessoryMode {
+                                loadDataForSelectedLift()
                             }
                         }
                         .onLongPressGesture {
@@ -987,7 +1079,7 @@ struct CheckInView: View {
                         Spacer()
                         let exerciseId = isAccessoryMode ? selectedExercise?.id : groupExercise?.id
                         if let eid = exerciseId, let gain = e1rmGain30Day(for: eid) {
-                            Text("+\(gain, specifier: "%.1f")")
+                            Text("+\(gain, specifier: "%.2f")")
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(.green)
                             Text("over 7D")
@@ -1142,7 +1234,7 @@ struct CheckInView: View {
         }
 
         let isPR = (estimated - currentMax) > 0.0001 && currentMax > 0
-        if isPR { return .setPR }
+        if isPR { return .appAccent }
 
         let percent = currentMax > 0 ? estimated / currentMax : 0
         let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: percent)
@@ -1478,7 +1570,7 @@ struct CheckInView: View {
                 LegendItem(color: .setModerate, label: "Moderate")
                 LegendItem(color: .setHard, label: "Hard")
                 LegendItem(color: .setNearMax, label: "Redline")
-                LegendItem(color: .setPR, label: "e1RM ↑")
+                LegendItem(color: .appAccent, label: "e1RM ↑")
             }
         }
         .padding(14)
@@ -2103,7 +2195,6 @@ struct CheckInView: View {
         let e1rm = current1RM
         guard e1rm > 0, let ex = selectedExercise else { return nil }
         let loadType = ex.exerciseLoadType
-        let props = userProperties
         let macroWeights = OneRMCalculator.efficientPlateWeights(loadType: loadType)
 
         struct TierConfig {
@@ -2192,7 +2283,7 @@ struct CheckInView: View {
                     var result: [(label: String, subtitle: String, suggestion: OneRMCalculator.Suggestion, color: Color)] = [
                         ("Conservative Win", "Solid volume, guaranteed gain", conservative, .setEasy),
                         ("Advancement", "Push into new territory", advancement, .setModerate),
-                        ("Stretch Attempt", "Go for a major PR", stretch, .setPR),
+                        ("Stretch Attempt", "Go for a major PR", stretch, .appAccent),
                     ]
 
                     // Tier Breaker card: only for core exercises with tier thresholds, not at Legend
@@ -2277,8 +2368,6 @@ struct CheckInView: View {
         let ex = selectedExercise
         let increment = ex?.effectiveWeightIncrement ?? 5.0
         let projected = OneRMCalculator.estimate1RM(weight: weight, reps: reps)
-        let delta = current1RM > 0 ? projected - current1RM : 0.0
-
         return VStack(spacing: 6) {
             // Intensity label + percent of e1RM
             if current1RM > 0 {
@@ -2286,13 +2375,13 @@ struct CheckInView: View {
                 let isProgress = (projected - current1RM) > 0.0001
                 let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: percent)
                 let bucketColor: Color = {
-                    if isProgress { return .setPR }
+                    if isProgress { return .appAccent }
                     switch bucket {
                     case .easy: return .setEasy
                     case .moderate: return .setModerate
                     case .hard: return .setHard
                     case .redline: return .setNearMax
-                    case .pr: return .setPR
+                    case .pr: return .appAccent
                     }
                 }()
                 let bucketLabel = isProgress ? "Progress" : bucket.rawValue
@@ -2889,6 +2978,11 @@ struct CheckInView: View {
         modelContext.insert(estimated)
         try? modelContext.save()
 
+        // Breadcrumb for set logging
+        let crumb = Breadcrumb(level: .info, category: "training")
+        crumb.message = "Set logged: \(ex.name) \(set.weight)×\(set.reps)"
+        SentrySDK.addBreadcrumb(crumb)
+
         // Sync to backend
         Task {
             await SyncService.shared.syncLiftSet(set, isPremiumOnClient: isPremium)
@@ -2977,7 +3071,7 @@ struct CheckInView: View {
                 }
             }
         } else {
-            overlayIntensityColor = .setPR
+            overlayIntensityColor = .appAccent
             overlayIntensityLabel = "Progress"
         }
 
@@ -3231,7 +3325,7 @@ struct CheckInView: View {
         case "easy": return .setEasy
         case "moderate": return .setModerate
         case "hard": return .setHard
-        case "pr": return .setPR
+        case "pr": return .appAccent
         default: return .white.opacity(0.3)
         }
     }

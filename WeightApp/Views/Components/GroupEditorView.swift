@@ -239,14 +239,16 @@ struct GroupEditorView: View {
                 HStack(spacing: 10) {
                     ForEach(groupExercises, id: \.id) { exercise in
                         VStack(spacing: 4) {
-                            ExerciseIconView(exercise: exercise, size: 28)
+                            ExerciseIconView(exercise: exercise, size: 32)
                                 .foregroundStyle(.white.opacity(0.6))
                             Text(exercise.name)
                                 .font(.system(size: 9))
                                 .foregroundStyle(.white.opacity(0.4))
-                                .lineLimit(1)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.center)
+                                .frame(height: 24, alignment: .top)
                         }
-                        .frame(width: 52)
+                        .frame(width: 58)
                     }
                 }
                 .padding(.vertical, 2)

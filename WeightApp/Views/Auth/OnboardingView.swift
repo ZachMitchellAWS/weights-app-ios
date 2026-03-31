@@ -14,7 +14,7 @@ struct OnboardingView: View {
 
     @State private var currentPage = 0
     @State private var showControls = false
-    private let totalPages = 6
+    private let totalPages = 7
 
     var body: some View {
         ZStack {
@@ -43,8 +43,13 @@ struct OnboardingView: View {
                             showControls = true
                         }
                     })
-                    case 4: OnboardingChangePlatesStep(currentPage: $currentPage, totalPages: totalPages)
-                    case 5: OnboardingBodyProfileStep(currentPage: $currentPage, totalPages: totalPages, onComplete: onComplete)
+                    case 4: OnboardingBeyondBasicsConcept(onAnimationComplete: {
+                        withAnimation(.easeOut(duration: 0.4)) {
+                            showControls = true
+                        }
+                    })
+                    case 5: OnboardingChangePlatesStep(currentPage: $currentPage, totalPages: totalPages)
+                    case 6: OnboardingBodyProfileStep(currentPage: $currentPage, totalPages: totalPages, onComplete: onComplete)
                     default: EmptyView()
                     }
                 }
@@ -84,8 +89,8 @@ struct OnboardingView: View {
                         .padding(.horizontal, 32)
                     }
                     .padding(.bottom, 50)
-                    // Welcome + Five Lifts: always visible. E1RM & Effort screens: fade in after animation. Others: always visible.
-                    .opacity(currentPage == 0 || (currentPage != 1 && currentPage != 2 && currentPage != 3 && currentPage != 4 && currentPage != 5) || showControls ? 1 : 0)
+                    // Welcome: always visible. Animated concept pages: fade in after animation completes.
+                    .opacity(currentPage == 0 || showControls ? 1 : 0)
                 }
             }
         }
@@ -157,9 +162,7 @@ private struct OnboardingFiveLiftsConcept: View {
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
-                (Text("Your strength is measured across\n")
-                    + Text("Five").fontWeight(.semibold).foregroundColor(.appAccent)
-                    + Text(" fundamental lifts."))
+                Text("Your strength is measured across\n\(Text("Five").fontWeight(.semibold).foregroundColor(.appAccent)) fundamental lifts.")
                     .font(.inter(size: 17))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
@@ -172,17 +175,17 @@ private struct OnboardingFiveLiftsConcept: View {
             // Exercise list card (contains bars + overall tier)
             VStack(spacing: 0) {
                 ForEach(Array(exercises.enumerated()), id: \.element.id) { index, exercise in
-                    HStack(spacing: 14) {
+                    HStack(spacing: 22) {
                         Image(exercise.icon)
                             .resizable()
                             .scaledToFit()
-                            .frame(width: 32, height: 32)
+                            .frame(width: 40, height: 40)
                             .foregroundStyle(barProgress[index] > 0 ? Color.appAccent : .white.opacity(0.3))
 
-                        Text(exercise.name)
+                        Text(exercise.name == "Overhead Press" ? "OH Press" : exercise.name)
                             .font(.inter(size: 15))
                             .foregroundStyle(.white)
-                            .frame(width: 120, alignment: .leading)
+                            .frame(width: 95, alignment: .leading)
 
                         // Progress bar
                         GeometryReader { geo in
@@ -301,7 +304,7 @@ private struct OnboardingE1RMConcept: View {
         (0.50, .setModerate),
         (0.55, .setModerate),
         (0.70, .setHard),
-        (1.00, .setPR),
+        (1.00, .appAccent),
     ]
 
     private let maxBarHeight: CGFloat = 120
@@ -314,7 +317,7 @@ private struct OnboardingE1RMConcept: View {
         (.setEasy, "Easy", 1),
         (.setModerate, "Moderate", 3),
         (.setHard, "Hard", 5),
-        (.setPR, "PR", 6),
+        (.appAccent, "PR", 6),
     ]
 
     var body: some View {
@@ -349,16 +352,16 @@ private struct OnboardingE1RMConcept: View {
                                         .resizable()
                                         .scaledToFit()
                                         .frame(width: 24, height: 24)
-                                        .foregroundStyle(Color.setPR)
-                                        .shadow(color: Color.setPR.opacity(0.5), radius: 8, x: 0, y: 0)
+                                        .foregroundStyle(Color.appAccent)
+                                        .shadow(color: Color.appAccent.opacity(0.5), radius: 8, x: 0, y: 0)
 
                                     VStack(spacing: 1) {
                                         Text("New")
                                             .font(.inter(size: 9))
-                                            .foregroundStyle(Color.setPR)
+                                            .foregroundStyle(Color.appAccent)
                                         Text("Estimated 1RM")
                                             .font(.inter(size: 9))
-                                            .foregroundStyle(Color.setPR)
+                                            .foregroundStyle(Color.appAccent)
                                     }
                                     .fixedSize()
                                 }
@@ -439,7 +442,7 @@ private struct OnboardingProgressConcept: View {
         (0.50, .setModerate),
         (0.55, .setModerate),
         (0.70, .setHard),
-        (1.00, .setPR),
+        (1.00, .appAccent),
     ]
 
     private let maxBarHeight: CGFloat = 160
@@ -451,7 +454,7 @@ private struct OnboardingProgressConcept: View {
         (.setEasy, "Easy", 1),
         (.setModerate, "Moderate", 3),
         (.setHard, "Hard", 5),
-        (.setPR, "Progress", 6),
+        (.appAccent, "Progress", 6),
     ]
 
     var body: some View {
@@ -463,8 +466,7 @@ private struct OnboardingProgressConcept: View {
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
-                (Text("Follow set options that increase your\n")
-                    + Text("estimated one-rep maxes").foregroundColor(.appAccent))
+                Text("Follow set options that incrementally increase your\n\(Text("estimated one-rep maxes").foregroundColor(.appAccent))")
                     .font(.inter(size: 17))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
@@ -488,16 +490,16 @@ private struct OnboardingProgressConcept: View {
                                             .resizable()
                                             .scaledToFit()
                                             .frame(width: 24, height: 24)
-                                            .foregroundStyle(Color.setPR)
-                                            .shadow(color: Color.setPR.opacity(0.5), radius: 8, x: 0, y: 0)
+                                            .foregroundStyle(Color.appAccent)
+                                            .shadow(color: Color.appAccent.opacity(0.5), radius: 8, x: 0, y: 0)
 
                                         VStack(spacing: 1) {
                                             Text("New")
                                                 .font(.inter(size: 9))
-                                                .foregroundStyle(Color.setPR)
+                                                .foregroundStyle(Color.appAccent)
                                             Text("Estimated 1RM")
                                                 .font(.inter(size: 9))
-                                                .foregroundStyle(Color.setPR)
+                                                .foregroundStyle(Color.appAccent)
                                         }
                                         .fixedSize()
                                     }
@@ -643,25 +645,25 @@ private struct OnboardingE1RMConcept_ChartVersion: View {
     private var sampleData: [(value: Double, color: Color)] {
         [
             (155, .setEasy), (158, .setEasy), (162, .setModerate), (165, .setModerate),
-            (167, .setHard), (169, .setNearMax), (170, .setPR),
+            (167, .setHard), (169, .setNearMax), (170, .appAccent),
             (160, .setEasy), (164, .setModerate), (168, .setHard),
-            (171, .setHard), (173, .setNearMax), (175, .setPR),
+            (171, .setHard), (173, .setNearMax), (175, .appAccent),
             (165, .setEasy), (169, .setEasy), (173, .setModerate),
-            (176, .setHard), (179, .setNearMax), (182, .setPR),
+            (176, .setHard), (179, .setNearMax), (182, .appAccent),
             (172, .setEasy), (176, .setModerate), (180, .setModerate),
-            (183, .setHard), (186, .setNearMax), (188, .setPR),
+            (183, .setHard), (186, .setNearMax), (188, .appAccent),
             (178, .setEasy), (182, .setModerate), (186, .setHard),
-            (189, .setHard), (192, .setNearMax), (195, .setPR),
+            (189, .setHard), (192, .setNearMax), (195, .appAccent),
             (184, .setEasy), (188, .setEasy), (192, .setModerate),
-            (196, .setHard), (199, .setNearMax), (202, .setPR),
+            (196, .setHard), (199, .setNearMax), (202, .appAccent),
             (190, .setEasy), (194, .setModerate), (198, .setModerate),
-            (202, .setHard), (205, .setNearMax), (208, .setPR),
+            (202, .setHard), (205, .setNearMax), (208, .appAccent),
             (196, .setEasy), (200, .setEasy), (204, .setModerate),
-            (208, .setHard), (212, .setNearMax), (215, .setPR),
+            (208, .setHard), (212, .setNearMax), (215, .appAccent),
             (202, .setEasy), (206, .setModerate), (210, .setModerate),
-            (214, .setHard), (218, .setNearMax), (222, .setPR),
+            (214, .setHard), (218, .setNearMax), (222, .appAccent),
             (208, .setEasy), (212, .setEasy), (216, .setModerate),
-            (220, .setHard), (225, .setNearMax), (228, .setPR),
+            (220, .setHard), (225, .setNearMax), (228, .appAccent),
             (214, .setEasy),
         ]
     }
@@ -694,7 +696,7 @@ private struct OnboardingE1RMConcept_ChartVersion: View {
                             .frame(width: CGFloat(sampleData.count) * barWidth, height: 140).offset(x: -scrollOffset)
                     }.frame(height: 140).clipped()
                 }
-                HStack(spacing: 10) { LegendDot(color: .setEasy, label: "Easy"); LegendDot(color: .setModerate, label: "Moderate"); LegendDot(color: .setHard, label: "Hard"); LegendDot(color: .setNearMax, label: "Redline"); LegendDot(color: .setPR, label: "PR") }.padding(.top, 16)
+                HStack(spacing: 10) { LegendDot(color: .setEasy, label: "Easy"); LegendDot(color: .setModerate, label: "Moderate"); LegendDot(color: .setHard, label: "Hard"); LegendDot(color: .setNearMax, label: "Redline"); LegendDot(color: .appAccent, label: "PR") }.padding(.top, 16)
             }.padding(20).background(Color(white: 0.12)).clipShape(RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 24)
                 .onAppear { let totalWidth = CGFloat(sampleData.count) * barWidth; withAnimation(.linear(duration: 20).repeatForever(autoreverses: true)) { scrollOffset = totalWidth - 280 } }
         }
@@ -757,7 +759,7 @@ private struct OnboardingEffortTraining: View {
         case "easy": return .setEasy
         case "moderate": return .setModerate
         case "hard": return .setHard
-        case "pr": return .setPR
+        case "pr": return .appAccent
         default: return .setEasy
         }
     }
@@ -869,12 +871,12 @@ private struct OnboardingEffortTraining: View {
                             .resizable()
                             .scaledToFit()
                             .frame(width: 20, height: 20)
-                            .foregroundStyle(Color.setPR)
-                            .shadow(color: Color.setPR.opacity(0.5), radius: 6, x: 0, y: 0)
+                            .foregroundStyle(Color.appAccent)
+                            .shadow(color: Color.appAccent.opacity(0.5), radius: 6, x: 0, y: 0)
 
                         Text("New Estimated 1RM")
                             .font(.inter(size: 9))
-                            .foregroundStyle(Color.setPR)
+                            .foregroundStyle(Color.appAccent)
                     }
                     .opacity(showPRIndicator ? 1 : 0)
                     .animation(.easeOut(duration: 0.4), value: showPRIndicator)
@@ -887,7 +889,7 @@ private struct OnboardingEffortTraining: View {
                     LegendDot(color: .setEasy, label: "Easy")
                     LegendDot(color: .setModerate, label: "Moderate")
                     LegendDot(color: .setHard, label: "Hard")
-                    LegendDot(color: .setPR, label: "PR")
+                    LegendDot(color: .appAccent, label: "PR")
                 }
                 .frame(height: 16)
             }
@@ -1004,14 +1006,14 @@ private struct OnboardingEffortTraining_ScrollVersion: View {
     private var todaySets: [(reps: String, weight: String, color: Color)] {
         [("10", "135", .setEasy), ("8", "155", .setEasy), ("8", "175", .setModerate), ("6", "195", .setModerate),
          ("6", "205", .setHard), ("5", "215", .setHard), ("4", "225", .setNearMax), ("3", "235", .setNearMax),
-         ("2", "245", .setPR), ("6", "205", .setHard), ("8", "185", .setModerate), ("10", "165", .setEasy),
-         ("8", "175", .setModerate), ("6", "195", .setHard), ("5", "210", .setNearMax), ("3", "230", .setPR)]
+         ("2", "245", .appAccent), ("6", "205", .setHard), ("8", "185", .setModerate), ("10", "165", .setEasy),
+         ("8", "175", .setModerate), ("6", "195", .setHard), ("5", "210", .setNearMax), ("3", "230", .appAccent)]
     }
     private var previousSets: [(reps: String, weight: String, color: Color)] {
         [("12", "115", .setEasy), ("10", "135", .setEasy), ("8", "155", .setModerate), ("8", "165", .setModerate),
          ("6", "185", .setHard), ("6", "195", .setHard), ("5", "205", .setNearMax), ("4", "215", .setNearMax),
-         ("3", "225", .setPR), ("6", "195", .setHard), ("8", "175", .setModerate), ("10", "155", .setEasy),
-         ("8", "165", .setModerate), ("6", "185", .setHard), ("4", "210", .setNearMax), ("2", "225", .setPR)]
+         ("3", "225", .appAccent), ("6", "195", .setHard), ("8", "175", .setModerate), ("10", "155", .setEasy),
+         ("8", "165", .setModerate), ("6", "185", .setHard), ("4", "210", .setNearMax), ("2", "225", .appAccent)]
     }
     var body: some View {
         VStack(spacing: 0) {
@@ -1035,7 +1037,7 @@ private struct OnboardingEffortTraining_ScrollVersion: View {
                     Text("Previous Day").font(.interSemiBold(size: 12)).foregroundStyle(.white.opacity(0.7))
                     GeometryReader { _ in HStack(spacing: 6) { ForEach(0..<previousSets.count, id: \.self) { index in let set = previousSets[index]; SetSquareOnboarding(reps: set.reps, weight: set.weight, color: set.color) } }.offset(x: -scrollOffset) }.frame(height: 42).clipped()
                 }
-                HStack(spacing: 10) { LegendDot(color: .setEasy, label: "Easy"); LegendDot(color: .setModerate, label: "Moderate"); LegendDot(color: .setHard, label: "Hard"); LegendDot(color: .setNearMax, label: "Redline"); LegendDot(color: .setPR, label: "PR") }.padding(.top, 12)
+                HStack(spacing: 10) { LegendDot(color: .setEasy, label: "Easy"); LegendDot(color: .setModerate, label: "Moderate"); LegendDot(color: .setHard, label: "Hard"); LegendDot(color: .setNearMax, label: "Redline"); LegendDot(color: .appAccent, label: "PR") }.padding(.top, 12)
             }.padding(20).background(Color(white: 0.12)).clipShape(RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 24)
                 .onAppear { withAnimation(.linear(duration: 40).repeatForever(autoreverses: true)) { scrollOffset = 450 } }
         }
@@ -1193,9 +1195,7 @@ private struct OnboardingMilestonesConcept: View {
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
-                (Text("Earn ").foregroundColor(.white.opacity(0.7))
-                    + Text("Milestones").foregroundColor(.appAccent)
-                    + Text(" as you get stronger.").foregroundColor(.white.opacity(0.7)))
+                Text("\(Text("Earn ").foregroundColor(.white.opacity(0.7)))\(Text("Milestones").foregroundColor(.appAccent))\(Text(" as you get stronger.").foregroundColor(.white.opacity(0.7)))")
                     .font(.inter(size: 17))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
@@ -1326,8 +1326,8 @@ private struct OnboardingMilestonesConcept: View {
             }
             .frame(width: badgeSize, height: badgeSize)
 
-            // Tier label
-            Text(shortTierName(tiers[tierIndex]))
+            // Exercise name
+            Text(shortExerciseName(exercises[i].name))
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(displayColor)
                 .lineLimit(1)
@@ -1335,10 +1335,12 @@ private struct OnboardingMilestonesConcept: View {
         }
     }
 
-    private func shortTierName(_ tier: StrengthTier) -> String {
-        switch tier {
-        case .intermediate: return "Inter."
-        default: return tier.title
+    private func shortExerciseName(_ name: String) -> String {
+        switch name {
+        case "Overhead Press": return "OHP"
+        case "Bench Press": return "Bench"
+        case "Barbell Row": return "Row"
+        default: return name
         }
     }
 
@@ -1416,7 +1418,149 @@ private struct OnboardingMilestonesConcept: View {
 }
 
 
-// MARK: - Screen 5: Change Plates
+// MARK: - Screen 5: Beyond the Basics
+
+private struct OnboardingBeyondBasicsConcept: View {
+    var onAnimationComplete: (() -> Void)?
+
+    private let groups: [(fundamental: (icon: String, name: String), accessories: [(icon: String, name: String)])] = [
+        (("DeadliftIcon", "Deadlifts"), [("FrontSquatsIcon", "Front Squats"), ("BackExtensionsIcon", "Back Ext."), ("HangingLegRaisesIcon", "Leg Raises")]),
+        (("SquatIcon", "Squats"), [("BulgarianSplitSquatsIcon", "Split Squats"), ("DeadliftIcon", "RDLs"), ("StandingCalfRaisesIcon", "Calf Raises")]),
+        (("BenchPressIcon", "Bench"), [("DipsIcon", "Dips"), ("FlyesIcon", "Flys"), ("LateralRaisesIcon", "Lat. Raises")]),
+        (("BarbellRowIcon", "Row"), [("PullUpIcon", "Pull Ups"), ("CurlsIcon", "Curls"), ("PulloversIcon", "Pullovers")]),
+        (("OverheadPressIcon", "OHP"), [("CloseGripBenchPressIcon", "CG Bench"), ("RearDeltFlysIcon", "Rear Delts"), ("CableYRaisesIcon", "Y Raises")]),
+    ]
+
+    @State private var expandedCount: Int = 0
+    @State private var showFooter: Bool = false
+    @State private var animationComplete: Bool = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Title
+            VStack(spacing: 12) {
+                Text("Beyond the Basics")
+                    .font(.bebasNeue(size: 34))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+
+                Text("\(Text("Round out your training with ").foregroundColor(.white.opacity(0.7)))\(Text("accessories").fontWeight(.semibold).foregroundColor(.appAccent))\(Text(" that support the five fundamentals.").foregroundColor(.white.opacity(0.7)))")
+                    .font(.inter(size: 17))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+            }
+
+            Spacer()
+                .frame(height: 32)
+
+            // Card
+            VStack(spacing: 0) {
+                ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
+                    HStack(spacing: 12) {
+                        // Fundamental icon + name
+                        Image(group.fundamental.icon)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 32, height: 32)
+                            .foregroundStyle(Color.appAccent)
+
+                        Text(group.fundamental.name)
+                            .font(.inter(size: 13))
+                            .foregroundStyle(.white)
+                            .frame(width: 64, alignment: .leading)
+
+                        // Accessory icons
+                        HStack(spacing: 8) {
+                            ForEach(Array(group.accessories.enumerated()), id: \.offset) { accIndex, accessory in
+                                VStack(spacing: 4) {
+                                    Image(accessory.icon)
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 24, height: 24)
+                                        .foregroundStyle(.white.opacity(0.5))
+
+                                    Text(accessory.name)
+                                        .font(.inter(size: 9))
+                                        .foregroundStyle(.white.opacity(0.4))
+                                        .lineLimit(1)
+                                        .frame(height: 12)
+                                }
+                                .frame(width: 52)
+                                .opacity(expandedCount > index ? 1 : 0)
+                                .scaleEffect(expandedCount > index ? 1 : 0.6)
+                                .animation(.easeOut(duration: 0.3), value: expandedCount)
+                            }
+                        }
+
+                        Spacer()
+                    }
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 16)
+                }
+
+                // Footer
+                Text("100+ exercises included")
+                    .font(.inter(size: 12))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .padding(.vertical, 12)
+                    .opacity(showFooter ? 1 : 0)
+                    .animation(.easeOut(duration: 0.4), value: showFooter)
+            }
+            .background(Color(white: 0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, 24)
+            .overlay(alignment: .bottomTrailing) {
+                if animationComplete {
+                    Button {
+                        replayAnimation()
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.3))
+                            .padding(8)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 28)
+                    .padding(.bottom, 4)
+                    .transition(.opacity)
+                }
+            }
+        }
+        .onAppear {
+            runAnimation()
+        }
+    }
+
+    private func runAnimation() {
+        Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            for i in 0..<5 {
+                withAnimation(.easeOut(duration: 0.3)) {
+                    expandedCount = i + 1
+                }
+                try? await Task.sleep(for: .milliseconds(300))
+            }
+            withAnimation(.easeOut(duration: 0.4)) {
+                showFooter = true
+            }
+            withAnimation(.easeOut(duration: 0.3)) {
+                animationComplete = true
+            }
+            onAnimationComplete?()
+        }
+    }
+
+    private func replayAnimation() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            expandedCount = 0
+            showFooter = false
+            animationComplete = false
+        }
+        runAnimation()
+    }
+}
+
+// MARK: - Screen 6: Change Plates
 
 private struct OnboardingChangePlatesStep: View {
     @Binding var currentPage: Int
@@ -1549,7 +1693,7 @@ private struct OnboardingChangePlatesStep: View {
     }
 }
 
-// MARK: - Screen 6: Body Profile
+// MARK: - Screen 7: Body Profile
 
 private struct OnboardingBodyProfileStep: View {
     @Binding var currentPage: Int
@@ -1578,7 +1722,7 @@ private struct OnboardingBodyProfileStep: View {
         VStack(spacing: 0) {
             // Title
             VStack(spacing: 12) {
-                Text("Set Your Baseline")
+                Text("Set Your Profile")
                     .font(.bebasNeue(size: 34))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)

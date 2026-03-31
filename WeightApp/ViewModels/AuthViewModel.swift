@@ -9,6 +9,7 @@ import Foundation
 import Combine
 import SwiftData
 import AuthenticationServices
+import Sentry
 enum AuthResult {
     case success
     case userAlreadyExists
@@ -81,6 +82,8 @@ class AuthViewModel: ObservableObject {
     }
 
     func handleSessionExpired() {
+        SentrySDK.setUser(nil)
+
         // Clear all tokens
         KeychainService.shared.clearTokens()
 
@@ -110,6 +113,10 @@ class AuthViewModel: ObservableObject {
             isAuthenticated = true
             userId = response.userId
 
+            let sentryUser = Sentry.User(userId: response.userId)
+            sentryUser.email = email
+            SentrySDK.setUser(sentryUser)
+
             // Perform initial sync for returning user (includes user properties sync)
             await SyncService.shared.performInitialSync(isNewUser: false)
             await EntitlementsService.shared.syncEntitlementStatus()
@@ -134,6 +141,10 @@ class AuthViewModel: ObservableObject {
             showPostAuthFlow = true
             isAuthenticated = true
             userId = response.userId
+
+            let sentryUser = Sentry.User(userId: response.userId)
+            sentryUser.email = email
+            SentrySDK.setUser(sentryUser)
 
             // Perform initial sync for new user (includes user properties sync)
             await SyncService.shared.performInitialSync(isNewUser: true)
@@ -217,6 +228,9 @@ class AuthViewModel: ObservableObject {
         isAuthenticated = true
         userId = response.userId
 
+        let sentryUser = Sentry.User(userId: response.userId)
+        SentrySDK.setUser(sentryUser)
+
         await SyncService.shared.performInitialSync(isNewUser: isNewUser)
         await EntitlementsService.shared.syncEntitlementStatus()
         isLoading = false
@@ -237,6 +251,7 @@ class AuthViewModel: ObservableObject {
         SyncService.shared.clearOnLogout()
         NarrativeBadgeService.shared.clearOnLogout()
         KeychainService.shared.clearTokens()
+        SentrySDK.setUser(nil)
         isOnboardingPending = false
         isAuthenticated = false
         userId = nil

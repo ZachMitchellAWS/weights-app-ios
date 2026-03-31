@@ -13,6 +13,8 @@ struct SetIntensityWidget: View {
     let allSets: [LiftSet]
     let allEstimated1RM: [Estimated1RM]
     var weightUnit: WeightUnit = .lbs
+    let isPremium: Bool
+    @Binding var showUpsell: Bool
 
     @Query(filter: #Predicate<Exercise> { !$0.deleted }, sort: \Exercise.createdAt) private var exercises: [Exercise]
 
@@ -43,43 +45,51 @@ struct SetIntensityWidget: View {
     }
 
     var body: some View {
+        if isPremium {
+            premiumContent
+        } else {
+            lockedContent
+        }
+    }
+
+    // MARK: - Premium Content
+
+    private var premiumContent: some View {
         WidgetCard(title: "Set Intensity") {
             if exerciseNames.isEmpty {
                 EmptyWidgetState(icon: "chart.bar.fill", message: "Log sets to see intensity data")
             } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        exercisePicker
-
-                        Spacer()
-
-                        if !setsWithPRInfo.isEmpty {
-                            Button {
-                                showPROnly.toggle()
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: showPROnly ? "checkmark.square.fill" : "square")
-                                        .font(.caption2)
-                                        .foregroundStyle(Color.appAccent)
-                                    Text("Show PRs Only")
-                                        .font(.caption2)
-                                        .foregroundStyle(.white.opacity(0.6))
-                                }
+                if setsWithPRInfo.isEmpty {
+                    Text("No data for this exercise")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.5))
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 20)
+                } else {
+                    chartContent
+                    legend
+                }
+            }
+        } trailing: {
+            if !exerciseNames.isEmpty {
+                HStack(spacing: 8) {
+                    if !setsWithPRInfo.isEmpty {
+                        Button {
+                            showPROnly.toggle()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: showPROnly ? "checkmark.square.fill" : "square")
+                                    .font(.caption2)
+                                    .foregroundStyle(Color.appAccent)
+                                Text("PRs Only")
+                                    .font(.caption2)
+                                    .foregroundStyle(.white.opacity(0.6))
                             }
-                            .buttonStyle(.plain)
                         }
+                        .buttonStyle(.plain)
                     }
 
-                    if setsWithPRInfo.isEmpty {
-                        Text("No data for this exercise")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.5))
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.vertical, 20)
-                    } else {
-                        chartContent
-                        legend
-                    }
+                    exercisePicker
                 }
             }
         }
@@ -89,6 +99,85 @@ struct SetIntensityWidget: View {
             }
         }
     }
+
+    // MARK: - Locked Content
+
+    private var lockedContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Fake exercise picker
+            HStack {
+                Text("Bench Press")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Color.appAccent)
+                Image(systemName: "chevron.down")
+                    .font(.caption)
+                    .foregroundStyle(Color.appAccent)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color(white: 0.2))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            // Fake colorful bar chart
+            fakeIntensityChart
+
+            legend
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(white: 0.14))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .premiumLocked(
+            title: "Unlock Set Intensity",
+            subtitle: "See the intensity breakdown of every set",
+            showUpsell: $showUpsell
+        )
+    }
+
+    // MARK: - Fake Intensity Chart
+
+    private struct FakeBar: Identifiable {
+        let id: Int
+        let height: CGFloat
+        let color: Color
+    }
+
+    private static let fakeBars: [FakeBar] = [
+        FakeBar(id: 0, height: 0.45, color: .setEasy),
+        FakeBar(id: 1, height: 0.52, color: .setEasy),
+        FakeBar(id: 2, height: 0.60, color: .setModerate),
+        FakeBar(id: 3, height: 0.55, color: .setEasy),
+        FakeBar(id: 4, height: 0.68, color: .setModerate),
+        FakeBar(id: 5, height: 0.75, color: .setHard),
+        FakeBar(id: 6, height: 0.62, color: .setModerate),
+        FakeBar(id: 7, height: 0.80, color: .setHard),
+        FakeBar(id: 8, height: 0.70, color: .setModerate),
+        FakeBar(id: 9, height: 0.85, color: .setHard),
+        FakeBar(id: 10, height: 0.90, color: .setNearMax),
+        FakeBar(id: 11, height: 0.78, color: .setHard),
+        FakeBar(id: 12, height: 0.65, color: .setModerate),
+        FakeBar(id: 13, height: 0.92, color: .setNearMax),
+        FakeBar(id: 14, height: 1.0, color: .setPR),
+        FakeBar(id: 15, height: 0.72, color: .setModerate),
+        FakeBar(id: 16, height: 0.88, color: .setNearMax),
+        FakeBar(id: 17, height: 0.58, color: .setEasy),
+        FakeBar(id: 18, height: 0.82, color: .setHard),
+        FakeBar(id: 19, height: 0.95, color: .setNearMax),
+        FakeBar(id: 20, height: 1.0, color: .setPR),
+    ]
+
+    private var fakeIntensityChart: some View {
+        HStack(alignment: .bottom, spacing: 2) {
+            ForEach(Self.fakeBars) { bar in
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(bar.color)
+                    .frame(height: 120 * bar.height)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: 120)
+    }
+
+    // MARK: - Exercise Picker
 
     private var exercisePicker: some View {
         Menu {
@@ -203,7 +292,7 @@ struct SetIntensityWidget: View {
             LegendItem(color: .setModerate, label: "Moderate")
             LegendItem(color: .setHard, label: "Hard")
             LegendItem(color: .setNearMax, label: "Redline")
-            LegendItem(color: .setPR, label: "e1RM ↑")
+            LegendItem(color: .setPR, label: "Progress")
         }
     }
 }

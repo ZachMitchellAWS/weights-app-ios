@@ -17,6 +17,7 @@ struct TrendsView: View {
     @State private var trendsTab: TrendsTab = .strength
     @State private var showHistory = false
     @State private var isDeleteModeActive = false
+    @State private var audioPlayer = AudioPlayerManager()
 
     var body: some View {
         NavigationStack {
@@ -93,7 +94,7 @@ struct TrendsView: View {
                         // Each tab view manages its own ScrollView
                         ZStack {
                             if trendsTab == .strength {
-                                BalanceView(selectedSetData: selectedSetData)
+                                BalanceView(trendsTab: $trendsTab, audioPlayer: audioPlayer, selectedSetData: selectedSetData)
                             }
 
                             if trendsTab == .analytics {
@@ -101,7 +102,7 @@ struct TrendsView: View {
                             }
 
                             if trendsTab == .narratives {
-                                InsightsView()
+                                InsightsView(audioPlayer: audioPlayer)
                             }
                         }
                         .transition(.move(edge: .leading))

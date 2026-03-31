@@ -8,6 +8,7 @@
 import Foundation
 import StoreKit
 import Combine
+import Sentry
 
 /// StoreKit 2 purchase service
 /// All product IDs, prices, and configuration come from SubscriptionConfig
@@ -38,6 +39,7 @@ class PurchaseService: ObservableObject {
             }
         } catch {
             print("[PurchaseService] Failed to load products: \(error)")
+            SentrySDK.capture(error: error)
         }
     }
 
@@ -103,6 +105,7 @@ class PurchaseService: ObservableObject {
             try await AppStore.sync()
         } catch {
             print("Failed to restore purchases: \(error)")
+            SentrySDK.capture(error: error)
         }
     }
 
@@ -138,11 +141,13 @@ class PurchaseService: ObservableObject {
                         await EntitlementsService.shared.syncEntitlementStatus()
                     } catch {
                         print("Failed to sync transaction with backend: \(error)")
+                        SentrySDK.capture(error: error)
                     }
 
                     await transaction.finish()
                 } catch {
                     print("Transaction verification failed: \(error)")
+                    SentrySDK.capture(error: error)
                 }
             }
         }

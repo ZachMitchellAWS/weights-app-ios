@@ -11,6 +11,14 @@ import Charts
 struct OneRMProgressionChart: View {
     let dataPoints: [TrendsCalculator.OneRMDataPoint]
 
+    private var xDomain: ClosedRange<Date> {
+        guard let first = dataPoints.first?.date,
+              let last = dataPoints.last?.date else { return Date()...Date() }
+        let span = last.timeIntervalSince(first)
+        let padding = Swift.max(span * 0.05, 86400)
+        return first.addingTimeInterval(-padding)...last.addingTimeInterval(padding)
+    }
+
     private var yDomain: ClosedRange<Double> {
         let values = dataPoints.map(\.value)
         guard let lo = values.min(), let hi = values.max() else { return 0...100 }
@@ -31,7 +39,8 @@ struct OneRMProgressionChart: View {
                 ForEach(dataPoints) { point in
                     AreaMark(
                         x: .value("Date", point.date),
-                        y: .value("1RM", point.value)
+                        yStart: .value("Baseline", yDomain.lowerBound),
+                        yEnd: .value("1RM", point.value)
                     )
                     .foregroundStyle(
                         LinearGradient(
@@ -61,6 +70,10 @@ struct OneRMProgressionChart: View {
                 }
             }
             .chartYScale(domain: yDomain)
+            .chartXScale(domain: xDomain)
+            .chartPlotStyle { plotArea in
+                plotArea.clipShape(Rectangle())
+            }
             .chartXAxis {
                 AxisMarks(values: .automatic(desiredCount: 3)) { _ in
                     AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
@@ -80,7 +93,6 @@ struct OneRMProgressionChart: View {
                 }
             }
             .frame(height: 180)
-            .clipShape(Rectangle())
         }
     }
 }
@@ -101,11 +113,11 @@ struct OneRMProgressionWidget: View {
             if allExerciseNames.isEmpty {
                 EmptyWidgetState(icon: "chart.line.uptrend.xyaxis", message: "Log sets to track your progress")
             } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    exercisePicker
-
-                    OneRMProgressionChart(dataPoints: dataPoints)
-                }
+                OneRMProgressionChart(dataPoints: dataPoints)
+            }
+        } trailing: {
+            if !allExerciseNames.isEmpty {
+                exercisePicker
             }
         }
         .onAppear {

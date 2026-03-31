@@ -133,8 +133,6 @@ struct APIValidationView: View {
 
     private func buildSteps() {
         let api = APIService.shared
-        var capturedUserProps: UserPropertiesResponse?
-        var capturedExerciseCount: Int = 0
 
         let exerciseId = testExerciseId
         let liftSetId = testLiftSetId
@@ -145,7 +143,7 @@ struct APIValidationView: View {
             TestStep(id: 1, name: "GET User Properties") {
                 let response = try await api.getUserProperties()
                 guard !response.userId.isEmpty else { throw ValidationError("userId is empty") }
-                capturedUserProps = response
+                _ = response
             },
             // 2
             TestStep(id: 2, name: "POST User Properties (set bodyweight)") {
@@ -199,7 +197,7 @@ struct APIValidationView: View {
             // 11
             TestStep(id: 11, name: "GET Exercise (initial)") {
                 let response = try await api.getExercises()
-                capturedExerciseCount = response.exercises.count
+                _ = response.exercises.count
             },
             // 12
             TestStep(id: 12, name: "POST Exercise (create test)") {

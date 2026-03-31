@@ -36,17 +36,7 @@ struct TrainingReportCardView: View {
         }
         .padding(.horizontal, 20)
         .frame(width: 360, height: 780)
-        .background(
-            ZStack {
-                Color.black
-                RadialGradient(
-                    colors: [data.overallTier.color.opacity(0.10), .clear],
-                    center: .top,
-                    startRadius: 40,
-                    endRadius: 350
-                )
-            }
-        )
+        .background(Color.black)
     }
 
     // MARK: - Header
