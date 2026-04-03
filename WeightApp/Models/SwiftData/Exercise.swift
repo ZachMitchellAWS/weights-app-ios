@@ -111,7 +111,7 @@ final class Exercise {
     }
 
     var defaultWeightIncrement: Double {
-        exerciseLoadType.isBarbell ? 5.0 : 2.5
+        2.5
     }
 
     func bodyweightStage(sets: [LiftSet], allEffortTiersReady: Bool) -> BodyweightProgressionStage {
@@ -178,6 +178,100 @@ final class Exercise {
     static let backExtensionsId                         = UUID(uuidString: "00000000-0000-0000-0001-000000000045")!
     static let hangingLegRaisesId                       = UUID(uuidString: "00000000-0000-0000-0001-000000000046")!
 
+    // Batch 1 — Shoulders / Raises
+    static let backPressesId                            = UUID(uuidString: "00000000-0000-0000-0001-000000000047")!
+    static let seatedFrontPressesId                     = UUID(uuidString: "00000000-0000-0000-0001-000000000048")!
+    static let seatedDumbbellPressesId                  = UUID(uuidString: "00000000-0000-0000-0001-000000000049")!
+    static let arnoldPressesId                          = UUID(uuidString: "00000000-0000-0000-0001-000000000050")!
+    static let bentOverLateralRaisesId                  = UUID(uuidString: "00000000-0000-0000-0001-000000000051")!
+    static let alternatingFrontRaisesId                 = UUID(uuidString: "00000000-0000-0000-0001-000000000052")!
+    static let barbellFrontRaisesId                     = UUID(uuidString: "00000000-0000-0000-0001-000000000053")!
+    static let uprightRowsId                            = UUID(uuidString: "00000000-0000-0000-0001-000000000054")!
+    static let machineLateralRaisesId                   = UUID(uuidString: "00000000-0000-0000-0001-000000000055")!
+    static let pecDeckRearDeltLateralsId                = UUID(uuidString: "00000000-0000-0000-0001-000000000056")!
+    static let pulleyExternalArmRotationsId             = UUID(uuidString: "00000000-0000-0000-0001-000000000057")!
+    static let lowPulleyBentOverLateralRaisesId         = UUID(uuidString: "00000000-0000-0000-0001-000000000058")!
+    static let lowPulleyLateralRaisesId                 = UUID(uuidString: "00000000-0000-0000-0001-000000000059")!
+    static let oneDumbbellFrontRaisesId                 = UUID(uuidString: "00000000-0000-0000-0001-000000000060")!
+
+    // Batch 2 — Chest / Back / Traps / Deadlift Variants
+    static let inclineBenchPressId                      = UUID(uuidString: "00000000-0000-0000-0001-000000000061")!
+    static let declineBenchPressId                      = UUID(uuidString: "00000000-0000-0000-0001-000000000062")!
+    static let machineBenchPressId                      = UUID(uuidString: "00000000-0000-0000-0001-000000000063")!
+    static let pushUpsId                                = UUID(uuidString: "00000000-0000-0000-0001-000000000064")!
+    static let dumbbellBenchPressId                     = UUID(uuidString: "00000000-0000-0000-0001-000000000065")!
+    static let inclineDumbbellPressesId                 = UUID(uuidString: "00000000-0000-0000-0001-000000000066")!
+    static let inclineDumbbellFlysId                    = UUID(uuidString: "00000000-0000-0000-0001-000000000067")!
+    static let pecDeckFlysId                            = UUID(uuidString: "00000000-0000-0000-0001-000000000068")!
+    static let cableFlysId                              = UUID(uuidString: "00000000-0000-0000-0001-000000000069")!
+    static let barbellPulloversId                       = UUID(uuidString: "00000000-0000-0000-0001-000000000070")!
+    static let chinUpsId                                = UUID(uuidString: "00000000-0000-0000-0001-000000000071")!
+    static let latPullDownsId                           = UUID(uuidString: "00000000-0000-0000-0001-000000000072")!
+    static let closeGripLatPullDownsId                  = UUID(uuidString: "00000000-0000-0000-0001-000000000073")!
+    static let straightArmPullDownsId                   = UUID(uuidString: "00000000-0000-0000-0001-000000000074")!
+    static let closeGripSeatedRowsId                    = UUID(uuidString: "00000000-0000-0000-0001-000000000075")!
+    static let wideGripSeatedRowsId                     = UUID(uuidString: "00000000-0000-0000-0001-000000000076")!
+    static let singleArmDumbbellRowsId                  = UUID(uuidString: "00000000-0000-0000-0001-000000000077")!
+    static let bentOverDumbbellRowsId                   = UUID(uuidString: "00000000-0000-0000-0001-000000000078")!
+    static let closeGripUprightRowsId                   = UUID(uuidString: "00000000-0000-0000-0001-000000000079")!
+    static let tBarRowsId                               = UUID(uuidString: "00000000-0000-0000-0001-000000000080")!
+    static let supportedTBarRowsId                      = UUID(uuidString: "00000000-0000-0000-0001-000000000081")!
+    static let sumoDeadliftsId                          = UUID(uuidString: "00000000-0000-0000-0001-000000000082")!
+    static let trapBarDeadliftsId                       = UUID(uuidString: "00000000-0000-0000-0001-000000000083")!
+    static let machineBackExtensionsId                  = UUID(uuidString: "00000000-0000-0000-0001-000000000084")!
+    static let dumbbellShrugsId                         = UUID(uuidString: "00000000-0000-0000-0001-000000000085")!
+    static let trapBarShrugsId                          = UUID(uuidString: "00000000-0000-0000-0001-000000000086")!
+    static let machineShrugsId                          = UUID(uuidString: "00000000-0000-0000-0001-000000000087")!
+    static let highPulleyNeckPullsId                    = UUID(uuidString: "00000000-0000-0000-0001-000000000088")!
+    static let highPulleyNeckExtensionsId               = UUID(uuidString: "00000000-0000-0000-0001-000000000089")!
+
+    // Batch 3 — Legs / Glutes / Calves / Core
+    static let dumbbellSquatsId                         = UUID(uuidString: "00000000-0000-0000-0001-000000000090")!
+    static let powerSquatsId                            = UUID(uuidString: "00000000-0000-0000-0001-000000000091")!
+    static let hackSquatsId                             = UUID(uuidString: "00000000-0000-0000-0001-000000000092")!
+    static let legPressId                               = UUID(uuidString: "00000000-0000-0000-0001-000000000093")!
+    static let boxSquatsId                              = UUID(uuidString: "00000000-0000-0000-0001-000000000094")!
+    static let legExtensionsId                          = UUID(uuidString: "00000000-0000-0000-0001-000000000095")!
+    static let lyingLegCurlsId                          = UUID(uuidString: "00000000-0000-0000-0001-000000000096")!
+    static let seatedLegCurlsId                         = UUID(uuidString: "00000000-0000-0000-0001-000000000097")!
+    static let goodMorningsId                           = UUID(uuidString: "00000000-0000-0000-0001-000000000098")!
+    static let cableHipAdductionsId                     = UUID(uuidString: "00000000-0000-0000-0001-000000000099")!
+    static let seatedMachineHipAdductionsId             = UUID(uuidString: "00000000-0000-0000-0001-000000000100")!
+    static let standingMachineCalfRaisesId              = UUID(uuidString: "00000000-0000-0000-0001-000000000101")!
+    static let donkeyCalfRaisesId                       = UUID(uuidString: "00000000-0000-0000-0001-000000000102")!
+    static let seatedMachineCalfRaisesId                = UUID(uuidString: "00000000-0000-0000-0001-000000000103")!
+    static let barbellLungesId                          = UUID(uuidString: "00000000-0000-0000-0001-000000000104")!
+    static let dumbbellLungesId                         = UUID(uuidString: "00000000-0000-0000-0001-000000000105")!
+    static let cableKickbacksId                         = UUID(uuidString: "00000000-0000-0000-0001-000000000106")!
+    static let machineHipExtensionsId                   = UUID(uuidString: "00000000-0000-0000-0001-000000000107")!
+    static let gluteBridgesId                           = UUID(uuidString: "00000000-0000-0000-0001-000000000108")!
+    static let cableHipAbductionsId                     = UUID(uuidString: "00000000-0000-0000-0001-000000000109")!
+    static let standingMachineHipAbductionsId           = UUID(uuidString: "00000000-0000-0000-0001-000000000110")!
+    static let seatedMachineHipAbductionsId             = UUID(uuidString: "00000000-0000-0000-0001-000000000111")!
+    static let crunchesId                               = UUID(uuidString: "00000000-0000-0000-0001-000000000112")!
+    static let sitUpsId                                 = UUID(uuidString: "00000000-0000-0000-0001-000000000113")!
+    static let cableCrunchesId                          = UUID(uuidString: "00000000-0000-0000-0001-000000000114")!
+    static let machineCrunchesId                        = UUID(uuidString: "00000000-0000-0000-0001-000000000115")!
+    static let legRaisesId                              = UUID(uuidString: "00000000-0000-0000-0001-000000000116")!
+    static let dumbbellSideBendsId                      = UUID(uuidString: "00000000-0000-0000-0001-000000000117")!
+    static let machineTorsoRotationsId                  = UUID(uuidString: "00000000-0000-0000-0001-000000000118")!
+
+    // Batch 4 — Miscellaneous / Gaps
+    static let facePullsId                              = UUID(uuidString: "00000000-0000-0000-0001-000000000119")!
+    static let pendlayRowsId                            = UUID(uuidString: "00000000-0000-0000-0001-000000000120")!
+    static let ezBarCurlsId                             = UUID(uuidString: "00000000-0000-0000-0001-000000000121")!
+    static let spiderCurlsId                            = UUID(uuidString: "00000000-0000-0000-0001-000000000122")!
+    static let hipThrustsId                             = UUID(uuidString: "00000000-0000-0000-0001-000000000123")!
+    static let gobletSquatsId                           = UUID(uuidString: "00000000-0000-0000-0001-000000000124")!
+    static let stepUpsId                                = UUID(uuidString: "00000000-0000-0000-0001-000000000125")!
+    static let abWheelRolloutsId                        = UUID(uuidString: "00000000-0000-0000-0001-000000000126")!
+    static let pallofPressId                            = UUID(uuidString: "00000000-0000-0000-0001-000000000127")!
+    static let cableWoodchopsId                         = UUID(uuidString: "00000000-0000-0000-0001-000000000128")!
+    static let powerCleansId                            = UUID(uuidString: "00000000-0000-0000-0001-000000000129")!
+    static let farmersCarriesId                         = UUID(uuidString: "00000000-0000-0000-0001-000000000130")!
+    static let cableLateralRaisesId                     = UUID(uuidString: "00000000-0000-0000-0001-000000000131")!
+    static let landminePressId                          = UUID(uuidString: "00000000-0000-0000-0001-000000000132")!
+
     static let builtInIds: Set<UUID> = [
         deadliftsId, squatsId, benchPressId, overheadPressId, barbellRowId,
         pullUpsId, dipsId, barbellCurlsId, romanianDeadliftsId,
@@ -191,7 +285,35 @@ final class Exercise {
         lateralRaisesId, flyesId, sideRaisesId,
         bulgarianSplitSquatsId, barbellShrugsId, highPulleyLateralExtensionsId, pulloversId,
         standingCalfRaisesId, cableRowsId, closeGripBenchPressId, rearDeltFlysId,
-        cableYRaisesId, frontSquatsId, backExtensionsId, hangingLegRaisesId
+        cableYRaisesId, frontSquatsId, backExtensionsId, hangingLegRaisesId,
+        // Batch 1
+        backPressesId, seatedFrontPressesId, seatedDumbbellPressesId, arnoldPressesId,
+        bentOverLateralRaisesId, alternatingFrontRaisesId, barbellFrontRaisesId, uprightRowsId,
+        machineLateralRaisesId, pecDeckRearDeltLateralsId, pulleyExternalArmRotationsId,
+        lowPulleyBentOverLateralRaisesId, lowPulleyLateralRaisesId, oneDumbbellFrontRaisesId,
+        // Batch 2
+        inclineBenchPressId, declineBenchPressId, machineBenchPressId, pushUpsId,
+        dumbbellBenchPressId, inclineDumbbellPressesId, inclineDumbbellFlysId,
+        pecDeckFlysId, cableFlysId, barbellPulloversId, chinUpsId,
+        latPullDownsId, closeGripLatPullDownsId, straightArmPullDownsId,
+        closeGripSeatedRowsId, wideGripSeatedRowsId, singleArmDumbbellRowsId,
+        bentOverDumbbellRowsId, closeGripUprightRowsId, tBarRowsId, supportedTBarRowsId,
+        sumoDeadliftsId, trapBarDeadliftsId, machineBackExtensionsId,
+        dumbbellShrugsId, trapBarShrugsId, machineShrugsId,
+        highPulleyNeckPullsId, highPulleyNeckExtensionsId,
+        // Batch 3
+        dumbbellSquatsId, powerSquatsId, hackSquatsId, legPressId, boxSquatsId,
+        legExtensionsId, lyingLegCurlsId, seatedLegCurlsId, goodMorningsId,
+        cableHipAdductionsId, seatedMachineHipAdductionsId,
+        standingMachineCalfRaisesId, donkeyCalfRaisesId, seatedMachineCalfRaisesId,
+        barbellLungesId, dumbbellLungesId, cableKickbacksId, machineHipExtensionsId,
+        gluteBridgesId, cableHipAbductionsId, standingMachineHipAbductionsId,
+        seatedMachineHipAbductionsId, crunchesId, sitUpsId, cableCrunchesId,
+        machineCrunchesId, legRaisesId, dumbbellSideBendsId, machineTorsoRotationsId,
+        // Batch 4
+        facePullsId, pendlayRowsId, ezBarCurlsId, spiderCurlsId, hipThrustsId,
+        gobletSquatsId, stepUpsId, abWheelRolloutsId, pallofPressId, cableWoodchopsId,
+        powerCleansId, farmersCarriesId, cableLateralRaisesId, landminePressId
     ]
 
     // MARK: - Built-in Definitions
@@ -201,11 +323,11 @@ final class Exercise {
         (squatsId,                                 "Squats",                                         .barbell,    .squat, "SquatIcon"),
         (benchPressId,                             "Bench Press",                                    .barbell,    .push,  "BenchPressIcon"),
         (overheadPressId,                          "Overhead Press",                                 .barbell,    .push,  "OverheadPressIcon"),
-        (barbellRowId,                             "Barbell Row",                                    .barbell,    .pull,  "BarbellRowIcon"),
+        (barbellRowId,                             "Barbell Rows",                                    .barbell,    .pull,  "BarbellRowIcon"),
         (pullUpsId,                                "Pull Ups",                                       .bodyweightPlusSingleLoad, .pull,  "PullUpIcon"),
         (dipsId,                                   "Weighted Dips",                                  .bodyweightPlusSingleLoad, .push,  "DipsIcon"),
         (barbellCurlsId,                           "Barbell Curls",                                  .barbell,    .pull,  "CurlsIcon"),
-        (romanianDeadliftsId,                      "Romanian Deadlifts",                             .barbell,    .hinge, "DeadliftIcon"),
+        (romanianDeadliftsId,                      "Romanian Deadlifts",                             .barbell,    .hinge, "RomanianDeadliftsIcon"),
         (dumbbellCurlsId,                          "Dumbbell Curls",                                 .singleLoad, .pull,  "DumbbellCurlsIcon"),
         (concentrationCurlsId,                     "Concentration Curls",                            .singleLoad, .pull,  "ConcentrationCurlsIcon"),
         (inclineDumbbellCurlsId,                   "Incline Dumbbell Curls",                         .singleLoad, .pull,  "InclineDumbbellCurlsIcon"),
@@ -229,12 +351,12 @@ final class Exercise {
         (seatedDumbbellTricepExtensionsId,         "Seated Dumbbell Tricep Extensions",              .singleLoad, .push,  "SeatedDumbbellTricepExtensionsIcon"),
         (seatedEZBarTricepExtensionsId,            "Seated EZ-Bar Tricep Extensions",                .barbell,    .push,  "SeatedEZBarTricepExtensionsIcon"),
         (lateralRaisesId,                          "Lateral Raises",                                 .singleLoad, .push,  "LateralRaisesIcon"),
-        (flyesId,                                  "Flys",                                          .singleLoad, .push,  "FlyesIcon"),
+        (flyesId,                                  "Dumbbell Flys",                                  .singleLoad, .push,  "DumbbellFlysIcon"),
         (sideRaisesId,                             "Side Raises",                                    .singleLoad, .push,  "SideRaisesIcon"),
         (bulgarianSplitSquatsId,                   "Bulgarian Split Squats",                         .singleLoad, .squat, "BulgarianSplitSquatsIcon"),
         (barbellShrugsId,                          "Barbell Shrugs",                                 .barbell,    .pull,  "BarbellShrugsIcon"),
         (highPulleyLateralExtensionsId,            "High Pulley Lateral Extensions",                 .singleLoad, .pull,  "HighPulleyLateralExtensionsIcon"),
-        (pulloversId,                              "Pullovers",                                      .singleLoad, .pull,  "PulloversIcon"),
+        (pulloversId,                              "Dumbbell Pullovers",                             .singleLoad, .pull,  "DumbbellPulloversIcon"),
         (standingCalfRaisesId,                     "Standing Calf Raises",                           .singleLoad, .other, "StandingCalfRaisesIcon"),
         (cableRowsId,                              "Cable Rows",                                     .singleLoad, .pull,  "CableRowsIcon"),
         (closeGripBenchPressId,                    "Close Grip Bench Press",                         .barbell,    .push,  "CloseGripBenchPressIcon"),
@@ -243,5 +365,99 @@ final class Exercise {
         (frontSquatsId,                            "Front Squats",                                   .barbell,    .squat, "FrontSquatsIcon"),
         (backExtensionsId,                         "Back Extensions",                                .singleLoad, .hinge, "BackExtensionsIcon"),
         (hangingLegRaisesId,                       "Hanging Leg Raises",                             .bodyweightPlusSingleLoad, .core,  "HangingLegRaisesIcon"),
+
+        // Batch 1 — Shoulders / Raises
+        (backPressesId,                            "Back Presses",                                   .barbell,    .push,  "BackPressesIcon"),
+        (seatedFrontPressesId,                     "Seated Front Presses",                           .barbell,    .push,  "SeatedFrontPressesIcon"),
+        (seatedDumbbellPressesId,                  "Seated Dumbbell Presses",                        .singleLoad, .push,  "SeatedDumbbellPressesIcon"),
+        (arnoldPressesId,                          "Arnold Presses",                                 .singleLoad, .push,  "ArnoldPressesIcon"),
+        (bentOverLateralRaisesId,                  "Bent Over Lateral Raises",                       .singleLoad, .pull,  "BentOverLateralRaisesIcon"),
+        (alternatingFrontRaisesId,                 "Alternating Front Raises",                       .singleLoad, .push,  "AlternatingFrontRaisesIcon"),
+        (barbellFrontRaisesId,                     "Barbell Front Raises",                           .barbell,    .push,  "BarbellFrontRaisesIcon"),
+        (uprightRowsId,                            "Upright Rows",                                   .barbell,    .pull,  "UprightRowsIcon"),
+        (machineLateralRaisesId,                   "Machine Lateral Raises",                         .singleLoad, .push,  "MachineLateralRaisesIcon"),
+        (pecDeckRearDeltLateralsId,                "Pec Deck Rear Delt Laterals",                    .singleLoad, .pull,  "PecDeckRearDeltLateralsIcon"),
+        (pulleyExternalArmRotationsId,             "Pulley External Arm Rotations",                  .singleLoad, .pull,  "PulleyExternalArmRotationsIcon"),
+        (lowPulleyBentOverLateralRaisesId,         "Low Pulley Bent-Over Lateral Raises",            .singleLoad, .pull,  "LowPulleyBentOverLateralRaisesIcon"),
+        (lowPulleyLateralRaisesId,                 "Low Pulley Lateral Raises",                      .singleLoad, .push,  "LowPulleyLateralRaisesIcon"),
+        (oneDumbbellFrontRaisesId,                 "One Dumbbell Front Raises",                      .singleLoad, .push,  "OneDumbbellFrontRaisesIcon"),
+
+        // Batch 2 — Chest / Back / Traps / Deadlift Variants
+        (inclineBenchPressId,                      "Incline Bench Press",                            .barbell,    .push,  "InclineBenchPressIcon"),
+        (declineBenchPressId,                      "Decline Bench Press",                            .barbell,    .push,  "DeclineBenchPressIcon"),
+        (machineBenchPressId,                      "Machine Bench Press",                            .singleLoad, .push,  "MachineBenchPressIcon"),
+        (pushUpsId,                                "Push-Ups",                                       .bodyweightPlusSingleLoad, .push,  "PushUpsIcon"),
+        (dumbbellBenchPressId,                     "Dumbbell Bench Press",                           .singleLoad, .push,  "DumbbellBenchPressIcon"),
+        (inclineDumbbellPressesId,                 "Incline Dumbbell Presses",                       .singleLoad, .push,  "InclineDumbbellPressesIcon"),
+        (inclineDumbbellFlysId,                    "Incline Dumbbell Flys",                          .singleLoad, .push,  "InclineDumbbellFlysIcon"),
+        (pecDeckFlysId,                            "Pec Deck Flys",                                  .singleLoad, .push,  "PecDeckFlysIcon"),
+        (cableFlysId,                              "Cable Flys",                                     .singleLoad, .push,  "CableFlysIcon"),
+        (barbellPulloversId,                       "Barbell Pullovers",                              .barbell,    .pull,  "BarbellPulloversIcon"),
+        (chinUpsId,                                "Chin-Ups",                                       .bodyweightPlusSingleLoad, .pull,  "ChinUpsIcon"),
+        (latPullDownsId,                           "Lat Pull-Downs",                                 .singleLoad, .pull,  "LatPullDownsIcon"),
+        (closeGripLatPullDownsId,                  "Close Grip Lat Pull-Downs",                      .singleLoad, .pull,  "CloseGripLatPullDownsIcon"),
+        (straightArmPullDownsId,                   "Straight Arm Pull-Downs",                        .singleLoad, .pull,  "StraightArmPullDownsIcon"),
+        (closeGripSeatedRowsId,                    "Close Grip Seated Rows",                         .singleLoad, .pull,  "CloseGripSeatedRowsIcon"),
+        (wideGripSeatedRowsId,                     "Wide Grip Seated Rows",                          .singleLoad, .pull,  "WideGripSeatedRowsIcon"),
+        (singleArmDumbbellRowsId,                  "Single Arm Dumbbell Rows",                       .singleLoad, .pull,  "SingleArmDumbbellRowsIcon"),
+        (bentOverDumbbellRowsId,                   "Bent Over Dumbbell Rows",                        .singleLoad, .pull,  "BentOverDumbbellRowsIcon"),
+        (closeGripUprightRowsId,                   "Close Grip Upright Rows",                        .barbell,    .pull,  "CloseGripUprightRowsIcon"),
+        (tBarRowsId,                               "T-Bar Rows",                                     .barbell,    .pull,  "TBarRowsIcon"),
+        (supportedTBarRowsId,                      "Supported T-Bar Rows",                           .barbell,    .pull,  "SupportedTBarRowsIcon"),
+        (sumoDeadliftsId,                          "Sumo Deadlifts",                                 .barbell,    .hinge, "SumoDeadliftsIcon"),
+        (trapBarDeadliftsId,                       "Trap Bar Deadlifts",                             .barbell,    .hinge, "TrapBarDeadliftsIcon"),
+        (machineBackExtensionsId,                  "Machine Back Extensions",                        .singleLoad, .hinge, "MachineBackExtensionsIcon"),
+        (dumbbellShrugsId,                         "Dumbbell Shrugs",                                .singleLoad, .pull,  "DumbbellShrugsIcon"),
+        (trapBarShrugsId,                          "Trap Bar Shrugs",                                .barbell,    .pull,  "TrapBarShrugsIcon"),
+        (machineShrugsId,                          "Machine Shrugs",                                 .singleLoad, .pull,  "MachineShrugsIcon"),
+        (highPulleyNeckPullsId,                    "High Pulley Neck Pulls",                         .singleLoad, .pull,  "HighPulleyNeckPullsIcon"),
+        (highPulleyNeckExtensionsId,               "High Pulley Neck Extensions",                    .singleLoad, .push,  "HighPulleyNeckExtensionsIcon"),
+
+        // Batch 3 — Legs / Glutes / Calves / Core
+        (dumbbellSquatsId,                         "Dumbbell Squats",                                .singleLoad, .squat, "DumbbellSquatsIcon"),
+        (powerSquatsId,                            "Power Squats",                                   .singleLoad, .squat, "PowerSquatsIcon"),
+        (hackSquatsId,                             "Hack Squats",                                    .singleLoad, .squat, "HackSquatsIcon"),
+        (legPressId,                               "Leg Press",                                      .singleLoad, .squat, "LegPressIcon"),
+        (boxSquatsId,                              "Box Squats",                                     .barbell,    .squat, "BoxSquatsIcon"),
+        (legExtensionsId,                          "Leg Extensions",                                 .singleLoad, .squat, "LegExtensionsIcon"),
+        (lyingLegCurlsId,                          "Lying Leg Curls",                                .singleLoad, .hinge, "LyingLegCurlsIcon"),
+        (seatedLegCurlsId,                         "Seated Leg Curls",                               .singleLoad, .hinge, "SeatedLegCurlsIcon"),
+        (goodMorningsId,                           "Good Mornings",                                  .barbell,    .hinge, "GoodMorningsIcon"),
+        (cableHipAdductionsId,                     "Cable Hip Adductions",                           .singleLoad, .other, "CableHipAdductionsIcon"),
+        (seatedMachineHipAdductionsId,             "Seated Machine Hip Adductions",                  .singleLoad, .other, "SeatedMachineHipAdductionsIcon"),
+        (standingMachineCalfRaisesId,              "Standing Machine Calf Raises",                   .singleLoad, .other, "StandingMachineCalfRaisesIcon"),
+        (donkeyCalfRaisesId,                       "Donkey Calf Raises",                             .singleLoad, .other, "DonkeyCalfRaisesIcon"),
+        (seatedMachineCalfRaisesId,                "Seated Machine Calf Raises",                     .singleLoad, .other, "SeatedMachineCalfRaisesIcon"),
+        (barbellLungesId,                          "Barbell Lunges",                                 .barbell,    .squat, "BarbellLungesIcon"),
+        (dumbbellLungesId,                         "Dumbbell Lunges",                                .singleLoad, .squat, "DumbbellLungesIcon"),
+        (cableKickbacksId,                         "Cable Kickbacks",                                .singleLoad, .other, "CableKickbacksIcon"),
+        (machineHipExtensionsId,                   "Machine Hip Extensions",                         .singleLoad, .hinge, "MachineHipExtensionsIcon"),
+        (gluteBridgesId,                           "Glute Bridges",                                  .barbell,    .hinge, "GluteBridgesIcon"),
+        (cableHipAbductionsId,                     "Cable Hip Abductions",                           .singleLoad, .other, "CableHipAbductionsIcon"),
+        (standingMachineHipAbductionsId,           "Standing Machine Hip Abductions",                .singleLoad, .other, "StandingMachineHipAbductionsIcon"),
+        (seatedMachineHipAbductionsId,             "Seated Machine Hip Abductions",                  .singleLoad, .other, "SeatedMachineHipAbductionsIcon"),
+        (crunchesId,                               "Crunches",                                       .bodyweightPlusSingleLoad, .core, "CrunchesIcon"),
+        (sitUpsId,                                 "Sit-Ups",                                        .bodyweightPlusSingleLoad, .core, "SitUpsIcon"),
+        (cableCrunchesId,                          "Cable Crunches",                                 .singleLoad, .core,  "CableCrunchesIcon"),
+        (machineCrunchesId,                        "Machine Crunches",                               .singleLoad, .core,  "MachineCrunchesIcon"),
+        (legRaisesId,                              "Leg Raises",                                     .bodyweightPlusSingleLoad, .core, "LegRaisesIcon"),
+        (dumbbellSideBendsId,                      "Dumbbell Side Bends",                            .singleLoad, .core,  "DumbbellSideBendsIcon"),
+        (machineTorsoRotationsId,                  "Machine Torso Rotations",                        .singleLoad, .core,  "MachineTorsoRotationsIcon"),
+
+        // Batch 4 — Miscellaneous / Gaps
+        (facePullsId,                              "Face Pulls",                                     .singleLoad, .pull,  "FacePullsIcon"),
+        (pendlayRowsId,                            "Pendlay Rows",                                   .barbell,    .pull,  "PendlayRowsIcon"),
+        (ezBarCurlsId,                             "EZ-Bar Curls",                                   .barbell,    .pull,  "EZBarCurlsIcon"),
+        (spiderCurlsId,                            "Spider Curls",                                   .singleLoad, .pull,  "SpiderCurlsIcon"),
+        (hipThrustsId,                             "Hip Thrusts",                                    .barbell,    .hinge, "HipThrustsIcon"),
+        (gobletSquatsId,                           "Goblet Squats",                                  .singleLoad, .squat, "GobletSquatsIcon"),
+        (stepUpsId,                                "Step-Ups",                                       .singleLoad, .squat, "StepUpsIcon"),
+        (abWheelRolloutsId,                        "Ab Wheel Rollouts",                              .bodyweightPlusSingleLoad, .core, "AbWheelRolloutsIcon"),
+        (pallofPressId,                            "Pallof Press",                                   .singleLoad, .core,  "PallofPressIcon"),
+        (cableWoodchopsId,                         "Cable Woodchops",                                .singleLoad, .core,  "CableWoodchopsIcon"),
+        (powerCleansId,                            "Power Cleans",                                   .barbell,    .hinge, "PowerCleansIcon"),
+        (farmersCarriesId,                         "Farmer's Carries",                               .singleLoad, .other, "FarmersCarriesIcon"),
+        (cableLateralRaisesId,                     "Cable Lateral Raises",                           .singleLoad, .push,  "CableLateralRaisesIcon"),
+        (landminePressId,                          "Landmine Press",                                 .barbell,    .push,  "LandminePressIcon"),
     ]
 }

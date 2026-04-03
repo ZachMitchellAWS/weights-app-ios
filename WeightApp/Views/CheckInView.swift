@@ -29,7 +29,7 @@ struct CheckInView: View {
     @State private var viewingDate = Calendar.current.startOfDay(for: Date())
     @State private var setsForExercise: [LiftSet] = []
     @State private var estimated1RMsForExercise: [Estimated1RM] = []
-    @State private var weight: Double = 95.0
+    @State private var weight: Double = 92.5
     @State private var reps: Int = 6
     @State private var showAccessories = false
     @State private var selectedAccessoryId: UUID? = nil
@@ -148,45 +148,13 @@ struct CheckInView: View {
         return groupExercises[selectedLiftIndex]
     }
 
-    private var strengthTierResult: TrendsCalculator.StrengthTierResult {
-        TrendsCalculator.strengthTierAssessment(
-            from: allEstimated1RM,
-            bodyweight: bodyweight,
-            biologicalSex: biologicalSex
-        )
-    }
-
-    private var latestE1RMs: [UUID: Double] {
-        let groupIds = Set(activeGroupExercises.map(\.id))
-        let grouped = Dictionary(grouping: allEstimated1RM.filter { rec in
-            guard let eid = rec.exercise?.id else { return false }
-            return groupIds.contains(eid)
-        }) { $0.exercise!.id }
-
-        var result: [UUID: Double] = [:]
-        for (exerciseId, records) in grouped {
-            if let mostRecent = records.max(by: { $0.createdAt < $1.createdAt }) {
-                result[exerciseId] = mostRecent.value
-            }
-        }
-        return result
-    }
-
-    private var lastTrainedDates: [UUID: Date] {
-        let groupIds = Set(activeGroupExercises.map(\.id))
-        let grouped = Dictionary(grouping: allEstimated1RM.filter { rec in
-            guard let eid = rec.exercise?.id else { return false }
-            return groupIds.contains(eid)
-        }) { $0.exercise!.id }
-
-        var result: [UUID: Date] = [:]
-        for (exerciseId, records) in grouped {
-            if let mostRecent = records.max(by: { $0.createdAt < $1.createdAt }) {
-                result[exerciseId] = mostRecent.createdAt
-            }
-        }
-        return result
-    }
+    @State private var strengthTierResult: TrendsCalculator.StrengthTierResult = TrendsCalculator.StrengthTierResult(
+        overallTier: .none,
+        exerciseTiers: TrendsCalculator.fundamentalExercises.map { (exercise: $0, e1rm: nil as Double?, tier: StrengthTier.none) },
+        limitingExercise: TrendsCalculator.fundamentalExercises[0]
+    )
+    @State private var latestE1RMs: [UUID: Double] = [:]
+    @State private var lastTrainedDates: [UUID: Date] = [:]
 
     private var nextFocus: TrendsCalculator.FundamentalExercise? {
         TrendsCalculator.nextFocusExercise(
@@ -417,6 +385,7 @@ struct CheckInView: View {
                     },
                     onNavigateToStrength: {
                         selectedSetData.pendingTrendsTab = .strength
+                        selectedSetData.pendingScrollToStrengthTop = true
                         selectedTab = 0
                     }
                 )
@@ -556,9 +525,15 @@ struct CheckInView: View {
                         showSyncOverlay = false
                     }
                 }
-                // Reload exercise data after a brief delay to let SwiftData process commits
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                // Reload exercise data after delay to let SwiftData process commits
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     loadDataForSelectedLift()
+                }
+                // Second reload as safety net
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    if setsForExercise.isEmpty {
+                        loadDataForSelectedLift()
+                    }
                 }
                 // Now safe to evaluate tier journey (user properties are synced)
                 evaluateTierJourney()
@@ -575,6 +550,30 @@ struct CheckInView: View {
         } message: {
             Text("Your data is still syncing. Logging sets before sync completes may cause duplicates or inconsistencies.")
         }
+        .task(id: "\(allEstimated1RM.count)-\(activeGroupId)") {
+            strengthTierResult = TrendsCalculator.strengthTierAssessment(
+                from: allEstimated1RM,
+                bodyweight: bodyweight,
+                biologicalSex: biologicalSex
+            )
+
+            let groupIds = Set(activeGroupExercises.map(\.id))
+            let grouped = Dictionary(grouping: allEstimated1RM.filter { rec in
+                guard let eid = rec.exercise?.id else { return false }
+                return groupIds.contains(eid)
+            }) { $0.exercise!.id }
+
+            var e1rms: [UUID: Double] = [:]
+            var trainedDates: [UUID: Date] = [:]
+            for (exerciseId, records) in grouped {
+                if let mostRecent = records.max(by: { $0.createdAt < $1.createdAt }) {
+                    e1rms[exerciseId] = mostRecent.value
+                    trainedDates[exerciseId] = mostRecent.createdAt
+                }
+            }
+            latestE1RMs = e1rms
+            lastTrainedDates = trainedDates
+        }
         .onAppear {
             guard !hasAppeared else { return }
             hasAppeared = true
@@ -587,6 +586,17 @@ struct CheckInView: View {
             // Only evaluate tier journey if sync is already done (e.g., subsequent app opens)
             if syncService.initialSyncComplete {
                 evaluateTierJourney()
+            }
+
+            // Load data for selected exercise — delayed to let @Query resolve
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                loadDataForSelectedLift()
+            }
+        }
+        .onChange(of: exercises.count) { _, _ in
+            // Exercises query resolved — reload selected exercise data
+            if setsForExercise.isEmpty && selectedExercise != nil {
+                loadDataForSelectedLift()
             }
         }
         .onChange(of: allEstimated1RM.count) { oldCount, newCount in
@@ -1709,9 +1719,7 @@ struct CheckInView: View {
                         hapticFeedback.impactOccurred()
                         showExpandedProgressOptions = true
                     } label: {
-                        Image(systemName: "arrow.up.backward.and.arrow.down.forward")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.5))
+                        ViewfinderPulse(size: 14, color: .white.opacity(0.5))
                             .frame(width: 30, height: 30)
                             .background(Color(white: 0.16))
                             .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -2290,7 +2298,8 @@ struct CheckInView: View {
         let e1rm = current1RM
         guard e1rm > 0, let ex = selectedExercise else { return nil }
         let loadType = ex.exerciseLoadType
-        let macroWeights = OneRMCalculator.efficientPlateWeights(loadType: loadType)
+        let barWt = ex.effectiveBarbellWeight
+        let macroWeights = OneRMCalculator.efficientPlateWeights(loadType: loadType, barWeight: barWt)
 
         struct TierConfig {
             let targets: [Double]
@@ -2311,41 +2320,14 @@ struct CheckInView: View {
                 current1RM: e1rm,
                 targetPercent1RMs: tier.targets,
                 loadType: loadType,
-                repRange: tier.repRange
+                repRange: tier.repRange,
+                barWeight: barWt
             )
             results = results.filter { tier.bounds.contains($0.percent1RM) }
 
-            // Find lastSetMatch: newest set whose %e1RM falls in bounds
-            var lastSetMatch: (weight: Double, reps: Int)? = nil
-            for set in setsForExercise.reversed() {
-                let pct = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps) / e1rm * 100.0
-                if tier.bounds.contains(pct) {
-                    lastSetMatch = (set.weight, set.reps)
-                    break
-                }
-            }
-
-            // If lastSetMatch exists and not already in results, append it
-            if let match = lastSetMatch {
-                let alreadyPresent = results.contains { $0.weight == match.weight && $0.reps == match.reps }
-                if !alreadyPresent {
-                    let pct = OneRMCalculator.estimate1RM(weight: match.weight, reps: match.reps) / e1rm * 100.0
-                    results.append(OneRMCalculator.EffortSuggestion(reps: match.reps, weight: match.weight, percent1RM: pct))
-                }
-            }
-
-            // Sort by weight ascending
+            // Sort by weight ascending, then promote macro-plate-friendly weights
             results.sort { $0.weight < $1.weight }
-
-            // Promote macro-plate-friendly weights to top
-            let macroFirst = results.filter { macroWeights.contains($0.weight) } + results.filter { !macroWeights.contains($0.weight) }
-
-            // Promote lastSetMatch to position 0 if it exists
-            var final = macroFirst
-            if let match = lastSetMatch, let idx = final.firstIndex(where: { $0.weight == match.weight && $0.reps == match.reps }) {
-                let item = final.remove(at: idx)
-                final.insert(item, at: 0)
-            }
+            let final = results.filter { macroWeights.contains($0.weight) } + results.filter { !macroWeights.contains($0.weight) }
 
             guard let first = final.first else { return nil }
             picks.append((first.weight, first.reps))
@@ -2461,7 +2443,10 @@ struct CheckInView: View {
 
     private var floatingLogBar: some View {
         let ex = selectedExercise
-        let increment = ex?.effectiveWeightIncrement ?? 5.0
+        // In kg mode, use 1.0 kg increments (≈2.2 lbs) for clean display values
+        let increment = userProperties.preferredWeightUnit == .kg
+            ? userProperties.preferredWeightUnit.toLbs(1.0)
+            : (ex?.effectiveWeightIncrement ?? 2.5)
         let projected = OneRMCalculator.estimate1RM(weight: weight, reps: reps)
         return VStack(spacing: 6) {
             // Intensity label + percent of e1RM
@@ -2565,15 +2550,24 @@ struct CheckInView: View {
                         VStack(spacing: 0) {
                             if weightIsSet {
                                 let displayW = userProperties.preferredWeightUnit.fromLbs(weight)
-                                Text("\(displayW == floor(displayW) ? "\(Int(displayW))" : String(format: "%.1f", displayW))")
-                                    .font(.system(size: 16, weight: .semibold))
+                                let formatted: String = {
+                                    if displayW == floor(displayW) { return "\(Int(displayW))" }
+                                    let oneDP = String(format: "%.1f", displayW)
+                                    let twoDP = String(format: "%.2f", displayW)
+                                    // Use 2dp only if meaningful (e.g., 45.25 not 45.20)
+                                    if abs(displayW - Double(oneDP)!) > 0.01 && !twoDP.hasSuffix("0") {
+                                        return twoDP
+                                    }
+                                    return oneDP
+                                }()
+                                let needsSmaller = formatted.count > 5
+                                Text(formatted)
+                                    .font(.system(size: needsSmaller ? 13 : 16, weight: .semibold))
                                     .foregroundStyle(.white)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.7)
                             } else {
-                                Text("–\u{2009}–")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundStyle(.white.opacity(0.3))
+                                ViewfinderPulse(size: 16)
                             }
                             Text(userProperties.preferredWeightUnit.label)
                                 .font(.system(size: 9))
@@ -2628,9 +2622,7 @@ struct CheckInView: View {
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.7)
                             } else {
-                                Text("–\u{2009}–")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundStyle(.white.opacity(0.3))
+                                ViewfinderPulse(size: 16)
                             }
                             Text("reps")
                                 .font(.system(size: 9))
@@ -3020,7 +3012,7 @@ struct CheckInView: View {
         loadDataForExercise(exercise.id)
     }
 
-    private func loadDataForExercise(_ exerciseId: UUID) {
+    private func loadDataForExercise(_ exerciseId: UUID, preserveInputs: Bool = false) {
         let setDescriptor = FetchDescriptor<LiftSet>(
             predicate: #Predicate { !$0.deleted && $0.exercise?.id == exerciseId },
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
@@ -3033,38 +3025,41 @@ struct CheckInView: View {
         )
         estimated1RMsForExercise = (try? modelContext.fetch(e1rmDescriptor)) ?? []
 
-        // Don't pre-populate weight/reps — start in dash state
         // Set initial values based on load type (used when user first taps +/-)
-        if let ex = selectedExercise {
-            if ex.exerciseLoadType == .bodyweightPlusSingleLoad {
-                weight = 0
-                reps = 5
-            } else if current1RM > 0 {
-                let loadType = ex.exerciseLoadType
-                let repRange = EffortMode.easy.repRange(from: userProperties)
-                let targets = EffortMode.easy.targetPercent1RMs ?? [0.55, 0.60, 0.65]
-                let bounds = EffortMode.easy.percent1RMBounds ?? (0...70)
-                var results = OneRMCalculator.effortSuggestions(
-                    current1RM: current1RM,
-                    targetPercent1RMs: targets,
-                    loadType: loadType,
-                    repRange: repRange
-                )
-                results = results.filter { bounds.contains($0.percent1RM) }
-                if let first = results.first {
-                    weight = first.weight
-                    reps = first.reps
+        // Skip reset when preserving inputs after logging a set
+        if !preserveInputs {
+            if let ex = selectedExercise {
+                if ex.exerciseLoadType == .bodyweightPlusSingleLoad {
+                    weight = 0
+                    reps = 5
+                } else if current1RM > 0 {
+                    let loadType = ex.exerciseLoadType
+                    let repRange = EffortMode.easy.repRange(from: userProperties)
+                    let targets = EffortMode.easy.targetPercent1RMs ?? [0.55, 0.60, 0.65]
+                    let bounds = EffortMode.easy.percent1RMBounds ?? (0...70)
+                    var results = OneRMCalculator.effortSuggestions(
+                        current1RM: current1RM,
+                        targetPercent1RMs: targets,
+                        loadType: loadType,
+                        repRange: repRange,
+                        barWeight: ex.effectiveBarbellWeight
+                    )
+                    results = results.filter { bounds.contains($0.percent1RM) }
+                    if let first = results.first {
+                        weight = first.weight
+                        reps = first.reps
+                    } else {
+                        weight = 92.5
+                        reps = 5
+                    }
                 } else {
-                    weight = 95
+                    weight = 92.5
                     reps = 5
                 }
-            } else {
-                weight = 95
-                reps = 5
             }
+            weightIsSet = false
+            repsIsSet = false
         }
-        weightIsSet = false
-        repsIsSet = false
 
         // Initialize weightDelta from exercise
         if let ex = selectedExercise {
@@ -3082,7 +3077,10 @@ struct CheckInView: View {
         guard let ex = selectedExercise else { return }
         if !isViewingToday { viewingDate = actualToday }
 
-        let isFirstWeightedSet = !setsForExercise.contains(where: { $0.weight > 0 }) && weight > 0
+        // Check both manual fetch and reactive @Query to avoid false positive during sync
+        let hasWeightedSetFromFetch = setsForExercise.contains(where: { $0.weight > 0 })
+        let hasE1RMFromQuery = allEstimated1RM.contains(where: { $0.exercise?.id == ex.id })
+        let isFirstWeightedSet = !hasWeightedSetFromFetch && !hasE1RMFromQuery && weight > 0
 
         let before = current1RM
         let set = LiftSet(exercise: ex, reps: reps, weight: weight)
@@ -3160,7 +3158,23 @@ struct CheckInView: View {
             suppressTierDisplay = true
         }
         modelContext.insert(estimated)
+
+        // Capture current inputs before save (save triggers @Query onChange which may reset them)
+        let savedWeight = weight
+        let savedReps = reps
+
         try? modelContext.save()
+
+        // Refresh data but preserve the current weight/reps inputs
+        loadDataForExercise(ex.id, preserveInputs: true)
+
+        // Re-assert inputs on next run loop in case an onChange cleared them
+        DispatchQueue.main.async {
+            weight = savedWeight
+            reps = savedReps
+            weightIsSet = true
+            repsIsSet = true
+        }
 
         let crumb = Breadcrumb(level: .info, category: "training")
         crumb.message = "Set logged: \(ex.name) \(set.weight)×\(set.reps)"
@@ -3171,12 +3185,14 @@ struct CheckInView: View {
             await SyncService.shared.syncEstimated1RM(estimated)
         }
 
-        // Refresh data (weight/reps are preserved since loadDataForExercise no longer touches them)
-        loadDataForExercise(ex.id)
-
         // Redirect tier journey milestones (first log of any tier exercise during journey)
+        // Compute fresh tier result since @State may not have updated yet
         if isFirstTierLog {
-            let tierResult = strengthTierResult
+            let tierResult = TrendsCalculator.strengthTierAssessment(
+                from: allEstimated1RM,
+                bodyweight: bodyweight,
+                biologicalSex: biologicalSex
+            )
             let loggedAfterThis = tierResult.exerciseTiers.filter { $0.e1rm != nil }.count
             if loggedAfterThis >= 5 {
                 tierJourneyMode = .completion(tier: tierResult.overallTier)
@@ -3336,8 +3352,13 @@ struct CheckInView: View {
         }
 
         // Redirect tier journey milestones (first log of any tier exercise during journey)
+        // Compute fresh tier result since @State may not have updated yet
         if isMilestone, let exerciseForJourney = set.exercise {
-            let tierResult = strengthTierResult
+            let tierResult = TrendsCalculator.strengthTierAssessment(
+                from: allEstimated1RM + [estimated],
+                bodyweight: bodyweight,
+                biologicalSex: biologicalSex
+            )
             let loggedAfterThis = tierResult.exerciseTiers.filter { $0.e1rm != nil }.count
             if loggedAfterThis >= 5 {
                 tierJourneyMode = .completion(tier: tierResult.overallTier)
@@ -3448,7 +3469,7 @@ struct CheckInView: View {
         switch name {
         case "Overhead Press": return "OH Press"
         case "Bench Press": return "Bench"
-        case "Barbell Row": return "Rows"
+        case "Barbell Rows": return "Rows"
         default: return name
         }
     }
@@ -3593,6 +3614,44 @@ struct CheckInView: View {
         } else {
             defaults.removeObject(forKey: "activeExerciseId")
             defaults.removeObject(forKey: "activeExerciseIdTimestamp")
+        }
+    }
+}
+
+// MARK: - Animated Viewfinder Indicator
+
+private struct ViewfinderPulse: View {
+    var size: CGFloat = 16
+    var color: Color = .white.opacity(0.35)
+    @State private var isAnimating = false
+
+    var body: some View {
+        Image(systemName: "viewfinder.rectangular")
+            .font(.system(size: size, weight: .medium))
+            .foregroundStyle(color)
+            .scaleEffect(isAnimating ? 1.15 : 1.0)
+            .opacity(isAnimating ? 0.8 : 0.5)
+            .padding(.bottom, 2)
+            .onAppear {
+                // Initial animation after short delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    animate()
+                }
+            }
+    }
+
+    private func animate() {
+        withAnimation(.easeInOut(duration: 0.6)) {
+            isAnimating = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            withAnimation(.easeInOut(duration: 0.4)) {
+                isAnimating = false
+            }
+            // Repeat after refractory period
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                animate()
+            }
         }
     }
 }

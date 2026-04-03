@@ -80,7 +80,7 @@ class InsightsViewModel {
     // MARK: - Fetch
 
     func fetchInsights(force: Bool, isPremium: Bool = false, hasLocalSetsThisWeek: Bool = false) async {
-        guard !isFetching else { return }
+        guard force || !isFetching else { return }
         isFetching = true
         defer { isFetching = false }
 

@@ -12,9 +12,9 @@ struct PushPullRatioWidget: View {
     let isPremium: Bool
     @Binding var showUpsell: Bool
 
-    private var ratios: TrendsCalculator.MovementRatio {
-        TrendsCalculator.movementRatios(from: allSets, days: 30)
-    }
+    @State private var ratios: TrendsCalculator.MovementRatio = TrendsCalculator.MovementRatio(
+        pushVolume: 0, pullVolume: 0, hingeVolume: 0, squatVolume: 0, coreVolume: 0
+    )
 
     private var hasData: Bool {
         ratios.totalVolume > 0
@@ -40,6 +40,9 @@ struct PushPullRatioWidget: View {
                     message: "Log sets with movement types to see your push/pull and upper/lower balance"
                 )
             }
+        }
+        .task(id: allSets.count) {
+            ratios = TrendsCalculator.movementRatios(from: allSets, days: 30)
         }
     }
 

@@ -39,19 +39,8 @@ struct TierProgressionWidget: View {
         TrendsCalculator.fundamentalExercises.map(\.name)
     }
 
-    private var dataPoints: [TrendsCalculator.OneRMDataPoint] {
-        TrendsCalculator.oneRMProgression(from: allEstimated1RM, exerciseName: selectedExercise)
-    }
-
-    private var currentTier: StrengthTier {
-        guard let latest = dataPoints.last else { return .novice }
-        return StrengthTierData.tierForExercise(
-            name: selectedExercise,
-            e1rm: latest.value,
-            bodyweight: bodyweight,
-            sex: sex
-        )
-    }
+    @State private var dataPoints: [TrendsCalculator.OneRMDataPoint] = []
+    @State private var currentTier: StrengthTier = .novice
 
     var body: some View {
         if isPremium {
@@ -59,6 +48,19 @@ struct TierProgressionWidget: View {
                 premiumContent
             } trailing: {
                 exercisePicker
+            }
+            .task(id: "\(allEstimated1RM.count)-\(selectedExercise)") {
+                dataPoints = TrendsCalculator.oneRMProgression(from: allEstimated1RM, exerciseName: selectedExercise)
+                if let latest = dataPoints.last {
+                    currentTier = StrengthTierData.tierForExercise(
+                        name: selectedExercise,
+                        e1rm: latest.value,
+                        bodyweight: bodyweight,
+                        sex: sex
+                    )
+                } else {
+                    currentTier = .novice
+                }
             }
         } else {
             lockedContent

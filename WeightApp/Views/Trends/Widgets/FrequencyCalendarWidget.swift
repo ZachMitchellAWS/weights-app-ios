@@ -12,9 +12,7 @@ struct FrequencyCalendarWidget: View {
     var isPremium: Bool = true
     @Binding var showUpsell: Bool
 
-    private var activityData: [TrendsCalculator.DayActivity] {
-        TrendsCalculator.trainingFrequency(from: allSets, weeks: 12)
-    }
+    @State private var activityData: [TrendsCalculator.DayActivity] = []
 
     private var activityByDate: [Date: Int] {
         Dictionary(uniqueKeysWithValues: activityData.map { ($0.date, $0.setCount) })
@@ -58,6 +56,9 @@ struct FrequencyCalendarWidget: View {
                 } else {
                     calendarGrid
                 }
+            }
+            .task(id: allSets.count) {
+                activityData = TrendsCalculator.trainingFrequency(from: allSets, weeks: 12)
             }
         } else {
             lockedContent
@@ -116,6 +117,7 @@ struct FrequencyCalendarWidget: View {
 
                 Spacer()
             }
+            .padding(.top, 4)
         }
     }
 

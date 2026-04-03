@@ -598,7 +598,7 @@ struct MoreView: View {
                             }
                         } label: {
                             HStack {
-                                Text("Populate 28 Days of Data")
+                                Text("Populate 90 Days of Data")
                                     .foregroundStyle(.primary)
                                 Spacer()
                                 if isPopulating28Days {
@@ -1020,12 +1020,100 @@ struct MoreView: View {
                             .tint(.appAccent)
                         }
 
-                        // MARK: Export Idealized Progress Card
+                        // MARK: Export Narratives Card
                         Button {
-                            exportIdealizedProgressCard()
+                            exportNarrativesCard()
                         } label: {
                             HStack {
-                                Text("Export Idealized Progress Card")
+                                Text("Export Narratives Card")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if isExportingNarrativesCard {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+                        }
+                        if let result = narrativesCardExportResult {
+                            Text(result)
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                        }
+
+                        // MARK: Export Strength Balance Card
+                        Button {
+                            exportStrengthBalanceCard()
+                        } label: {
+                            HStack {
+                                Text("Export Strength Balance Card")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if isExportingBalanceCard {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+                        }
+                        if let result = balanceCardExportResult {
+                            Text(result)
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                        }
+
+                        // MARK: Export Analytics Card
+                        Button {
+                            exportAnalyticsCard()
+                        } label: {
+                            HStack {
+                                Text("Export Analytics Card")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if isExportingAnalyticsCard {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+                        }
+                        if let result = analyticsCardExportResult {
+                            Text(result)
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                        }
+
+                        // MARK: Export Set Plan Catalog Card
+                        Button {
+                            exportSetPlanCatalogCard()
+                        } label: {
+                            HStack {
+                                Text("Export Set Plan Catalog Card")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if isExportingSetPlanCard {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+                        }
+                        if let result = setPlanCardExportResult {
+                            Text(result)
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                        }
+
+                        // MARK: Export Display Progress Card
+                        Button {
+                            exportDisplayProgressCard()
+                        } label: {
+                            HStack {
+                                Text("Export Display Progress Card")
                                     .foregroundStyle(.primary)
                                 Spacer()
                                 if isExportingIdealCard {
@@ -1453,130 +1541,164 @@ struct MoreView: View {
 
         // Clear all existing LiftSet and Estimated1RM data first
         let allLiftSet = (try? modelContext.fetch(FetchDescriptor<LiftSet>())) ?? []
-        for liftSet in allLiftSet {
-            modelContext.delete(liftSet)
-        }
+        for liftSet in allLiftSet { modelContext.delete(liftSet) }
         let allEstimated1RM = (try? modelContext.fetch(FetchDescriptor<Estimated1RM>())) ?? []
-        for estimated1RM in allEstimated1RM {
-            modelContext.delete(estimated1RM)
-        }
+        for estimated1RM in allEstimated1RM { modelContext.delete(estimated1RM) }
 
         let calendar = Calendar.current
         let now = Date()
 
-        // Ensure we have exercises
-        if exercises.isEmpty {
-            isPopulating28Days = false
-            return
+        if exercises.isEmpty { isPopulating28Days = false; return }
+
+        func roundToIncrement(_ weight: Double) -> Double {
+            (weight / 2.5).rounded() * 2.5
         }
 
-        // Helper function to round weight to nearest attainable increment (2.5 lbs)
-        func roundToAttainable(_ weight: Double) -> Double {
-            return (weight / 2.5).rounded() * 2.5
+        let bw = userProperties.bodyweight ?? 180.0
+
+        // --- Training days per week ---
+        // Day A (Mon): Pull — Deadlifts, Barbell Row, Pull Ups, Barbell Curls
+        // Day B (Wed): Push — Bench Press, Overhead Press, Weighted Dips, Lateral Raises
+        // Day C (Fri): Legs — Squats, Romanian Deadlifts, Bulgarian Split Squats, Standing Calf Raises
+        // Day D (Sat, ~50% of weeks): Accessories — Flys, Rear Delt Flys, Back Extensions, Hanging Leg Raises
+
+        struct DayPlan {
+            let exerciseNames: [String]
+            let isFundamental: [Bool] // true = 6 sets with PR, false = 3-4 accessory sets
         }
 
-        // Training plan: alternate between push/pull/legs over 28 days
-        let workoutPlans: [[String]] = [
-            ["Bench Press", "Overhead Press", "Dips"], // Push
-            ["Deadlift", "Barbell Row", "Pull Ups"], // Pull
-            ["Squat"], // Legs
+        let dayA = DayPlan(exerciseNames: ["Deadlifts", "Barbell Rows", "Pull Ups", "Barbell Curls"],
+                           isFundamental: [true, true, true, false])
+        let dayB = DayPlan(exerciseNames: ["Bench Press", "Overhead Press", "Weighted Dips", "Lateral Raises"],
+                           isFundamental: [true, true, true, false])
+        let dayC = DayPlan(exerciseNames: ["Squats", "Romanian Deadlifts", "Bulgarian Split Squats", "Standing Calf Raises"],
+                           isFundamental: [true, false, false, false])
+        let dayD = DayPlan(exerciseNames: ["Dumbbell Flys", "Rear Delt Flys", "Back Extensions", "Hanging Leg Raises"],
+                           isFundamental: [false, false, false, false])
+
+        // Starting 1RMs (mid-intermediate for ~180lb male)
+        var exerciseMaxes: [String: Double] = [
+            "Deadlifts": 315, "Squats": 265, "Bench Press": 205,
+            "Barbell Rows": 155, "Overhead Press": 115,
+            "Pull Ups": bw + 45, "Weighted Dips": bw + 55,
+            "Romanian Deadlifts": 225, "Bulgarian Split Squats": 135,
+            "Barbell Curls": 95, "Lateral Raises": 50,
+            "Standing Calf Raises": 185, "Dumbbell Flys": 60,
+            "Rear Delt Flys": 40, "Back Extensions": bw + 25,
+            "Hanging Leg Raises": bw + 10,
         ]
 
-        // Track max 1RM per exercise for progression
-        var exerciseMaxes: [String: Double] = [:]
+        var runningBest1RM: [String: Double] = [:]
         var createdSets: [LiftSet] = []
         var createdEstimated1RM: [Estimated1RM] = []
-        // Running best estimated 1RM per exercise (mirrors real logSet behavior)
-        var runningBest1RM: [String: Double] = [:]
 
-        for daysAgo in (1...28).reversed() {
+        // Seeded RNG for reproducibility
+        var rng = SplitMix64(seed: 42)
+
+        for daysAgo in (1...90).reversed() {
             guard let workoutDate = calendar.date(byAdding: .day, value: -daysAgo, to: now) else { continue }
+            let weekday = calendar.component(.weekday, from: workoutDate) // 1=Sun, 2=Mon, ...
 
-            let workoutType = (daysAgo - 1) % 3
-            let exerciseNames = workoutPlans[workoutType]
+            // Determine which plan (if any) for this day
+            let plan: DayPlan?
+            switch weekday {
+            case 2: // Monday — Pull
+                plan = Int.random(in: 0..<14, using: &rng) < 13 ? dayA : nil // ~7% miss rate
+            case 4: // Wednesday — Push
+                plan = Int.random(in: 0..<14, using: &rng) < 13 ? dayB : nil
+            case 6: // Friday — Legs
+                plan = Int.random(in: 0..<14, using: &rng) < 13 ? dayC : nil
+            case 7: // Saturday — occasional accessories
+                plan = Int.random(in: 0..<2, using: &rng) == 0 ? dayD : nil // ~50%
+            default:
+                plan = nil
+            }
 
-            // Vary workout time throughout the day
-            let hour = [9, 12, 17, 19][(daysAgo - 1) % 4]
-            let minute = [0, 15, 30, 45][(daysAgo - 1) % 4]
+            guard let todayPlan = plan else { continue }
 
+            // Weekly progression: ~1.5% per week for fundamentals, ~0.75% for accessories
+            let weekNumber = (90 - daysAgo) / 7
+            let isDeloadWeek = weekNumber % 6 == 5 // every 6th week is deload
+
+            let hour = [7, 9, 12, 17, 18][(daysAgo - 1) % 5]
+            let minute = [0, 15, 30, 45, 10][(daysAgo - 1) % 5]
             var currentTime = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: workoutDate) ?? workoutDate
 
-            for exerciseName in exerciseNames {
+            for (idx, exerciseName) in todayPlan.exerciseNames.enumerated() {
                 guard let exercise = exercises.first(where: { $0.name == exerciseName }) else { continue }
 
-                // Starting 1RM for this exercise (if not already tracked)
-                let bw = userProperties.bodyweight ?? 185.0
-                if exerciseMaxes[exerciseName] == nil {
-                    exerciseMaxes[exerciseName] = {
-                        switch exerciseName {
-                        case "Deadlift": return 225.0
-                        case "Squat": return 200.0
-                        case "Bench Press": return 165.0
-                        case "Barbell Row": return 145.0
-                        case "Overhead Press": return 100.0
-                        case "Pull Ups": return bw + 50.0
-                        case "Dips": return bw + 70.0
-                        default: return 100.0
-                        }
-                    }()
+                let isFundamental = todayPlan.isFundamental[idx]
+                let baseMax = exerciseMaxes[exerciseName] ?? 100.0
+
+                // Apply weekly progression with randomness
+                let weeklyRate = isFundamental ? 0.015 : 0.0075
+                let noise = Double.random(in: -0.02...0.02, using: &rng)
+                let progressMultiplier = isDeloadWeek ? 0.90 : (1.0 + weeklyRate * Double(weekNumber) + noise)
+                let currentMax = baseMax * progressMultiplier
+
+                let isBWPlusLoad = exercise.loadType == ExerciseLoadType.bodyweightPlusSingleLoad.rawValue
+
+                if isFundamental && !isDeloadWeek {
+                    // 6 sets: 2 easy (10 reps), 2 moderate (8 reps), 1 hard (5 reps), 1 PR (2 reps)
+                    let setConfigs: [(intensity: Double, reps: Int)] = [
+                        (0.55, 10), (0.60, 10), (0.70, 8), (0.75, 8), (0.85, 5), (1.02, 2)
+                    ]
+                    for config in setConfigs {
+                        let targetWeight = currentMax * config.intensity / (1.0 + Double(config.reps) / 30.0)
+                        let weight = isBWPlusLoad ? roundToIncrement(max(targetWeight - bw, 0)) : roundToIncrement(targetWeight)
+                        let effectiveWeight = isBWPlusLoad ? weight + bw : weight
+                        let logWeight = isBWPlusLoad ? weight : weight
+
+                        let set = LiftSet(exercise: exercise, reps: config.reps, weight: logWeight)
+                        set.createdAt = currentTime
+                        set.createdTimezone = TimeZone.current.identifier
+                        modelContext.insert(set)
+                        createdSets.append(set)
+
+                        let setE1RM = OneRMCalculator.estimate1RM(weight: effectiveWeight, reps: config.reps)
+                        let best = max(runningBest1RM[exerciseName] ?? 0, setE1RM)
+                        runningBest1RM[exerciseName] = best
+
+                        let estimated = Estimated1RM(exercise: exercise, value: best, setId: set.id)
+                        estimated.createdAt = currentTime
+                        estimated.createdTimezone = TimeZone.current.identifier
+                        modelContext.insert(estimated)
+                        createdEstimated1RM.append(estimated)
+
+                        currentTime = calendar.date(byAdding: .minute, value: Int.random(in: 2...4, using: &rng), to: currentTime) ?? currentTime
+                    }
+                } else {
+                    // Accessory or deload: 3 sets, moderate intensity, no PR
+                    let setConfigs: [(intensity: Double, reps: Int)] = isDeloadWeek
+                        ? [(0.50, 10), (0.55, 10), (0.60, 8)]
+                        : [(0.55, 10), (0.65, 8), (0.72, 8)]
+                    for config in setConfigs {
+                        let targetWeight = currentMax * config.intensity / (1.0 + Double(config.reps) / 30.0)
+                        let weight = isBWPlusLoad ? roundToIncrement(max(targetWeight - bw, 0)) : roundToIncrement(targetWeight)
+                        let effectiveWeight = isBWPlusLoad ? weight + bw : weight
+                        let logWeight = isBWPlusLoad ? weight : weight
+
+                        let set = LiftSet(exercise: exercise, reps: config.reps, weight: logWeight)
+                        set.createdAt = currentTime
+                        set.createdTimezone = TimeZone.current.identifier
+                        modelContext.insert(set)
+                        createdSets.append(set)
+
+                        let setE1RM = OneRMCalculator.estimate1RM(weight: effectiveWeight, reps: config.reps)
+                        let best = max(runningBest1RM[exerciseName] ?? 0, setE1RM)
+                        runningBest1RM[exerciseName] = best
+
+                        let estimated = Estimated1RM(exercise: exercise, value: best, setId: set.id)
+                        estimated.createdAt = currentTime
+                        estimated.createdTimezone = TimeZone.current.identifier
+                        modelContext.insert(estimated)
+                        createdEstimated1RM.append(estimated)
+
+                        currentTime = calendar.date(byAdding: .minute, value: Int.random(in: 2...3, using: &rng), to: currentTime) ?? currentTime
+                    }
                 }
 
-                let currentMax = exerciseMaxes[exerciseName]!
-
-                // Pattern: 2 Easy, 2 Moderate, 2 Hard, 1 Redline, 1 PR
-                let numSets = 8
-
-                // Intensity percentages for each set (percentage of current 1RM)
-                let intensities: [Double] = [0.52, 0.58, 0.65, 0.70, 0.76, 0.82, 0.90, 1.03]
-
-                for setNum in 0..<numSets {
-                    let intensity = intensities[setNum]
-                    let target1RM = currentMax * intensity
-
-                    // Choose reps: higher reps for easier sets, lower for harder
-                    let reps: Int
-                    switch setNum {
-                    case 0, 1: reps = 10 // Easy warmup sets
-                    case 2, 3: reps = 8  // Moderate sets
-                    case 4, 5: reps = 6  // Hard sets
-                    case 6: reps = 4     // Redline set
-                    case 7: reps = 2     // PR set
-                    default: reps = 6
-                    }
-
-                    // Calculate weight needed to hit target 1RM with these reps
-                    // Using Brzycki formula: 1RM = weight * (36 / (37 - reps))
-                    let calculatedWeight = roundToAttainable(target1RM * (37.0 - Double(reps)) / 36.0)
-
-                    let set = LiftSet(exercise: exercise, reps: reps, weight: calculatedWeight)
-                    set.createdAt = currentTime
-                    set.createdTimezone = TimeZone.current.identifier
-                    modelContext.insert(set)
-                    createdSets.append(set)
-
-                    // Compute running best estimated 1RM (mirrors real logSet behavior)
-                    let setEstimated1RM = OneRMCalculator.estimate1RM(weight: calculatedWeight, reps: reps)
-                    let bestSoFar = runningBest1RM[exerciseName] ?? 0
-                    let newBest = max(bestSoFar, setEstimated1RM)
-                    runningBest1RM[exerciseName] = newBest
-
-                    let estimated = Estimated1RM(exercise: exercise, value: newBest, setId: set.id)
-                    estimated.createdAt = currentTime
-                    estimated.createdTimezone = TimeZone.current.identifier
-                    modelContext.insert(estimated)
-                    createdEstimated1RM.append(estimated)
-
-                    // Update max if this is a PR (last set)
-                    if setNum == 7 {
-                        exerciseMaxes[exerciseName] = target1RM
-                    }
-
-                    // Add some time between sets (2-4 minutes)
-                    currentTime = calendar.date(byAdding: .minute, value: Int.random(in: 2...4), to: currentTime) ?? currentTime
-                }
-
-                // Rest between exercises (5-8 minutes)
-                currentTime = calendar.date(byAdding: .minute, value: Int.random(in: 5...8), to: currentTime) ?? currentTime
+                currentTime = calendar.date(byAdding: .minute, value: Int.random(in: 4...7, using: &rng), to: currentTime) ?? currentTime
             }
         }
 
@@ -1595,6 +1717,19 @@ struct MoreView: View {
         }
 
         isPopulating28Days = false
+    }
+
+    // Reproducible RNG for simulated data
+    private struct SplitMix64: RandomNumberGenerator {
+        var state: UInt64
+        init(seed: UInt64) { state = seed }
+        mutating func next() -> UInt64 {
+            state &+= 0x9e3779b97f4a7c15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xbf58476d1ce4e5b9
+            z = (z ^ (z >> 27)) &* 0x94d049bb133111eb
+            return z ^ (z >> 31)
+        }
     }
 
     private func populateTodayData() async {
@@ -1618,13 +1753,13 @@ struct MoreView: View {
         let bw = userProperties.bodyweight ?? 185.0
         func getBase1RM(for exerciseName: String) -> Double {
             switch exerciseName {
-            case "Deadlift": return 275.0
-            case "Squat": return 245.0
-            case "Bench Press": return 195.0
-            case "Barbell Row": return 175.0
-            case "Overhead Press": return 125.0
-            case "Pull Ups": return bw + 65.0
-            case "Dips": return bw + 90.0
+            case "Deadlifts": return 335.0
+            case "Squats": return 285.0
+            case "Bench Press": return 225.0
+            case "Barbell Rows": return 170.0
+            case "Overhead Press": return 130.0
+            case "Pull Ups": return bw + 55.0
+            case "Weighted Dips": return bw + 65.0
             default: return 135.0
             }
         }
@@ -1827,7 +1962,113 @@ struct MoreView: View {
     }
 
     @MainActor
-    private func exportIdealizedProgressCard() {
+    @State private var balanceCardImage: UIImage? = nil
+    @State private var balanceCardExportResult: String? = nil
+    @State private var isExportingBalanceCard = false
+
+    @State private var analyticsCardExportResult: String? = nil
+    @State private var isExportingAnalyticsCard = false
+
+    @State private var narrativesCardExportResult: String? = nil
+    @State private var isExportingNarrativesCard = false
+
+    @State private var setPlanCardExportResult: String? = nil
+    @State private var isExportingSetPlanCard = false
+
+    private func exportSetPlanCatalogCard() {
+        isExportingSetPlanCard = true
+        setPlanCardExportResult = nil
+
+        let view = SetPlanCatalogCardView()
+            .frame(width: 360, height: 780)
+            .background(Color.black)
+
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 3
+        renderer.proposedSize = .init(width: 360, height: 780)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if let image = renderer.uiImage {
+                UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+                setPlanCardExportResult = "Saved to Photos"
+            } else {
+                setPlanCardExportResult = "Export failed"
+            }
+            isExportingSetPlanCard = false
+        }
+    }
+
+    private func exportNarrativesCard() {
+        isExportingNarrativesCard = true
+        narrativesCardExportResult = nil
+
+        let view = NarrativesCardView()
+            .frame(width: 360, height: 780)
+            .background(Color.black)
+
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 3
+        renderer.proposedSize = .init(width: 360, height: 780)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if let image = renderer.uiImage {
+                UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+                narrativesCardExportResult = "Saved to Photos"
+            } else {
+                narrativesCardExportResult = "Export failed"
+            }
+            isExportingNarrativesCard = false
+        }
+    }
+
+    private func exportStrengthBalanceCard() {
+        isExportingBalanceCard = true
+        balanceCardExportResult = nil
+
+        let view = StrengthBalanceCardView()
+            .frame(width: 360, height: 780)
+            .background(Color.black)
+
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 3
+        renderer.proposedSize = .init(width: 360, height: 780)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if let image = renderer.uiImage {
+                balanceCardImage = image
+                UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+                balanceCardExportResult = "Saved to Photos"
+            } else {
+                balanceCardExportResult = "Export failed"
+            }
+            isExportingBalanceCard = false
+        }
+    }
+
+    private func exportAnalyticsCard() {
+        isExportingAnalyticsCard = true
+        analyticsCardExportResult = nil
+
+        let view = AdvancedAnalyticsCardView()
+            .frame(width: 360, height: 780)
+            .background(Color.black)
+
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 3
+        renderer.proposedSize = .init(width: 360, height: 780)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if let image = renderer.uiImage {
+                UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+                analyticsCardExportResult = "Saved to Photos"
+            } else {
+                analyticsCardExportResult = "Export failed"
+            }
+            isExportingAnalyticsCard = false
+        }
+    }
+
+    private func exportDisplayProgressCard() {
         isExportingIdealCard = true
         idealCardExportResult = nil
 
@@ -1841,7 +2082,7 @@ struct MoreView: View {
                 ExerciseReportData(name: "Squats", icon: "SquatIcon", currentE1RM: 335, firstE1RM: 265, tier: .advanced, bwRatio: 1.86, tierProgress: 0.40),
                 ExerciseReportData(name: "Bench Press", icon: "BenchPressIcon", currentE1RM: 265, firstE1RM: 205, tier: .intermediate, bwRatio: 1.47, tierProgress: 0.75),
                 ExerciseReportData(name: "Overhead Press", icon: "OverheadPressIcon", currentE1RM: 175, firstE1RM: 135, tier: .intermediate, bwRatio: 0.97, tierProgress: 0.55),
-                ExerciseReportData(name: "Barbell Row", icon: "BarbellRowIcon", currentE1RM: 245, firstE1RM: 185, tier: .intermediate, bwRatio: 1.36, tierProgress: 0.60),
+                ExerciseReportData(name: "Barbell Rows", icon: "BarbellRowIcon", currentE1RM: 245, firstE1RM: 185, tier: .intermediate, bwRatio: 1.36, tierProgress: 0.60),
             ],
             totalPRs: 24,
             totalSetsLogged: 847,
@@ -2383,7 +2624,7 @@ struct AlertPreviewsSheet: View {
         case .milestoneIntermediate:
             MilestoneOverlayPreview(tier: .intermediate, exerciseIcon: "DeadliftIcon", exerciseName: "Deadlifts", targetLabel: "225 lbs")
         case .milestoneAdvanced:
-            MilestoneOverlayPreview(tier: .advanced, exerciseIcon: "BarbellRowIcon", exerciseName: "Barbell Row", targetLabel: "185 lbs")
+            MilestoneOverlayPreview(tier: .advanced, exerciseIcon: "BarbellRowIcon", exerciseName: "Barbell Rows", targetLabel: "185 lbs")
         case .milestoneElite:
             MilestoneOverlayPreview(tier: .elite, exerciseIcon: "OverheadPressIcon", exerciseName: "Overhead Press", targetLabel: "155 lbs")
         case .milestoneLegend:

@@ -123,7 +123,7 @@ final class ExerciseGroup {
         ),
         ExerciseGroup(
             groupId: barbellRowPlusId,
-            name: "Barbell Row+",
+            name: "Barbell Rows+",
             exerciseIds: [
                 Exercise.barbellRowId,
                 Exercise.pullUpsId,

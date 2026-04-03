@@ -31,13 +31,7 @@ struct BalanceView: View {
         return props
     }
 
-    private var currentOverallTier: StrengthTier {
-        TrendsCalculator.strengthTierAssessment(
-            from: allEstimated1RM,
-            bodyweight: userProperties.bodyweight ?? 0,
-            biologicalSex: userProperties.biologicalSex ?? "male"
-        ).overallTier
-    }
+    @State private var currentOverallTier: StrengthTier = .none
 
     private static var setsDescriptor: FetchDescriptor<LiftSet> {
         let cutoff = Calendar.current.date(byAdding: .month, value: -12, to: Date())!
@@ -56,9 +50,7 @@ struct BalanceView: View {
     }
     @Query(estimated1RMsDescriptor) private var allEstimated1RM: [Estimated1RM]
 
-    private var balanceData: [TrendsCalculator.ExerciseBalance] {
-        TrendsCalculator.strengthBalance(from: allEstimated1RM)
-    }
+    @State private var balanceData: [TrendsCalculator.ExerciseBalance] = []
 
     private var hasEnoughData: Bool {
         balanceData.filter { $0.balanceScore != nil }.count >= 2
@@ -117,15 +109,6 @@ struct BalanceView: View {
 
                 // BestLiftsWidget(allSets: allSets)
 
-                TierProgressionWidget(
-                    allEstimated1RM: allEstimated1RM,
-                    bodyweight: bodyweight,
-                    sex: sex,
-                    isPremium: isPremium,
-                    weightUnit: userProperties.preferredWeightUnit,
-                    showUpsell: $showUpsell
-                )
-
                 Text("Strength estimates are approximations based on your logged sets and standard formulas. Always train within your limits and consult a physician before beginning or modifying any exercise program.")
                     .font(.inter(size: 12))
                     .foregroundStyle(.white.opacity(0.4))
@@ -137,6 +120,14 @@ struct BalanceView: View {
             .padding(.bottom, 70)
         }
         .scrollIndicators(.hidden)
+        .task(id: allEstimated1RM.count) {
+            currentOverallTier = TrendsCalculator.strengthTierAssessment(
+                from: allEstimated1RM,
+                bodyweight: userProperties.bodyweight ?? 0,
+                biologicalSex: userProperties.biologicalSex ?? "male"
+            ).overallTier
+            balanceData = TrendsCalculator.strengthBalance(from: allEstimated1RM)
+        }
         .onAppear {
             if selectedSetData.pendingScrollToStrengthTop {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -172,7 +163,7 @@ struct BalanceView: View {
             await refreshTierUnlockAudio()
         }
         .fullScreenCover(isPresented: $showUpsell) {
-            UpsellView { _ in showUpsell = false }
+            UpsellView(initialPage: 2) { _ in showUpsell = false }
         }
         .fullScreenCover(isPresented: $showInsightUpsell) {
             UpsellView(initialPage: 1) { _ in showInsightUpsell = false }
@@ -382,7 +373,7 @@ struct BalanceView: View {
         FakeBalance(exerciseName: "Squat", score: 1.00),
         FakeBalance(exerciseName: "Bench Press", score: 0.89),
         FakeBalance(exerciseName: "Overhead Press", score: 0.78),
-        FakeBalance(exerciseName: "Barbell Row", score: 1.10),
+        FakeBalance(exerciseName: "Barbell Rows", score: 1.10),
     ]
 
     private var fakeInsightAttributedString: AttributedString {

@@ -12,14 +12,15 @@ struct TrainingRecencyWidget: View {
     var isPremium: Bool = true
     @Binding var showUpsell: Bool
 
-    private var recencyData: [TrendsCalculator.ExerciseRecency] {
-        TrendsCalculator.exerciseRecency(from: allSets)
-    }
+    @State private var recencyData: [TrendsCalculator.ExerciseRecency] = []
 
     var body: some View {
         if isPremium {
             WidgetCard(title: "Exercise Activity", subtitle: "Days since last session") {
                 unlockedContent
+            }
+            .task(id: allSets.count) {
+                recencyData = TrendsCalculator.exerciseRecency(from: allSets)
             }
         } else {
             lockedContent
@@ -50,7 +51,7 @@ struct TrainingRecencyWidget: View {
             exerciseRow(name: "Squat", days: 4)
             exerciseRow(name: "Deadlift", days: 8)
             exerciseRow(name: "Overhead Press", days: 14)
-            exerciseRow(name: "Barbell Row", days: 22)
+            exerciseRow(name: "Barbell Rows", days: 22)
             exerciseRow(name: "Barbell Curl", days: 30)
         }
         .padding(16)

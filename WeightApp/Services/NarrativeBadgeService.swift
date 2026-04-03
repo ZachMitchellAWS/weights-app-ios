@@ -125,6 +125,7 @@ class NarrativeBadgeService {
         UserDefaults.standard.removeObject(forKey: Self.lastAutoRefreshedKey)
         UserDefaults.standard.removeObject(forKey: Self.starterInsightCacheKey)
         UserDefaults.standard.removeObject(forKey: Self.starterInsightViewedKey)
+        UserDefaults.standard.removeObject(forKey: "narratives_tab_last_auto_refreshed")
         tierUnlocks = []
         hasNewNarrative = false
         hasUnviewedTierUnlock = false

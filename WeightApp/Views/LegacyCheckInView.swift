@@ -4236,6 +4236,8 @@ struct EditExerciseFormView: View {
     @Binding var pendingExerciseSave: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Query private var userPropertiesItems: [UserProperties]
+    private var weightUnit: WeightUnit { userPropertiesItems.first?.preferredWeightUnit ?? .lbs }
 
     @State private var name: String
     @State private var movementType: ExerciseMovementType
@@ -4268,12 +4270,14 @@ struct EditExerciseFormView: View {
         self._movementType = State(initialValue: exercise.exerciseMovementType)
         self._icon = State(initialValue: exercise.icon)
         self._notesInput = State(initialValue: exercise.notes ?? "")
-        self._barbellWeightInput = State(initialValue: exercise.barbellWeight.map { String(format: "%g", $0) } ?? "")
+        // barbellWeightInput initialized in lbs; onAppear converts to display unit
+        self._barbellWeightInput = State(initialValue: "")
     }
 
     private var parsedBarbellWeight: Double? {
         guard let val = Double(barbellWeightInput.trimmingCharacters(in: .whitespaces)) else { return nil }
-        return val >= 15 && val <= 75 ? val : nil
+        let lbs = weightUnit.toLbs(val)
+        return lbs >= 15 && lbs <= 75 ? lbs : nil
     }
 
     private var barbellWeightChanged: Bool {
@@ -4413,7 +4417,7 @@ struct EditExerciseFormView: View {
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.white.opacity(0.7))
 
-                            TextField("45", text: $barbellWeightInput)
+                            TextField(weightUnit == .kg ? "20" : "45", text: $barbellWeightInput)
                                 .keyboardType(.decimalPad)
                                 .font(.body)
                                 .padding(14)
@@ -4421,7 +4425,9 @@ struct EditExerciseFormView: View {
                                 .cornerRadius(10)
                                 .foregroundStyle(.white)
 
-                            Text("15–75 lbs. Leave empty for default (45 lb).")
+                            Text(weightUnit == .kg
+                                 ? "7–34 kg. Leave empty for default (20 kg)."
+                                 : "15–75 lbs. Leave empty for default (45 lb).")
                                 .font(.caption)
                                 .foregroundStyle(.white.opacity(0.4))
                         }
@@ -4657,18 +4663,28 @@ struct EditExerciseFormView: View {
         .onChange(of: icon) { _, _ in syncPendingSave() }
         .onChange(of: notesInput) { _, _ in syncPendingSave() }
         .onChange(of: barbellWeightInput) { _, _ in syncPendingSave() }
+        .onAppear {
+            // Set initial bar weight display in user's preferred unit
+            if let lbs = exercise.barbellWeight {
+                let display = weightUnit.fromLbs(lbs)
+                barbellWeightInput = String(format: "%g", display)
+            }
+        }
         .onDisappear { pendingExerciseSave = nil }
     }
 
     private func syncPendingSave() {
         if hasUnsavedChanges {
+            let unit = weightUnit
             pendingExerciseSave = { [exercise, name, movementType, icon, notesInput, barbellWeightInput] in
                 let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
                 let notes: String? = notesInput.isEmpty ? nil : notesInput
                 let barWeight: Double? = {
                     let input = barbellWeightInput.trimmingCharacters(in: .whitespaces)
-                    guard !input.isEmpty, let val = Double(input), val >= 15, val <= 75 else { return nil }
-                    return abs(val - 45.0) < 0.001 ? nil : val
+                    guard !input.isEmpty, let val = Double(input) else { return nil }
+                    let lbs = unit.toLbs(val)
+                    guard lbs >= 15, lbs <= 75 else { return nil }
+                    return abs(lbs - 45.0) < 0.001 ? nil : lbs
                 }()
                 onSave(exercise, trimmed, movementType, icon, notes, barWeight)
             }
@@ -4729,22 +4745,23 @@ struct ExercisesSelectionView: View {
 
                         Spacer()
 
-                        Button {
-                            navigationPath.append(ExerciseNavDestination.newExercise(prefillName: searchText.trimmingCharacters(in: .whitespacesAndNewlines)))
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 14, weight: .bold))
-                                Text("New")
-                                    .font(.subheadline.weight(.semibold))
-                            }
-                            .foregroundStyle(Color.appAccent)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(Color.appAccent.opacity(0.15))
-                            .cornerRadius(20)
-                        }
-                        .buttonStyle(.plain)
+                        // Custom exercise creation disabled for now
+//                        Button {
+//                            navigationPath.append(ExerciseNavDestination.newExercise(prefillName: searchText.trimmingCharacters(in: .whitespacesAndNewlines)))
+//                        } label: {
+//                            HStack(spacing: 6) {
+//                                Image(systemName: "plus")
+//                                    .font(.system(size: 14, weight: .bold))
+//                                Text("New")
+//                                    .font(.subheadline.weight(.semibold))
+//                            }
+//                            .foregroundStyle(Color.appAccent)
+//                            .padding(.horizontal, 14)
+//                            .padding(.vertical, 8)
+//                            .background(Color.appAccent.opacity(0.15))
+//                            .cornerRadius(20)
+//                        }
+//                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 20)
@@ -4787,13 +4804,14 @@ struct ExercisesSelectionView: View {
                             Text("No exercises found")
                                 .font(.headline)
                                 .foregroundStyle(.white.opacity(0.5))
-                            Button {
-                                navigationPath.append(ExerciseNavDestination.newExercise(prefillName: searchText))
-                            } label: {
-                                Text("Add \"\(searchText)\" as new exercise")
-                                    .font(.subheadline)
-                                    .foregroundStyle(Color.appAccent)
-                            }
+                            // Custom exercise creation disabled for now
+//                            Button {
+//                                navigationPath.append(ExerciseNavDestination.newExercise(prefillName: searchText))
+//                            } label: {
+//                                Text("Add \"\(searchText)\" as new exercise")
+//                                    .font(.subheadline)
+//                                    .foregroundStyle(Color.appAccent)
+//                            }
                             Spacer()
                         }
                     } else {
@@ -5297,8 +5315,10 @@ struct ExpandedProgressOptionsSheet: View {
     private var hasBarbellWeightChanges: Bool {
         let input = barbellWeightInput.trimmingCharacters(in: .whitespaces)
         let newVal: Double? = {
-            guard !input.isEmpty, let val = Double(input), val >= 15, val <= 75 else { return nil }
-            return abs(val - 45.0) < 0.001 ? nil : val
+            guard !input.isEmpty, let val = Double(input) else { return nil }
+            let lbs = weightUnit.toLbs(val)
+            guard lbs >= 15, lbs <= 75 else { return nil }
+            return abs(lbs - 45.0) < 0.001 ? nil : lbs
         }()
         if initialBarbellWeight == nil && newVal == nil { return false }
         if let i = initialBarbellWeight, let n = newVal { return abs(i - n) > 0.001 }
@@ -5408,7 +5428,7 @@ struct ExpandedProgressOptionsSheet: View {
                         Text("Bar Weight")
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.7))
-                        TextField("45", text: $barbellWeightInput)
+                        TextField(weightUnit == .kg ? "20" : "45", text: $barbellWeightInput)
                             .keyboardType(.decimalPad)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.white)
@@ -5418,7 +5438,7 @@ struct ExpandedProgressOptionsSheet: View {
                             .padding(.vertical, 4)
                             .background(Color(white: 0.08))
                             .clipShape(RoundedRectangle(cornerRadius: 6))
-                        Text("lb")
+                        Text(weightUnit.label)
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.5))
                     }
@@ -5611,8 +5631,9 @@ struct ExpandedProgressOptionsSheet: View {
                             barbellWeight = nil
                             onSaveBarbellWeight?()
                         }
-                    } else if let val = Double(input), val >= 15, val <= 75 {
-                        let newVal: Double? = abs(val - 45.0) < 0.001 ? nil : val
+                    } else if let val = Double(input), weightUnit.toLbs(val) >= 15, weightUnit.toLbs(val) <= 75 {
+                        let lbs = weightUnit.toLbs(val)
+                        let newVal: Double? = abs(lbs - 45.0) < 0.001 ? nil : lbs
                         if newVal != barbellWeight {
                             barbellWeight = newVal
                             onSaveBarbellWeight?()
@@ -5649,7 +5670,7 @@ struct ExpandedProgressOptionsSheet: View {
                 .presentationDragIndicator(.visible)
         }
         .onAppear {
-            barbellWeightInput = barbellWeight.map { String(format: "%g", $0) } ?? ""
+            barbellWeightInput = barbellWeight.map { String(format: "%g", weightUnit.fromLbs($0)) } ?? ""
             initialMinReps = minReps
             initialMaxReps = maxReps
             initialBarbellWeight = barbellWeight
@@ -5744,8 +5765,10 @@ struct ExpandedEffortOptionsSheet: View {
     private var hasBarbellWeightChanges: Bool {
         let input = barbellWeightInput.trimmingCharacters(in: .whitespaces)
         let newVal: Double? = {
-            guard !input.isEmpty, let val = Double(input), val >= 15, val <= 75 else { return nil }
-            return abs(val - 45.0) < 0.001 ? nil : val
+            guard !input.isEmpty, let val = Double(input) else { return nil }
+            let lbs = weightUnit.toLbs(val)
+            guard lbs >= 15, lbs <= 75 else { return nil }
+            return abs(lbs - 45.0) < 0.001 ? nil : lbs
         }()
         if initialBarbellWeight == nil && newVal == nil { return false }
         if let i = initialBarbellWeight, let n = newVal { return abs(i - n) > 0.001 }
@@ -5884,7 +5907,7 @@ struct ExpandedEffortOptionsSheet: View {
                         Text("Bar Weight")
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.7))
-                        TextField("45", text: $barbellWeightInput)
+                        TextField(weightUnit == .kg ? "20" : "45", text: $barbellWeightInput)
                             .keyboardType(.decimalPad)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.white)
@@ -5894,7 +5917,7 @@ struct ExpandedEffortOptionsSheet: View {
                             .padding(.vertical, 4)
                             .background(Color(white: 0.08))
                             .clipShape(RoundedRectangle(cornerRadius: 6))
-                        Text("lb")
+                        Text(weightUnit.label)
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.5))
                     }
@@ -6056,7 +6079,7 @@ struct ExpandedEffortOptionsSheet: View {
             initialRepRangeMin = repRangeMin
             initialRepRangeMax = repRangeMax
             initialBarbellWeight = barbellWeight
-            barbellWeightInput = barbellWeight.map { String(format: "%g", $0) } ?? ""
+            barbellWeightInput = barbellWeight.map { String(format: "%g", weightUnit.fromLbs($0)) } ?? ""
         }
     }
 

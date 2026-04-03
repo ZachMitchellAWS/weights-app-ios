@@ -409,57 +409,72 @@ struct TrendsCalculator {
         .sorted { $0.date < $1.date }
     }
 
-    // MARK: - Monthly Summary
+    // MARK: - Period Summary
 
-    struct MonthlySummary {
-        let currentMonthSets: Int
-        let previousMonthSets: Int
-        let currentMonthVolume: Double
-        let previousMonthVolume: Double
+    struct PeriodSummary {
+        let currentPeriodSets: Int
+        let avgSets: Int          // 12-week average
+        let currentPeriodVolume: Double
+        let avgVolume: Double     // 12-week average
         let prCount: Int
+        let avgPRs: Int           // 12-week average
         let mostTrainedExercise: String?
         let mostTrainedCount: Int
-
-        var setsChange: Double {
-            guard previousMonthSets > 0 else { return 0 }
-            return Double(currentMonthSets - previousMonthSets) / Double(previousMonthSets) * 100
-        }
-
-        var volumeChange: Double {
-            guard previousMonthVolume > 0 else { return 0 }
-            return (currentMonthVolume - previousMonthVolume) / previousMonthVolume * 100
-        }
     }
 
-    static func monthlySummary(from sets: [LiftSet]) -> MonthlySummary {
+    /// Current week summary compared against 12-week average.
+    /// Week starts Monday, matching the insights narrative week.
+    static func weeklySummary(from sets: [LiftSet]) -> PeriodSummary {
         let calendar = Calendar.current
         let now = Date()
-        let currentMonthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now))!
-        let previousMonthStart = calendar.date(byAdding: .month, value: -1, to: currentMonthStart)!
+        let weekStart = calendar.startOfWeek(for: now)
+        guard let twelveWeeksAgo = calendar.date(byAdding: .weekOfYear, value: -12, to: weekStart) else {
+            return PeriodSummary(currentPeriodSets: 0, avgSets: 0, currentPeriodVolume: 0, avgVolume: 0, prCount: 0, avgPRs: 0, mostTrainedExercise: nil, mostTrainedCount: 0)
+        }
 
-        let currentMonthSets = sets.filter { $0.createdAt >= currentMonthStart }
-        let previousMonthSets = sets.filter { $0.createdAt >= previousMonthStart && $0.createdAt < currentMonthStart }
+        // Current week
+        let currentSets = sets.filter { $0.createdAt >= weekStart }
 
-        let currentVolume = currentMonthSets.reduce(0.0) { $0 + $1.weight * Double($1.reps) }
-        let previousVolume = previousMonthSets.reduce(0.0) { $0 + $1.weight * Double($1.reps) }
+        // Prior 12 weeks (for averaging)
+        let priorSets = sets.filter { $0.createdAt >= twelveWeeksAgo && $0.createdAt < weekStart }
 
-        // Count PRs this month
-        let prEvents = prTimeline(from: sets).filter { $0.date >= currentMonthStart }
+        let currentVolume = currentSets.reduce(0.0) { $0 + $1.weight * Double($1.reps) }
+        let priorVolume = priorSets.reduce(0.0) { $0 + $1.weight * Double($1.reps) }
 
-        // Most trained exercise this month
-        let exerciseCounts = Dictionary(grouping: currentMonthSets) { $0.exercise?.name ?? "Unknown" }
+        // 12-week averages
+        let avgSets = priorSets.count / 12
+        let avgVolume = priorVolume / 12.0
+
+        // PRs
+        let allPREvents = prTimeline(from: sets)
+        let currentPRs = allPREvents.filter { $0.date >= weekStart }.count
+        let priorPRs = allPREvents.filter { $0.date >= twelveWeeksAgo && $0.date < weekStart }.count
+        let avgPRs = priorPRs / 12
+
+        // Most trained exercise this week
+        let exerciseCounts = Dictionary(grouping: currentSets) { $0.exercise?.name ?? "Unknown" }
             .mapValues { $0.count }
         let mostTrained = exerciseCounts.max { $0.value < $1.value }
 
-        return MonthlySummary(
-            currentMonthSets: currentMonthSets.count,
-            previousMonthSets: previousMonthSets.count,
-            currentMonthVolume: currentVolume,
-            previousMonthVolume: previousVolume,
-            prCount: prEvents.count,
+        return PeriodSummary(
+            currentPeriodSets: currentSets.count,
+            avgSets: avgSets,
+            currentPeriodVolume: currentVolume,
+            avgVolume: avgVolume,
+            prCount: currentPRs,
+            avgPRs: avgPRs,
             mostTrainedExercise: mostTrained?.key,
             mostTrainedCount: mostTrained?.value ?? 0
         )
+    }
+
+    /// Returns the current week's start and end dates (Monday-based).
+    static func currentWeekRange() -> (start: Date, end: Date) {
+        let calendar = Calendar.current
+        let now = Date()
+        let weekStart = calendar.startOfWeek(for: now)
+        let weekEnd = calendar.date(byAdding: .day, value: 6, to: weekStart) ?? now
+        return (weekStart, weekEnd)
     }
 
     // MARK: - 1RM Progression
@@ -510,7 +525,7 @@ struct TrendsCalculator {
         FundamentalExercise(id: Exercise.deadliftsId, name: "Deadlifts", icon: "DeadliftIcon", ratioCoefficient: 1.40),
         FundamentalExercise(id: Exercise.squatsId, name: "Squats", icon: "SquatIcon", ratioCoefficient: 1.25),
         FundamentalExercise(id: Exercise.benchPressId, name: "Bench Press", icon: "BenchPressIcon", ratioCoefficient: 1.00),
-        FundamentalExercise(id: Exercise.barbellRowId, name: "Barbell Row", icon: "BarbellRowIcon", ratioCoefficient: 0.825),
+        FundamentalExercise(id: Exercise.barbellRowId, name: "Barbell Rows", icon: "BarbellRowIcon", ratioCoefficient: 0.825),
         FundamentalExercise(id: Exercise.overheadPressId, name: "Overhead Press", icon: "OverheadPressIcon", ratioCoefficient: 0.625),
     ]
 

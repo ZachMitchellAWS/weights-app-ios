@@ -15,14 +15,7 @@ struct BalanceOverTimeWidget: View {
     let isPremium: Bool
     @Binding var showUpsell: Bool
 
-    private var snapshots: [TrendsCalculator.WeeklyBalanceSnapshot] {
-        TrendsCalculator.weeklyBalanceHistory(
-            from: allEstimated1RM,
-            bodyweight: bodyweight,
-            sex: sex,
-            weeks: 8
-        )
-    }
+    @State private var snapshots: [TrendsCalculator.WeeklyBalanceSnapshot] = []
 
     private var hasData: Bool { snapshots.count >= 2 }
 
@@ -47,6 +40,14 @@ struct BalanceOverTimeWidget: View {
                 )
             }
         }
+        .task(id: allEstimated1RM.count) {
+            snapshots = TrendsCalculator.weeklyBalanceHistory(
+                from: allEstimated1RM,
+                bodyweight: bodyweight,
+                sex: sex,
+                weeks: 8
+            )
+        }
     }
 
     // MARK: - Locked Content
@@ -69,7 +70,7 @@ struct BalanceOverTimeWidget: View {
         .background(Color(white: 0.14))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .premiumLocked(
-            title: "Unlock Strength Balance",
+            title: "Unlock Balance Trends",
             subtitle: "See how your exercise balance trends over time",
             showUpsell: $showUpsell
         )
@@ -103,18 +104,11 @@ struct BalanceOverTimeWidget: View {
                 .symbolSize(30)
             }
         }
-        .chartYScale(domain: 0...4)
+        .chartYScale(domain: 0.0...5.0)
         .chartYAxis {
-            AxisMarks(values: [0, 1, 2, 3, 4]) { value in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                    .foregroundStyle(.white.opacity(0.08))
-                AxisValueLabel {
-                    if let v = value.as(Int.self) {
-                        Text(categoryLabel(for: v))
-                            .font(.inter(size: 8))
-                            .foregroundStyle(.white.opacity(0.5))
-                    }
-                }
+            AxisMarks(values: [0, 1, 2, 3, 4]) { _ in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0))
+                    .foregroundStyle(.clear)
             }
         }
         .chartXAxis {
@@ -128,14 +122,27 @@ struct BalanceOverTimeWidget: View {
         }
         .chartBackground { proxy in
             GeometryReader { geo in
-                let plotArea = geo[proxy.plotFrame!]
-                // Green zone for Symmetrical+Balanced (0-1)
-                if let top = proxy.position(forY: 4),
-                   let bottom = proxy.position(forY: 2.5) {
-                    Rectangle()
-                        .fill(Color.setEasy.opacity(0.06))
-                        .frame(width: plotArea.width, height: bottom - top)
-                        .offset(x: plotArea.minX, y: top)
+                let bands: [(yTop: Double, yBottom: Double, color: Color, label: String)] = [
+                    (4.5, 3.5, Color.setEasy, "Symmetrical"),
+                    (3.5, 2.5, Color.setModerate, "Balanced"),
+                    (2.5, 1.5, Color.appAccent, "Uneven"),
+                    (1.5, 0.5, Color.setNearMax, "Skewed"),
+                ]
+                ForEach(bands.indices, id: \.self) { i in
+                    let band = bands[i]
+                    if let top = proxy.position(forY: band.yTop),
+                       let bottom = proxy.position(forY: band.yBottom) {
+                        let height = bottom - top
+                        ZStack {
+                            Rectangle()
+                                .fill(band.color.opacity(0.12))
+                            Text(band.label)
+                                .font(.system(size: 8, weight: .medium))
+                                .foregroundStyle(band.color.opacity(0.4))
+                        }
+                        .frame(width: geo.size.width, height: height)
+                        .position(x: geo.size.width / 2, y: top + height / 2)
+                    }
                 }
             }
         }
@@ -210,7 +217,7 @@ struct BalanceOverTimeWidget: View {
 
     private func categoryLabel(for spread: Int) -> String {
         switch spread {
-        case 4: return "Symm."
+        case 4: return "Symmetrical"
         case 3: return "Balanced"
         case 2: return "Uneven"
         case 1: return "Skewed"

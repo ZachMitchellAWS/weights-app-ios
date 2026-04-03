@@ -170,7 +170,7 @@ struct StrengthInsightWidget: View {
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: isPremium ? "chart.bar.doc.horizontal" : "sparkles")
-                                Text(isPremium ? "See Weekly Insights" : "Unlock Weekly Insights")
+                                Text(isPremium ? "See Progress Narratives" : "Unlock Progress Narratives")
                             }
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.black)

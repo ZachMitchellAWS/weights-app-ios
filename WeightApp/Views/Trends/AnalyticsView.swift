@@ -80,6 +80,15 @@ struct AnalyticsView: View {
 
                         TrainingRecencyWidget(allSets: allSets, isPremium: isPremium, showUpsell: $showUpsell)
 
+                        TierProgressionWidget(
+                            allEstimated1RM: allEstimated1RM,
+                            bodyweight: userProperties?.bodyweight ?? 200.0,
+                            sex: BiologicalSex(rawValue: userProperties?.biologicalSex ?? "male") ?? .male,
+                            isPremium: isPremium,
+                            weightUnit: userProperties?.preferredWeightUnit ?? .lbs,
+                            showUpsell: $showUpsell
+                        )
+
                         OneRMProgressionWidget(allEstimated1RM: allEstimated1RM, allExerciseNames: exercises.map(\.name))
 
                         WeeklyVolumeWidget(allSets: allSets, weightUnit: userProperties?.preferredWeightUnit ?? .lbs, isPremium: isPremium, showUpsell: $showUpsell)

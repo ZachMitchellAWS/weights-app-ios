@@ -130,7 +130,7 @@ struct TierJourneyOverlay: View {
                     .foregroundStyle(tier.color)
             }
 
-            Spacer().frame(height: 6)
+            Spacer().frame(height: 14)
 
             Text(tier.title)
                 .font(.bebasNeue(size: 28))
@@ -219,7 +219,7 @@ struct TierJourneyOverlay: View {
                 }
 
             case .completion(let tier):
-                ctaCapsule(label: "See Your Strength Tier", color: tier.color) {
+                ctaCapsule(label: "See My Strength Tier", color: tier.color) {
                     onDismiss()
                     onNavigateToStrength()
                 }
@@ -247,7 +247,7 @@ struct TierJourneyOverlay: View {
         switch name {
         case "Overhead Press": return "OH Press"
         case "Bench Press": return "Bench"
-        case "Barbell Row": return "Rows"
+        case "Barbell Rows": return "Rows"
         default: return name
         }
     }

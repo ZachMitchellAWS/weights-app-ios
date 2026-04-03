@@ -153,7 +153,7 @@ struct StrengthTierData {
                 .legend:       TierThreshold(isAbsolute: false, min: 3.0, max: nil),
             ],
         ],
-        "Barbell Row": [
+        "Barbell Rows": [
             .male: [
                 .novice:       TierThreshold(isAbsolute: false, min: 0,    max: 0.50),
                 .beginner:     TierThreshold(isAbsolute: false, min: 0.50, max: 0.75),

@@ -32,17 +32,8 @@ struct SetIntensityWidget: View {
         return exercises.first(where: { $0.name == name })
     }
 
-    private var setsWithPRInfo: [LegacyCheckInView.SetWithPR] {
-        guard let exercise = selectedExercise else { return [] }
-        return LegacyCheckInView.computeSetsWithPRInfo(for: exercise, from: allSets, estimated1RMs: allEstimated1RM)
-    }
-
-    private var displayData: [LegacyCheckInView.SetWithPR] {
-        if showPROnly {
-            return setsWithPRInfo.filter { $0.increases1RM }
-        }
-        return setsWithPRInfo
-    }
+    @State private var setsWithPRInfo: [LegacyCheckInView.SetWithPR] = []
+    @State private var displayData: [LegacyCheckInView.SetWithPR] = []
 
     var body: some View {
         if isPremium {
@@ -76,6 +67,7 @@ struct SetIntensityWidget: View {
                     if !setsWithPRInfo.isEmpty {
                         Button {
                             showPROnly.toggle()
+                            displayData = showPROnly ? setsWithPRInfo.filter { $0.increases1RM } : setsWithPRInfo
                         } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: showPROnly ? "checkmark.square.fill" : "square")
@@ -92,6 +84,16 @@ struct SetIntensityWidget: View {
                     exercisePicker
                 }
             }
+        }
+        .task(id: "\(allSets.count)-\(selectedExerciseName ?? "")-\(showPROnly)") {
+            guard let exercise = selectedExercise else {
+                setsWithPRInfo = []
+                displayData = []
+                return
+            }
+            let computed = LegacyCheckInView.computeSetsWithPRInfo(for: exercise, from: allSets, estimated1RMs: allEstimated1RM)
+            setsWithPRInfo = computed
+            displayData = showPROnly ? computed.filter { $0.increases1RM } : computed
         }
         .onAppear {
             if selectedExerciseName == nil {

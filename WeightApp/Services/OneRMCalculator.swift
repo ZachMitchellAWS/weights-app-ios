@@ -176,10 +176,12 @@ enum OneRMCalculator {
         current1RM: Double,
         targetPercent1RMs: [Double],
         loadType: ExerciseLoadType,
-        repRange: ClosedRange<Int>
+        repRange: ClosedRange<Int>,
+        barWeight: Double = 45.0
     ) -> [EffortSuggestion] {
         guard current1RM > 0 else { return [] }
         let increment: Double = loadType.isBarbell ? 5.0 : 2.5
+        let minWeight: Double = loadType.isBarbell ? barWeight : increment
         var seen = Set<String>()
         var results: [EffortSuggestion] = []
         for pct in targetPercent1RMs {
@@ -187,7 +189,7 @@ enum OneRMCalculator {
             for reps in repRange {
                 let rawWeight = targetE1RM * 30.0 / (30.0 + Double(reps))
                 let rounded = max(0, (rawWeight / increment).rounded() * increment)
-                guard rounded >= increment else { continue }
+                guard rounded >= minWeight else { continue }
                 let key = "\(rounded)-\(reps)"
                 guard seen.insert(key).inserted else { continue }
                 let actualPct = estimate1RM(weight: rounded, reps: reps) / current1RM * 100.0

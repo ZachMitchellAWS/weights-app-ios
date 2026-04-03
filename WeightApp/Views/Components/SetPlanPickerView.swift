@@ -8,14 +8,26 @@ struct SetPlanCatalogView: View {
     private var allTemplates: [SetPlan]
 
     @Query private var userPropertiesItems: [UserProperties]
+    @Query private var entitlementRecords: [EntitlementGrant]
 
     @State private var showNewTemplateAlert = false
     @State private var newTemplateName = ""
     @State private var showDeleteConfirmation = false
     @State private var templateToDelete: SetPlan?
+    @State private var showUpsell = false
 
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
     private static let effortLevels = ["easy", "moderate", "hard", "redline", "pr"]
+
+    private var isPremium: Bool {
+        if FreeOverride.isEnabled { return false }
+        return PremiumOverride.isEnabled || EntitlementGrant.isPremium(entitlementRecords)
+    }
+
+    private var setPlansUpsellPage: Int {
+        let index = SubscriptionConfig.premiumFeatures.firstIndex { $0.title == "Set Plan Catalog" } ?? 3
+        return index + 1
+    }
 
     private var userProperties: UserProperties {
         if let props = userPropertiesItems.first { return props }
@@ -51,11 +63,15 @@ struct SetPlanCatalogView: View {
                     Spacer()
 
                     Button {
-                        newTemplateName = ""
-                        showNewTemplateAlert = true
+                        if isPremium {
+                            newTemplateName = ""
+                            showNewTemplateAlert = true
+                        } else {
+                            showUpsell = true
+                        }
                     } label: {
                         HStack(spacing: 6) {
-                            Image(systemName: "plus")
+                            Image(systemName: isPremium ? "plus" : "lock.fill")
                                 .font(.system(size: 14, weight: .bold))
                             Text("New")
                                 .font(.subheadline.weight(.semibold))
@@ -91,12 +107,38 @@ struct SetPlanCatalogView: View {
 
                 ScrollView {
                     VStack(spacing: 16) {
-                        // Built-in section
+                        // Built-in section — free presets
                         if !builtInTemplates.isEmpty {
                             sectionHeader("Presets")
 
-                            ForEach(builtInTemplates) { template in
+                            ForEach(builtInTemplates.filter { SetPlan.freePresetIds.contains($0.id) }) { template in
                                 templateCard(template: template, isEditable: false)
+                            }
+
+                            // Premium presets
+                            let premiumPresets = builtInTemplates.filter { !SetPlan.freePresetIds.contains($0.id) }
+                            if !premiumPresets.isEmpty {
+                                sectionHeader("Premium Set Plans")
+
+                                if isPremium {
+                                    ForEach(premiumPresets) { template in
+                                        templateCard(template: template, isEditable: false)
+                                    }
+                                } else {
+                                    // Show just a few cards as preview behind the lock
+                                    VStack(spacing: 8) {
+                                        ForEach(premiumPresets.prefix(3)) { template in
+                                            templateCard(template: template, isEditable: false)
+                                        }
+                                    }
+                                    .premiumLocked(
+                                        title: "Unlock Premium Set Plans",
+                                        subtitle: "Access premium set plans and create your own",
+                                        blurRadius: 6,
+                                        showUpsell: $showUpsell
+                                    )
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                }
                             }
                         }
 
@@ -117,6 +159,9 @@ struct SetPlanCatalogView: View {
                     .padding(.top, 8)
                 }
             }
+        }
+        .fullScreenCover(isPresented: $showUpsell) {
+            UpsellView(initialPage: setPlansUpsellPage) { _ in showUpsell = false }
         }
         .alert("New Template", isPresented: $showNewTemplateAlert) {
             TextField("Name", text: $newTemplateName)

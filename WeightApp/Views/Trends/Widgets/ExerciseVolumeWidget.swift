@@ -16,14 +16,9 @@ struct ExerciseVolumeWidget: View {
 
     @State private var selectedExercise: String?
 
-    private var exerciseNames: [String] {
-        TrendsCalculator.exerciseNames(from: allSets)
-    }
-
-    private var dataPoints: [TrendsCalculator.WeeklyVolume] {
-        guard let exercise = selectedExercise ?? exerciseNames.first else { return [] }
-        return TrendsCalculator.exerciseWeeklyVolume(from: allSets, exerciseName: exercise)
-    }
+    @State private var exerciseNames: [String] = []
+    @State private var dataPoints: [TrendsCalculator.WeeklyVolume] = []
+    @State private var volumeBandInfo: (average: Double, bands: [TrendsCalculator.VolumeBand]) = (0, [])
 
     var body: some View {
         if isPremium {
@@ -58,6 +53,19 @@ struct ExerciseVolumeWidget: View {
         .onAppear {
             if selectedExercise == nil {
                 selectedExercise = exerciseNames.first
+            }
+        }
+        .task(id: allSets.count) {
+            exerciseNames = TrendsCalculator.exerciseNames(from: allSets)
+        }
+        .task(id: "\(allSets.count)-\(selectedExercise ?? "")") {
+            let exercise = selectedExercise ?? exerciseNames.first
+            if let exercise {
+                dataPoints = TrendsCalculator.exerciseWeeklyVolume(from: allSets, exerciseName: exercise)
+                volumeBandInfo = TrendsCalculator.volumeBands(from: allSets, exerciseName: exercise)
+            } else {
+                dataPoints = []
+                volumeBandInfo = (0, [])
             }
         }
     }
@@ -186,11 +194,6 @@ struct ExerciseVolumeWidget: View {
     }
 
     // MARK: - Premium Chart
-
-    private var volumeBandInfo: (average: Double, bands: [TrendsCalculator.VolumeBand]) {
-        guard let exercise = selectedExercise ?? exerciseNames.first else { return (0, []) }
-        return TrendsCalculator.volumeBands(from: allSets, exerciseName: exercise)
-    }
 
     private var chartView: some View {
         let bandInfo = volumeBandInfo

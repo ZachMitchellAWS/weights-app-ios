@@ -15,9 +15,18 @@ struct StrengthMilestonesWidget: View {
     var weightUnit: WeightUnit = .lbs
     @Binding var showUpsell: Bool
 
+    @State private var milestoneResult: TrendsCalculator.MilestoneResult?
+
     var body: some View {
         if isPremium {
             unlockedContent
+                .task(id: allEstimated1RM.count) {
+                    if let bw = bodyweight, let sex = biologicalSex {
+                        milestoneResult = TrendsCalculator.strengthMilestones(from: allEstimated1RM, bodyweight: bw, biologicalSex: sex)
+                    } else {
+                        milestoneResult = nil
+                    }
+                }
         } else {
             lockedContent
         }
@@ -27,8 +36,7 @@ struct StrengthMilestonesWidget: View {
 
     @ViewBuilder
     private var unlockedContent: some View {
-        if let bw = bodyweight, let sex = biologicalSex,
-           let result = TrendsCalculator.strengthMilestones(from: allEstimated1RM, bodyweight: bw, biologicalSex: sex) {
+        if let result = milestoneResult {
             MilestoneContentView(result: result, weightUnit: weightUnit)
         } else {
             WidgetCard(title: "Strength Milestones") {
@@ -333,7 +341,7 @@ private struct TierMilestoneBadge: View {
         switch name {
         case "Bench Press": return "Bench"
         case "Overhead Press": return "OHP"
-        case "Barbell Row": return "Row"
+        case "Barbell Rows": return "Row"
         default: return name
         }
     }

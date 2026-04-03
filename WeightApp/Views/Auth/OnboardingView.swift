@@ -466,7 +466,7 @@ private struct OnboardingProgressConcept: View {
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
-                Text("Follow set options that incrementally increase your\n\(Text("estimated one-rep maxes").foregroundColor(.appAccent))")
+                Text("Follow set options that increase your\n\(Text("estimated one-rep maxes").foregroundColor(.appAccent))")
                     .font(.inter(size: 17))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
@@ -1339,7 +1339,7 @@ private struct OnboardingMilestonesConcept: View {
         switch name {
         case "Overhead Press": return "OHP"
         case "Bench Press": return "Bench"
-        case "Barbell Row": return "Row"
+        case "Barbell Rows": return "Row"
         default: return name
         }
     }
@@ -1426,8 +1426,8 @@ private struct OnboardingBeyondBasicsConcept: View {
     private let groups: [(fundamental: (icon: String, name: String), accessories: [(icon: String, name: String)])] = [
         (("DeadliftIcon", "Deadlifts"), [("FrontSquatsIcon", "Front Squats"), ("BackExtensionsIcon", "Back Ext."), ("HangingLegRaisesIcon", "Leg Raises")]),
         (("SquatIcon", "Squats"), [("BulgarianSplitSquatsIcon", "Split Squats"), ("DeadliftIcon", "RDLs"), ("StandingCalfRaisesIcon", "Calf Raises")]),
-        (("BenchPressIcon", "Bench"), [("DipsIcon", "Dips"), ("FlyesIcon", "Flys"), ("LateralRaisesIcon", "Lat. Raises")]),
-        (("BarbellRowIcon", "Row"), [("PullUpIcon", "Pull Ups"), ("CurlsIcon", "Curls"), ("PulloversIcon", "Pullovers")]),
+        (("BenchPressIcon", "Bench"), [("DipsIcon", "Dips"), ("DumbbellFlysIcon", "DB Flys"), ("LateralRaisesIcon", "Lat. Raises")]),
+        (("BarbellRowIcon", "Row"), [("PullUpIcon", "Pull Ups"), ("CurlsIcon", "Curls"), ("DumbbellPulloversIcon", "Pullovers")]),
         (("OverheadPressIcon", "OHP"), [("CloseGripBenchPressIcon", "CG Bench"), ("RearDeltFlysIcon", "Rear Delts"), ("CableYRaisesIcon", "Y Raises")]),
     ]
 

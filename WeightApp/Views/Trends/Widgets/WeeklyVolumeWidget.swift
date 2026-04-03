@@ -14,13 +14,8 @@ struct WeeklyVolumeWidget: View {
     let isPremium: Bool
     @Binding var showUpsell: Bool
 
-    private var weeklyData: [TrendsCalculator.WeeklyVolume] {
-        TrendsCalculator.weeklyVolume(from: allSets, weeks: 8)
-    }
-
-    private var volumeBandInfo: (average: Double, bands: [TrendsCalculator.VolumeBand]) {
-        TrendsCalculator.volumeBands(from: allSets)
-    }
+    @State private var weeklyData: [TrendsCalculator.WeeklyVolume] = []
+    @State private var volumeBandInfo: (average: Double, bands: [TrendsCalculator.VolumeBand]) = (0, [])
 
     var body: some View {
         if isPremium {
@@ -39,6 +34,10 @@ struct WeeklyVolumeWidget: View {
             } else {
                 chartView
             }
+        }
+        .task(id: allSets.count) {
+            weeklyData = TrendsCalculator.weeklyVolume(from: allSets, weeks: 8)
+            volumeBandInfo = TrendsCalculator.volumeBands(from: allSets)
         }
     }
 

@@ -13,9 +13,7 @@ struct PRTimelineWidget: View {
     @Binding var showUpsell: Bool
     var weightUnit: WeightUnit = .lbs
 
-    private var leaderboard: [TrendsCalculator.ExercisePRSummary] {
-        TrendsCalculator.prLeaderboard(from: allEstimated1RM)
-    }
+    @State private var leaderboard: [TrendsCalculator.ExercisePRSummary] = []
 
     private var totalPRCount: Int {
         leaderboard.reduce(0) { $0 + $1.prCount }
@@ -25,6 +23,9 @@ struct PRTimelineWidget: View {
         if isPremium {
             WidgetCard(title: "Personal Records") {
                 unlockedContent
+            }
+            .task(id: allEstimated1RM.count) {
+                leaderboard = TrendsCalculator.prLeaderboard(from: allEstimated1RM)
             }
         } else {
             lockedContent
@@ -58,7 +59,7 @@ struct PRTimelineWidget: View {
             PRLeaderboardRow.fake(rank: 2, name: "Squat", prCount: 6, gain: 22.1)
             PRLeaderboardRow.fake(rank: 3, name: "Deadlift", prCount: 5, gain: 18.7)
             PRLeaderboardRow.fake(rank: 4, name: "Overhead Press", prCount: 3, gain: 8.4)
-            PRLeaderboardRow.fake(rank: 5, name: "Barbell Row", prCount: 1, gain: 5.2)
+            PRLeaderboardRow.fake(rank: 5, name: "Barbell Rows", prCount: 1, gain: 5.2)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

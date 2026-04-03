@@ -14,7 +14,7 @@ enum TrendsTab: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .narratives: return "Insights"
+        case .narratives: return "Narratives"
         case .strength: return "Strength"
         case .analytics: return "Analytics"
         }

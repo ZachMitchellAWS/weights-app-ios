@@ -16,13 +16,11 @@ struct StrengthTierWidget: View {
     private var biologicalSex: String { userProperties.biologicalSex ?? "male" }
     private var bodyweight: Double { userProperties.bodyweight ?? 0 }
 
-    private var tierResult: TrendsCalculator.StrengthTierResult {
-        TrendsCalculator.strengthTierAssessment(
-            from: allEstimated1RM,
-            bodyweight: bodyweight,
-            biologicalSex: biologicalSex
-        )
-    }
+    @State private var tierResult: TrendsCalculator.StrengthTierResult = TrendsCalculator.strengthTierAssessment(
+        from: [],
+        bodyweight: 0,
+        biologicalSex: "male"
+    )
 
     var body: some View {
         if isPremium {
@@ -34,6 +32,13 @@ struct StrengthTierWidget: View {
             .background(Color(white: 0.14))
             .clipShape(RoundedRectangle(cornerRadius: 12))
             // .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.4), lineWidth: 1.5))
+            .task(id: allEstimated1RM.count) {
+                tierResult = TrendsCalculator.strengthTierAssessment(
+                    from: allEstimated1RM,
+                    bodyweight: bodyweight,
+                    biologicalSex: biologicalSex
+                )
+            }
         } else {
             lockedContent
         }
@@ -98,7 +103,7 @@ struct StrengthTierWidget: View {
                 Divider().background(.white.opacity(0.1))
                 fakeExerciseRow(name: "Overhead Press", lbs: 135, tier: .intermediate)
                 Divider().background(.white.opacity(0.1))
-                fakeExerciseRow(name: "Barbell Row", lbs: 185, tier: .beginner)
+                fakeExerciseRow(name: "Barbell Rows", lbs: 185, tier: .beginner)
             }
 
         }

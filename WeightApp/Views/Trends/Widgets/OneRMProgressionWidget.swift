@@ -103,10 +103,7 @@ struct OneRMProgressionWidget: View {
 
     @State private var selectedExercise: String?
 
-    private var dataPoints: [TrendsCalculator.OneRMDataPoint] {
-        guard let exercise = selectedExercise ?? allExerciseNames.first else { return [] }
-        return TrendsCalculator.oneRMProgression(from: allEstimated1RM, exerciseName: exercise)
-    }
+    @State private var dataPoints: [TrendsCalculator.OneRMDataPoint] = []
 
     var body: some View {
         WidgetCard(title: "1RM Progression") {
@@ -124,6 +121,13 @@ struct OneRMProgressionWidget: View {
             if selectedExercise == nil {
                 selectedExercise = allExerciseNames.first
             }
+        }
+        .task(id: "\(allEstimated1RM.count)-\(selectedExercise ?? "")") {
+            guard let exercise = selectedExercise ?? allExerciseNames.first else {
+                dataPoints = []
+                return
+            }
+            dataPoints = TrendsCalculator.oneRMProgression(from: allEstimated1RM, exerciseName: exercise)
         }
     }
 

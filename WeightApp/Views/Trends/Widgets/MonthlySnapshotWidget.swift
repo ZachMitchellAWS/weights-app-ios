@@ -11,7 +11,7 @@ struct MonthlySnapshotWidget: View {
     let allSets: [LiftSet]
     let allEstimated1RM: [Estimated1RM]
 
-    @State private var summary: TrendsCalculator.MonthlySummary?
+    @State private var summary: TrendsCalculator.PeriodSummary?
     @State private var distribution: TrendsCalculator.IntensityDistribution?
 
     private var buckets: [(bucket: TrendsCalculator.IntensityBucket, count: Int, percentage: Double)] {
@@ -25,39 +25,62 @@ struct MonthlySnapshotWidget: View {
         ].filter { $0.count > 0 }
     }
 
-    private var monthName: String {
+    private var dateLabel: String {
         let formatter = DateFormatter()
-        formatter.dateFormat = "MMMM yyyy"
+        formatter.dateFormat = "MMMM d, yyyy"
         return formatter.string(from: Date())
     }
 
+    private var weekRangeLabel: String {
+        let range = TrendsCalculator.currentWeekRange()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        let startStr = formatter.string(from: range.start)
+        let endStr = formatter.string(from: range.end)
+        let yearFormatter = DateFormatter()
+        yearFormatter.dateFormat = ", yyyy"
+        return "\(startStr) – \(endStr)\(yearFormatter.string(from: range.end))"
+    }
+
     var body: some View {
-        WidgetCard(title: monthName, subtitle: "This month") {
+        WidgetCard(title: "This Week") {
             if allSets.isEmpty {
-                EmptyWidgetState(icon: "chart.bar.xaxis", message: "Log sets to see your monthly snapshot")
-            } else if let summary, let distribution {
+                EmptyWidgetState(icon: "chart.bar.xaxis", message: "Log sets to see your weekly snapshot")
+            } else if let summary {
                 VStack(spacing: 12) {
                     // Intensity bar
-                    GeometryReader { geometry in
-                        HStack(spacing: 2) {
-                            ForEach(buckets, id: \.bucket) { item in
-                                Rectangle()
-                                    .fill(colorFor(item.bucket))
-                                    .frame(width: max(geometry.size.width * CGFloat(item.percentage / 100) - 2, 0))
-                            }
-                        }
-                        .cornerRadius(6)
-                    }
-                    .frame(height: 28)
-
-                    // Compact legend — only non-zero buckets
-                    HStack(spacing: 6) {
-                        ForEach(buckets, id: \.bucket) { item in
-                            IntensityLegendItem(
-                                color: colorFor(item.bucket),
-                                label: item.bucket.rawValue,
-                                percentage: Int(item.percentage)
+                    if buckets.isEmpty {
+                        // Aesthetic empty state for bar
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.white.opacity(0.06))
+                            .frame(height: 28)
+                            .overlay(
+                                Text("No sets yet this week")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.25))
                             )
+                    } else {
+                        GeometryReader { geometry in
+                            HStack(spacing: 2) {
+                                ForEach(buckets, id: \.bucket) { item in
+                                    Rectangle()
+                                        .fill(colorFor(item.bucket))
+                                        .frame(width: max(geometry.size.width * CGFloat(item.percentage / 100) - 2, 0))
+                                }
+                            }
+                            .cornerRadius(6)
+                        }
+                        .frame(height: 28)
+
+                        // Compact legend — only non-zero buckets
+                        HStack(spacing: 6) {
+                            ForEach(buckets, id: \.bucket) { item in
+                                IntensityLegendItem(
+                                    color: colorFor(item.bucket),
+                                    label: item.bucket.rawValue,
+                                    percentage: Int(item.percentage)
+                                )
+                            }
                         }
                     }
 
@@ -65,43 +88,46 @@ struct MonthlySnapshotWidget: View {
                     VStack(spacing: 8) {
                         HStack(spacing: 8) {
                             MetricPill(
-                                value: "\(summary.currentMonthSets)",
-                                label: "Sets",
-                                detail: summary.previousMonthSets > 0 ? formatChange(summary.setsChange) : nil,
-                                detailColor: summary.setsChange >= 0 ? .setEasy : .setNearMax
+                                value: "\(summary.currentPeriodSets)",
+                                label: "Total Sets",
+                                detail: "12-Week Avg: \(summary.avgSets)"
                             )
 
                             MetricPill(
                                 value: "\(summary.prCount)",
-                                label: "PRs",
-                                detail: distribution.total > 0 ? "\(Int(distribution.percentage(for: .pr)))% of all sets" : nil,
-                                detailColor: .white.opacity(0.5)
+                                label: "Progress Sets",
+                                detail: "12-Week Avg: \(summary.avgPRs)"
                             )
                         }
 
                         HStack(spacing: 8) {
                             MetricPill(
-                                value: abbreviatedVolume(summary.currentMonthVolume),
+                                value: abbreviatedVolume(summary.currentPeriodVolume),
                                 label: "Volume",
-                                detail: summary.previousMonthVolume > 0 ? formatChange(summary.volumeChange) : nil,
-                                detailColor: summary.volumeChange >= 0 ? .setEasy : .setNearMax
+                                detail: "12-Week Avg: \(abbreviatedVolume(summary.avgVolume))"
                             )
 
                             MetricPill(
                                 value: summary.mostTrainedExercise ?? "—",
                                 label: "Most Trained",
                                 detail: summary.mostTrainedExercise != nil ? "\(summary.mostTrainedCount) sets" : nil,
-                                detailColor: .appAccent,
-                                valueFont: .callout.weight(.bold)
+                                smallValue: true
                             )
                         }
                     }
                 }
             }
+        } trailing: {
+            Text(weekRangeLabel)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.4))
         }
         .task(id: allSets.count) {
-            summary = TrendsCalculator.monthlySummary(from: allSets)
-            distribution = TrendsCalculator.intensityDistribution(from: allSets, estimated1RMs: allEstimated1RM, days: 30)
+            summary = TrendsCalculator.weeklySummary(from: allSets)
+            // Use days since Monday (week start) so distribution matches the week range
+            let range = TrendsCalculator.currentWeekRange()
+            let daysSinceWeekStart = max(1, Calendar.current.dateComponents([.day], from: range.start, to: Date()).day ?? 7)
+            distribution = TrendsCalculator.intensityDistribution(from: allSets, estimated1RMs: allEstimated1RM, days: daysSinceWeekStart)
         }
     }
 
@@ -113,11 +139,6 @@ struct MonthlySnapshotWidget: View {
         case .redline: return .setNearMax
         case .pr: return .setPR
         }
-    }
-
-    private func formatChange(_ value: Double) -> String {
-        let sign = value >= 0 ? "+" : ""
-        return "\(sign)\(Int(value))% vs last month"
     }
 
     private func abbreviatedVolume(_ volume: Double) -> String {
@@ -135,16 +156,23 @@ private struct MetricPill: View {
     let value: String
     let label: String
     let detail: String?
-    let detailColor: Color
     var valueFont: Font = .title.weight(.bold)
+    var smallValue: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(value)
-                .font(valueFont)
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+            ZStack(alignment: .bottomLeading) {
+                // Hidden spacer text to maintain consistent height
+                Text("0")
+                    .font(valueFont)
+                    .hidden()
+
+                Text(value)
+                    .font(smallValue ? .callout.weight(.bold) : valueFont)
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(smallValue ? 0.7 : 1.0)
+            }
 
             Text(label)
                 .font(.caption)
@@ -153,7 +181,7 @@ private struct MetricPill: View {
             if let detail = detail {
                 Text(detail)
                     .font(.caption.weight(.medium))
-                    .foregroundStyle(detailColor)
+                    .foregroundStyle(.white.opacity(0.35))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             } else {

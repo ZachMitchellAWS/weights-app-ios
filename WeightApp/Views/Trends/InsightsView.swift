@@ -31,13 +31,7 @@ struct InsightsView: View {
 
     private var userProperties: UserProperties { userPropertiesItems.first ?? UserProperties() }
 
-    private var overallTier: StrengthTier {
-        TrendsCalculator.strengthTierAssessment(
-            from: allEstimated1RM,
-            bodyweight: userProperties.bodyweight ?? 0,
-            biologicalSex: userProperties.biologicalSex ?? "male"
-        ).overallTier
-    }
+    @State private var overallTier: StrengthTier = .none
 
     private var isPremium: Bool {
         if FreeOverride.isEnabled { return false }
@@ -58,9 +52,28 @@ struct InsightsView: View {
         .refreshable {
             await viewModel.fetchInsights(force: true, isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
         }
+        .task(id: allEstimated1RM.count) {
+            overallTier = TrendsCalculator.strengthTierAssessment(
+                from: allEstimated1RM,
+                bodyweight: userProperties.bodyweight ?? 0,
+                biologicalSex: userProperties.biologicalSex ?? "male"
+            ).overallTier
+        }
         .task {
             await viewModel.onAppear(isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek, overallTier: overallTier)
             PushNotificationService.shared.requestPermissionIfNeeded()
+        }
+        .onAppear {
+            // Throttled auto-refresh: re-fetch if 5+ minutes since last tab visit
+            let key = "narratives_tab_last_auto_refreshed"
+            let last = UserDefaults.standard.double(forKey: key)
+            let elapsed = last > 0 ? Date().timeIntervalSince1970 - last : .infinity
+            if elapsed > 5 * 60 {
+                UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: key)
+                Task {
+                    await viewModel.fetchInsights(force: true, isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
+                }
+            }
         }
         .onDisappear {
             viewModel.cancelAudioPoll()
@@ -90,7 +103,7 @@ struct InsightsView: View {
                     Image(systemName: "sparkles")
                         .font(.system(size: 14))
                         .foregroundStyle(Color.appAccent)
-                    Text("WEEKLY INSIGHTS")
+                    Text("WEEKLY PROGRESS NARRATIVES")
                         .font(.bebasNeue(size: 22))
                         .foregroundStyle(.white)
                 }
@@ -147,7 +160,7 @@ struct InsightsView: View {
                 }
             }
             .premiumLocked(
-                title: "Unlock Weekly Insights",
+                title: "Unlock Progress Narratives",
                 subtitle: "AI-powered analysis of your training each week",
                 showUpsell: $showUpsell
             )
@@ -188,7 +201,7 @@ struct InsightsView: View {
         VStack(spacing: 16) {
             ProgressView()
                 .tint(.white.opacity(0.6))
-            Text("Loading insights...")
+            Text("Loading narratives...")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.5))
         }
@@ -207,21 +220,21 @@ struct InsightsView: View {
 
             switch reason {
             case .noSetsLogged:
-                Text("No insights yet.")
+                Text("No narratives yet.")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.8))
 
-                Text("Log at least one set to unlock your weekly insight. Keep training!")
+                Text("Log at least one set to unlock your weekly narrative. Keep training!")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
 
             case .setsLoggedWeekInProgress(let sundayDate):
-                Text("No insights yet.")
+                Text("No narratives yet.")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.8))
 
-                Text("Your insight will be ready after \(sundayDate). Keep training in the meantime!")
+                Text("Your narrative will be ready after \(sundayDate). Keep training in the meantime!")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
@@ -241,7 +254,7 @@ struct InsightsView: View {
         VStack(spacing: 16) {
             ProgressView()
                 .tint(Color.appAccent)
-            Text("Generating your insights...")
+            Text("Generating your narrative...")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.7))
             Text("This usually takes about a minute.")
@@ -255,32 +268,21 @@ struct InsightsView: View {
     // MARK: - Error State
 
     private func errorContent(message: String) -> some View {
-        VStack(spacing: 16) {
-            Image(systemName: "exclamationmark.icloud")
-                .font(.system(size: 40))
-                .foregroundStyle(.white.opacity(0.4))
+        VStack(spacing: 12) {
+            Image(systemName: "arrow.down")
+                .font(.system(size: 24, weight: .medium))
+                .foregroundStyle(.white.opacity(0.25))
 
-            Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.7))
-                .multilineTextAlignment(.center)
+            Text("Your narrative isn't available right now")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white.opacity(0.6))
 
-            Button {
-                Task {
-                    await viewModel.fetchInsights(force: true, isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
-                }
-            } label: {
-                Text("Try Again")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 10)
-                    .background(Color.appAccent)
-                    .clipShape(Capsule())
-            }
+            Text("Pull down to refresh")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.35))
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 40)
+        .padding(.vertical, 50)
     }
 
     // MARK: - Date Range Formatting
