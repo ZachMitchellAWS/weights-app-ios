@@ -22,6 +22,8 @@ struct ExerciseDTO: Codable {
     let movementType: String?
     let weightIncrement: Double?
     let barbellWeight: Double?
+    let currentE1RM: Double?
+    let currentE1RMDate: String?
 
     init(from exercise: Exercise) {
         self.exerciseItemId = exercise.id
@@ -36,9 +38,16 @@ struct ExerciseDTO: Codable {
         self.movementType = exercise.movementType
         self.weightIncrement = exercise.weightIncrement
         self.barbellWeight = exercise.barbellWeight
+        self.currentE1RM = exercise.currentE1RM
+        if let date = exercise.currentE1RMDate {
+            let formatter = ISO8601DateFormatter()
+            self.currentE1RMDate = formatter.string(from: date)
+        } else {
+            self.currentE1RMDate = nil
+        }
     }
 
-    init(exerciseItemId: UUID, name: String, isCustom: Bool, loadType: String, createdTimezone: String, notes: String?, createdDatetime: Date? = nil, deleted: Bool? = nil, icon: String? = nil, movementType: String? = nil, weightIncrement: Double? = nil, barbellWeight: Double? = nil) {
+    init(exerciseItemId: UUID, name: String, isCustom: Bool, loadType: String, createdTimezone: String, notes: String?, createdDatetime: Date? = nil, deleted: Bool? = nil, icon: String? = nil, movementType: String? = nil, weightIncrement: Double? = nil, barbellWeight: Double? = nil, currentE1RM: Double? = nil, currentE1RMDate: String? = nil) {
         self.exerciseItemId = exerciseItemId
         self.name = name
         self.isCustom = isCustom
@@ -51,6 +60,8 @@ struct ExerciseDTO: Codable {
         self.movementType = movementType
         self.weightIncrement = weightIncrement
         self.barbellWeight = barbellWeight
+        self.currentE1RM = currentE1RM
+        self.currentE1RMDate = currentE1RMDate
     }
 }
 

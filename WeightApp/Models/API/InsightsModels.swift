@@ -11,6 +11,17 @@ struct InsightSection: Codable, Equatable {
     let title: String
     let body: String
     let audioUrl: String?
+    let audioUrlExpiresAt: String?
+
+    var isAudioExpired: Bool {
+        guard let expiresAt = audioUrlExpiresAt,
+              let date = ISO8601DateFormatter().date(from: expiresAt) else { return true }
+        return Date() >= date
+    }
+
+    var hasValidAudio: Bool {
+        audioUrl != nil && !isAudioExpired
+    }
 }
 
 struct StarterInsightResponse: Codable, Equatable {
@@ -25,8 +36,19 @@ struct TierUnlockItem: Codable, Equatable, Identifiable, Hashable {
     let body: String
     let generatedAt: String?
     let audioUrl: String?
+    let audioUrlExpiresAt: String?
 
     var id: String { tier }
+
+    var isAudioExpired: Bool {
+        guard let expiresAt = audioUrlExpiresAt,
+              let date = ISO8601DateFormatter().date(from: expiresAt) else { return true }
+        return Date() >= date
+    }
+
+    var hasValidAudio: Bool {
+        audioUrl != nil && !isAudioExpired
+    }
 
     var strengthTier: StrengthTier {
         switch tier.lowercased() {

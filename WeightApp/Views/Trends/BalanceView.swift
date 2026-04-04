@@ -11,6 +11,7 @@ import Charts
 
 struct BalanceView: View {
     @Binding var trendsTab: TrendsTab
+    @Query(filter: #Predicate<Exercise> { !$0.deleted }) private var exercises: [Exercise]
     @Query private var userPropertiesArray: [UserProperties]
     @Query private var entitlementRecords: [EntitlementGrant]
     @Environment(\.modelContext) private var modelContext
@@ -34,7 +35,7 @@ struct BalanceView: View {
     @State private var currentOverallTier: StrengthTier = .none
 
     private static var setsDescriptor: FetchDescriptor<LiftSet> {
-        let cutoff = Calendar.current.date(byAdding: .month, value: -12, to: Date())!
+        let cutoff = Calendar.current.date(byAdding: .month, value: -3, to: Date())!
         return FetchDescriptor<LiftSet>(
             predicate: #Predicate { !$0.deleted && $0.createdAt >= cutoff },
             sortBy: [SortDescriptor(\.createdAt)]
@@ -43,7 +44,7 @@ struct BalanceView: View {
     @Query(setsDescriptor) private var allSets: [LiftSet]
 
     private static var estimated1RMsDescriptor: FetchDescriptor<Estimated1RM> {
-        let cutoff = Calendar.current.date(byAdding: .month, value: -12, to: Date())!
+        let cutoff = Calendar.current.date(byAdding: .month, value: -3, to: Date())!
         return FetchDescriptor<Estimated1RM>(
             predicate: #Predicate { !$0.deleted && $0.createdAt >= cutoff }
         )
@@ -63,7 +64,7 @@ struct BalanceView: View {
         ScrollView {
             VStack(spacing: 16) {
                 StrengthTierWidget(
-                    allEstimated1RM: allEstimated1RM,
+                    exercises: exercises,
                     userProperties: userProperties,
                     isPremium: true,
                     showUpsell: $showUpsell
@@ -74,7 +75,7 @@ struct BalanceView: View {
                     .id("strengthInsightWidget")
 
                 StrengthMilestonesWidget(
-                    allEstimated1RM: allEstimated1RM,
+                    exercises: exercises,
                     bodyweight: userProperties.bodyweight,
                     biologicalSex: userProperties.biologicalSex,
                     isPremium: true,
@@ -120,16 +121,23 @@ struct BalanceView: View {
             .padding(.bottom, 70)
         }
         .scrollIndicators(.hidden)
-        .task(id: allEstimated1RM.count) {
+        .task(id: exercises.compactMap(\.currentE1RM).count) {
             currentOverallTier = TrendsCalculator.strengthTierAssessment(
-                from: allEstimated1RM,
+                fromExercises: exercises,
                 bodyweight: userProperties.bodyweight ?? 0,
                 biologicalSex: userProperties.biologicalSex ?? "male"
             ).overallTier
             balanceData = TrendsCalculator.strengthBalance(from: allEstimated1RM)
         }
         .onAppear {
-            if selectedSetData.pendingScrollToStrengthTop {
+            if selectedSetData.pendingScrollToMilestones {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation {
+                        proxy.scrollTo("strengthMilestonesWidget", anchor: .top)
+                    }
+                }
+                selectedSetData.pendingScrollToMilestones = false
+            } else if selectedSetData.pendingScrollToStrengthTop {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     withAnimation {
                         proxy.scrollTo("strengthTierWidget", anchor: .top)
@@ -146,6 +154,16 @@ struct BalanceView: View {
                     }
                 }
                 selectedSetData.pendingScrollToStrengthTop = false
+            }
+        }
+        .onChange(of: selectedSetData.pendingScrollToMilestones) { _, shouldScroll in
+            if shouldScroll {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation {
+                        proxy.scrollTo("strengthMilestonesWidget", anchor: .top)
+                    }
+                }
+                selectedSetData.pendingScrollToMilestones = false
             }
         }
         .onChange(of: NarrativeBadgeService.shared.tierUnlocks.count) { _, newCount in

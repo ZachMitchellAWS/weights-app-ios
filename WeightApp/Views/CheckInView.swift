@@ -7,14 +7,6 @@ struct CheckInView: View {
 
     @Query(filter: #Predicate<Exercise> { !$0.deleted }, sort: \Exercise.createdAt) private var exercises: [Exercise]
     @Query private var userPropertiesItems: [UserProperties]
-    private static var estimated1RMsDescriptor: FetchDescriptor<Estimated1RM> {
-        let cutoff = Calendar.current.date(byAdding: .month, value: -12, to: Date())!
-        return FetchDescriptor<Estimated1RM>(
-            predicate: #Predicate { !$0.deleted && $0.createdAt >= cutoff },
-            sortBy: [SortDescriptor(\.createdAt)]
-        )
-    }
-    @Query(estimated1RMsDescriptor) private var allEstimated1RM: [Estimated1RM]
     @Query(filter: #Predicate<SetPlan> { !$0.deleted }) private var allTemplates: [SetPlan]
     @Query(filter: #Predicate<ExerciseGroup> { !$0.deleted }) private var allGroups: [ExerciseGroup]
     @Query private var entitlementRecords: [EntitlementGrant]
@@ -169,15 +161,7 @@ struct CheckInView: View {
     private var isViewingToday: Bool { viewingDate == actualToday }
 
     private var current1RM: Double {
-        if let latest = estimated1RMsForExercise.first {
-            return latest.value
-        }
-        // Fallback to reactive @Query when manual fetch hasn't populated yet
-        if let exerciseId = selectedExercise?.id,
-           let fromQuery = allEstimated1RM.filter({ $0.exercise?.id == exerciseId }).max(by: { $0.createdAt < $1.createdAt }) {
-            return fromQuery.value
-        }
-        return 0
+        selectedExercise?.currentE1RM ?? 0
     }
 
     private var availablePlates: [Double] {
@@ -267,6 +251,14 @@ struct CheckInView: View {
     // MARK: - Body
 
     var body: some View {
+        checkInSheets
+    }
+
+    // Split into two computed properties to help the type checker:
+    // - checkInZStack: the ZStack with all overlays
+    // - checkInContent: the ZStack + all modifiers
+
+    private var checkInZStack: some View {
         ZStack {
             Color.black.ignoresSafeArea()
                 .background(
@@ -457,6 +449,7 @@ struct CheckInView: View {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                 showE1RMPopup = false
                             }
+                            selectedSetData.pendingTrendsTab = .analytics
                             selectedTab = 0
                         } label: {
                             HStack(spacing: 6) {
@@ -518,6 +511,10 @@ struct CheckInView: View {
                     .zIndex(25)
             }
         }
+    }
+
+    private var checkInContent: some View {
+        checkInZStack
         .onChange(of: syncService.initialSyncComplete) { _, complete in
             if complete {
                 if showSyncOverlay {
@@ -550,25 +547,25 @@ struct CheckInView: View {
         } message: {
             Text("Your data is still syncing. Logging sets before sync completes may cause duplicates or inconsistencies.")
         }
-        .task(id: "\(allEstimated1RM.count)-\(activeGroupId)") {
+    }
+
+    private var checkInLifecycle: some View {
+        checkInContent
+        .task(id: "\(exercises.compactMap(\.currentE1RM).reduce(0, +))-\(activeGroupId)") {
             strengthTierResult = TrendsCalculator.strengthTierAssessment(
-                from: allEstimated1RM,
+                fromExercises: exercises,
                 bodyweight: bodyweight,
                 biologicalSex: biologicalSex
             )
 
-            let groupIds = Set(activeGroupExercises.map(\.id))
-            let grouped = Dictionary(grouping: allEstimated1RM.filter { rec in
-                guard let eid = rec.exercise?.id else { return false }
-                return groupIds.contains(eid)
-            }) { $0.exercise!.id }
-
             var e1rms: [UUID: Double] = [:]
             var trainedDates: [UUID: Date] = [:]
-            for (exerciseId, records) in grouped {
-                if let mostRecent = records.max(by: { $0.createdAt < $1.createdAt }) {
-                    e1rms[exerciseId] = mostRecent.value
-                    trainedDates[exerciseId] = mostRecent.createdAt
+            for ex in activeGroupExercises {
+                if let e1rm = ex.currentE1RM {
+                    e1rms[ex.id] = e1rm
+                }
+                if let date = ex.currentE1RMDate {
+                    trainedDates[ex.id] = date
                 }
             }
             latestE1RMs = e1rms
@@ -599,9 +596,8 @@ struct CheckInView: View {
                 loadDataForSelectedLift()
             }
         }
-        .onChange(of: allEstimated1RM.count) { oldCount, newCount in
+        .onChange(of: exercises.compactMap(\.currentE1RM).count) { oldCount, newCount in
             // Reload exercise data whenever e1RM count increases and sets are empty.
-            // e1RMs and lift sets sync together, so this covers lift set data arriving.
             if newCount > oldCount && setsForExercise.isEmpty {
                 loadDataForSelectedLift()
             }
@@ -650,6 +646,10 @@ struct CheckInView: View {
             persistActiveGroup(newValue)
             persistActiveExercise(activeGroupExercises.first?.id)
         }
+    }
+
+    private var checkInSheets: some View {
+        checkInLifecycle
         .sheet(isPresented: $showHub, onDismiss: {
             if let selectedId = hubSelectedExerciseId {
                 if let index = activeGroupExercises.firstIndex(where: { $0.id == selectedId }) {
@@ -1286,7 +1286,7 @@ struct CheckInView: View {
 
         // Don't show journey if sync hasn't populated data yet for a returning user
         let syncComplete = syncService.initialSyncComplete
-        let hasData = !allEstimated1RM.isEmpty
+        let hasData = exercises.contains(where: { $0.currentE1RM != nil })
 
         // Show tier journey intro for fresh users (no e1RM data at all)
         if !hasSeenTierIntro,
@@ -1363,10 +1363,9 @@ struct CheckInView: View {
 
     @ViewBuilder
     private var setsWidgetCard: some View {
-        // Don't show "log first set" if we have e1RM data from @Query — sets just haven't loaded yet
-        let exerciseId = selectedExercise?.id
-        let hasE1RMFromQuery = exerciseId != nil && allEstimated1RM.contains(where: { $0.exercise?.id == exerciseId })
-        if setsForExercise.isEmpty && isViewingToday && !hasE1RMFromQuery {
+        // Don't show "log first set" if exercise has e1RM data — sets just haven't loaded yet
+        let hasE1RM = selectedExercise?.currentE1RM != nil
+        if setsForExercise.isEmpty && isViewingToday && !hasE1RM {
             setsWidgetEmptyState
         } else {
             setsWidgetContent
@@ -2953,7 +2952,7 @@ struct CheckInView: View {
                         showSubmitOverlay = false
                     }
                     selectedSetData.pendingTrendsTab = .strength
-                    selectedSetData.pendingScrollToStrengthTop = true
+                    selectedSetData.pendingScrollToMilestones = true
                     selectedTab = 0
                 } label: {
                     Text("See Milestones")
@@ -2984,13 +2983,34 @@ struct CheckInView: View {
 
     private func deleteSet(_ set: LiftSet) {
         let setId = set.id
+        let exercise = set.exercise
 
         set.deleted = true
 
+        // Find and soft-delete the associated Estimated1RM via manual fetch
         var estimated1RMId: UUID? = nil
-        if let associated1RM = allEstimated1RM.first(where: { $0.setId == setId }) {
+        let e1rmDescriptor = FetchDescriptor<Estimated1RM>(
+            predicate: #Predicate { !$0.deleted && $0.setId == setId }
+        )
+        if let associated1RM = try? modelContext.fetch(e1rmDescriptor).first {
             associated1RM.deleted = true
             estimated1RMId = associated1RM.id
+        }
+
+        // Recompute exercise.currentE1RM from remaining records
+        if let ex = exercise {
+            let exerciseId = ex.id
+            let remainingDescriptor = FetchDescriptor<Estimated1RM>(
+                predicate: #Predicate { !$0.deleted && $0.exercise?.id == exerciseId },
+                sortBy: [SortDescriptor(\.value, order: .reverse)]
+            )
+            if let maxRecord = try? modelContext.fetch(remainingDescriptor).first {
+                ex.currentE1RM = maxRecord.value
+                ex.currentE1RMDate = maxRecord.createdAt
+            } else {
+                ex.currentE1RM = nil
+                ex.currentE1RMDate = nil
+            }
         }
 
         try? modelContext.save()
@@ -3077,10 +3097,7 @@ struct CheckInView: View {
         guard let ex = selectedExercise else { return }
         if !isViewingToday { viewingDate = actualToday }
 
-        // Check both manual fetch and reactive @Query to avoid false positive during sync
-        let hasWeightedSetFromFetch = setsForExercise.contains(where: { $0.weight > 0 })
-        let hasE1RMFromQuery = allEstimated1RM.contains(where: { $0.exercise?.id == ex.id })
-        let isFirstWeightedSet = !hasWeightedSetFromFetch && !hasE1RMFromQuery && weight > 0
+        let isFirstWeightedSet = ex.currentE1RM == nil && weight > 0
 
         let before = current1RM
         let set = LiftSet(exercise: ex, reps: reps, weight: weight)
@@ -3159,6 +3176,13 @@ struct CheckInView: View {
         }
         modelContext.insert(estimated)
 
+        // Update exercise's cached currentE1RM
+        if after > (ex.currentE1RM ?? 0) {
+            ex.currentE1RM = after
+            ex.currentE1RMDate = Date()
+            latestE1RMs[ex.id] = after
+        }
+
         // Capture current inputs before save (save triggers @Query onChange which may reset them)
         let savedWeight = weight
         let savedReps = reps
@@ -3189,7 +3213,7 @@ struct CheckInView: View {
         // Compute fresh tier result since @State may not have updated yet
         if isFirstTierLog {
             let tierResult = TrendsCalculator.strengthTierAssessment(
-                from: allEstimated1RM,
+                fromExercises: exercises,
                 bodyweight: bodyweight,
                 biologicalSex: biologicalSex
             )
@@ -3340,6 +3364,14 @@ struct CheckInView: View {
 
         estimated.value = calibratedValue
         modelContext.insert(estimated)
+
+        // Update exercise's cached currentE1RM
+        if let ex = set.exercise {
+            ex.currentE1RM = calibratedValue
+            ex.currentE1RMDate = Date()
+            latestE1RMs[ex.id] = calibratedValue
+        }
+
         try? modelContext.save()
 
         Task {
@@ -3355,7 +3387,7 @@ struct CheckInView: View {
         // Compute fresh tier result since @State may not have updated yet
         if isMilestone, let exerciseForJourney = set.exercise {
             let tierResult = TrendsCalculator.strengthTierAssessment(
-                from: allEstimated1RM + [estimated],
+                fromExercises: exercises,
                 bodyweight: bodyweight,
                 biologicalSex: biologicalSex
             )
@@ -3500,11 +3532,15 @@ struct CheckInView: View {
     /// Returns the e1RM gain over the last 7 days for a given exercise ID, or nil if no gain / no prior data.
     private func e1rmGain30Day(for exerciseId: UUID) -> Double? {
         let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: Date())!
-        let records = allEstimated1RM.filter { $0.exercise?.id == exerciseId }
-        guard let latest = records.max(by: { $0.createdAt < $1.createdAt }) else { return nil }
+        let descriptor = FetchDescriptor<Estimated1RM>(
+            predicate: #Predicate { !$0.deleted && $0.exercise?.id == exerciseId },
+            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+        )
+        let records = (try? modelContext.fetch(descriptor)) ?? []
+        guard let latest = records.first else { return nil }
 
         let oldRecords = records.filter { $0.createdAt <= cutoff }
-        guard let baseline = oldRecords.max(by: { $0.createdAt < $1.createdAt }) else { return nil }
+        guard let baseline = oldRecords.first else { return nil }
 
         let gain = latest.value - baseline.value
         return gain > 0.1 ? gain : nil
@@ -3545,6 +3581,7 @@ struct CheckInView: View {
         case "easy": return .setEasy
         case "moderate": return .setModerate
         case "hard": return .setHard
+        case "redline": return .setNearMax
         case "pr": return .appAccent
         default: return .white.opacity(0.3)
         }
@@ -3555,6 +3592,7 @@ struct CheckInView: View {
         case "easy": return "Easy"
         case "moderate": return "Moderate"
         case "hard": return "Hard"
+        case "redline": return "Redline"
         case "pr": return "Progress"
         default: return key.capitalized
         }
@@ -3565,6 +3603,7 @@ struct CheckInView: View {
         case "easy": return "easy"
         case "moderate": return "mod"
         case "hard": return "hard"
+        case "redline": return "redline"
         case "pr": return "e1RM ↑"
         default: return String(key.prefix(4))
         }
@@ -3624,6 +3663,7 @@ private struct ViewfinderPulse: View {
     var size: CGFloat = 16
     var color: Color = .white.opacity(0.35)
     @State private var isAnimating = false
+    @State private var isActive = true
 
     var body: some View {
         Image(systemName: "viewfinder.rectangular")
@@ -3633,23 +3673,29 @@ private struct ViewfinderPulse: View {
             .opacity(isAnimating ? 0.8 : 0.5)
             .padding(.bottom, 2)
             .onAppear {
-                // Initial animation after short delay
+                isActive = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    animate()
+                    if isActive { animate() }
                 }
+            }
+            .onDisappear {
+                isActive = false
+                isAnimating = false
             }
     }
 
     private func animate() {
+        guard isActive else { return }
         withAnimation(.easeInOut(duration: 0.6)) {
             isAnimating = true
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            guard isActive else { return }
             withAnimation(.easeInOut(duration: 0.4)) {
                 isAnimating = false
             }
-            // Repeat after refractory period
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                guard isActive else { return }
                 animate()
             }
         }

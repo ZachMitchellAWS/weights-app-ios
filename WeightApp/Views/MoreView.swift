@@ -1702,6 +1702,14 @@ struct MoreView: View {
             }
         }
 
+        // Update exercise.currentE1RM from running bests
+        for exercise in exercises {
+            if let best = runningBest1RM[exercise.name] {
+                exercise.currentE1RM = best
+                exercise.currentE1RMDate = Date()
+            }
+        }
+
         try? modelContext.save()
 
         // Sync to backend
@@ -1819,6 +1827,10 @@ struct MoreView: View {
                 currentTime = calendar.date(byAdding: .minute, value: Int.random(in: 2...4), to: currentTime) ?? currentTime
             }
 
+            // Update exercise's cached currentE1RM
+            exercise.currentE1RM = runningBest
+            exercise.currentE1RMDate = currentTime
+
             // Rest between exercises (5-8 minutes)
             currentTime = calendar.date(byAdding: .minute, value: Int.random(in: 5...8), to: currentTime) ?? currentTime
         }
@@ -1919,6 +1931,12 @@ struct MoreView: View {
                 createdEstimated1RM.append(estimated)
 
                 currentTime = calendar.date(byAdding: .minute, value: 3, to: currentTime) ?? currentTime
+            }
+
+            // Update exercise's cached currentE1RM
+            if runningBest > (exercise.currentE1RM ?? 0) {
+                exercise.currentE1RM = runningBest
+                exercise.currentE1RMDate = currentTime
             }
 
             currentTime = calendar.date(byAdding: .minute, value: 5, to: currentTime) ?? currentTime
@@ -2126,6 +2144,12 @@ struct MoreView: View {
         let allEstimated1RM = (try? modelContext.fetch(FetchDescriptor<Estimated1RM>())) ?? []
         for estimated1RM in allEstimated1RM {
             modelContext.delete(estimated1RM)
+        }
+
+        // Clear cached currentE1RM on all exercises
+        for exercise in exercises {
+            exercise.currentE1RM = nil
+            exercise.currentE1RMDate = nil
         }
 
         // Save the changes

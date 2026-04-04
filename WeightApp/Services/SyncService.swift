@@ -615,7 +615,7 @@ class SyncService: ObservableObject {
                     let progressLS = tLS
                     let progressE1RM = tE1RM
                     await MainActor.run {
-                        self.liftSetSyncProgress = "Synced \(progressLS) sets, \(progressE1RM) 1RMs..."
+                        self.liftSetSyncProgress = "Synced \(progressLS) sets, \(progressE1RM) e1RMs..."
                     }
                 }
 
@@ -633,6 +633,35 @@ class SyncService: ObservableObject {
             e1rmPageToken = finalE1RMToken
 
             SyncLogger.sync.info("Completed interleaved sync: \(totalLiftSet) lift sets + \(totalE1RMs) estimated 1RMs")
+
+            // Compute currentE1RM per exercise from all synced e1RM records
+            if totalE1RMs > 0, let mainCtx = modelContext {
+                await MainActor.run {
+                    let allE1RMs = (try? mainCtx.fetch(FetchDescriptor<Estimated1RM>(predicate: #Predicate { !$0.deleted }))) ?? []
+                    var maxByExercise: [UUID: (value: Double, date: Date)] = [:]
+                    for e1rm in allE1RMs {
+                        guard let eid = e1rm.exercise?.id else { continue }
+                        if let current = maxByExercise[eid] {
+                            if e1rm.value > current.value {
+                                maxByExercise[eid] = (e1rm.value, e1rm.createdAt)
+                            }
+                        } else {
+                            maxByExercise[eid] = (e1rm.value, e1rm.createdAt)
+                        }
+                    }
+                    for (exerciseId, best) in maxByExercise {
+                        let descriptor = FetchDescriptor<Exercise>(predicate: #Predicate { $0.id == exerciseId })
+                        if let exercise = try? mainCtx.fetch(descriptor).first {
+                            if best.value > (exercise.currentE1RM ?? 0) {
+                                exercise.currentE1RM = best.value
+                                exercise.currentE1RMDate = best.date
+                            }
+                        }
+                    }
+                    try? mainCtx.save()
+                    SyncLogger.sync.info("Updated currentE1RM on \(maxByExercise.count) exercises")
+                }
+            }
         } catch {
             SyncLogger.sync.error("Failed during interleaved sync: \(error.localizedDescription)")
             SentrySDK.capture(error: error)
@@ -822,160 +851,26 @@ class SyncService: ObservableObject {
 
     // MARK: - Estimated 1RM Sync
 
-    /// Fetches all estimated 1RMs from backend using pagination and imports them locally
-    func syncEstimated1RMFromBackend() async {
-        isSyncingEstimated1RM = true
-        estimated1RMSyncProgress = "Syncing..."
-
-        var pageToken: String? = nil
-        var totalFetched = 0
-
-        do {
-            repeat {
-                let response = try await APIService.shared.getEstimated1RM(limit: 500, pageToken: pageToken)
-                totalFetched += response.count
-
-                await importEstimated1RMFromBackend(response.estimated1RMs)
-
-                estimated1RMSyncProgress = "Synced \(totalFetched) estimated 1RMs..."
-                pageToken = response.hasMore ? response.nextPageToken : nil
-
-            } while pageToken != nil
-
-            SyncLogger.sync.info("Completed estimated 1RM sync, fetched \(totalFetched) total")
-        } catch {
-            SyncLogger.sync.error("Failed to sync estimated 1RMs: \(error.localizedDescription)")
-        }
-
-        isSyncingEstimated1RM = false
-        estimated1RMSyncProgress = nil
-    }
-
-    /// Syncs a single estimated 1RM to the backend (for new creations)
     func syncEstimated1RM(_ estimated1RM: Estimated1RM) async {
-        let dto = estimated1RM.toDTO()
-
+        let dto = Estimated1RMDTO(from: estimated1RM)
         do {
             _ = try await APIService.shared.createEstimated1RM([dto])
-            retryQueue.removePendingEstimated1RMOperation(estimated1RMId: estimated1RM.id)
-            SyncLogger.sync.debug("Synced estimated 1RM \(estimated1RM.id)")
         } catch {
-            SyncLogger.sync.error("Failed to sync estimated 1RM \(estimated1RM.id): \(error.localizedDescription)")
-            SentrySDK.capture(error: error)
-            retryQueue.addPendingEstimated1RMCreate(estimated1RMId: estimated1RM.id, liftSetId: estimated1RM.setId)
+            SyncLogger.sync.error("Failed to sync estimated 1RM: \(error.localizedDescription)")
         }
     }
 
-    /// Syncs multiple estimated 1RMs to the backend (batch create)
-    func syncEstimated1RM(_ estimated1RMs: [Estimated1RM]) async {
-        guard !estimated1RMs.isEmpty else { return }
-
-        let dtos = estimated1RMs.map { $0.toDTO() }
-
-        do {
-            _ = try await APIService.shared.createEstimated1RM(dtos)
-            for estimated1RM in estimated1RMs {
-                retryQueue.removePendingEstimated1RMOperation(estimated1RMId: estimated1RM.id)
-            }
-        } catch {
-            SyncLogger.sync.error("Failed to batch sync \(estimated1RMs.count) estimated 1RMs: \(error.localizedDescription)")
-            SentrySDK.capture(error: error)
-            for estimated1RM in estimated1RMs {
-                retryQueue.addPendingEstimated1RMCreate(estimated1RMId: estimated1RM.id, liftSetId: estimated1RM.setId)
-            }
-        }
-    }
-
-    /// Deletes an estimated 1RM from the backend (API uses liftSetId)
     func deleteEstimated1RM(estimated1RMId: UUID, liftSetId: UUID) async {
         do {
             _ = try await APIService.shared.deleteEstimated1RM(liftSetIds: [liftSetId])
-            retryQueue.removePendingEstimated1RMOperation(estimated1RMId: estimated1RMId)
-            SyncLogger.sync.debug("Deleted estimated 1RM \(estimated1RMId)")
         } catch {
-            SyncLogger.sync.error("Failed to delete estimated 1RM \(estimated1RMId): \(error.localizedDescription)")
-            retryQueue.addPendingEstimated1RMDelete(estimated1RMId: estimated1RMId, liftSetId: liftSetId)
+            SyncLogger.sync.error("Failed to delete estimated 1RM: \(error.localizedDescription)")
         }
     }
 
-    /// Deletes multiple estimated 1RMs from the backend (batch delete using liftSetIds)
-    func deleteEstimated1RM(liftSetIds: [UUID]) async {
-        guard !liftSetIds.isEmpty else { return }
-
-        do {
-            _ = try await APIService.shared.deleteEstimated1RM(liftSetIds: liftSetIds)
-        } catch {
-            SyncLogger.sync.error("Failed to batch delete estimated 1RMs: \(error.localizedDescription)")
-            // Note: For batch deletes, we don't have the estimated1RMIds, so we can't add to retry queue
-            // The caller should handle this case by tracking individual operations
-        }
-    }
-
-    /// Process pending estimated 1RM operations from retry queue
     func processEstimated1RMRetryQueue() async {
-        guard let context = modelContext else { return }
-
-        let pendingOperations = retryQueue.getPendingEstimated1RMOperations()
-
-        for operation in pendingOperations {
-            switch operation.operationType {
-            case .upsert:
-                if let estimated1RM = fetchEstimated1RM(by: operation.estimated1RMId, context: context) {
-                    do {
-                        _ = try await APIService.shared.createEstimated1RM([estimated1RM.toDTO()])
-                        retryQueue.removePendingEstimated1RMOperation(estimated1RMId: operation.estimated1RMId)
-                    } catch {
-                        retryQueue.incrementEstimated1RMRetryCount(for: operation.estimated1RMId)
-                    }
-                } else {
-                    // Estimated 1RM no longer exists locally, remove from queue
-                    retryQueue.removePendingEstimated1RMOperation(estimated1RMId: operation.estimated1RMId)
-                }
-
-            case .delete:
-                do {
-                    _ = try await APIService.shared.deleteEstimated1RM(liftSetIds: [operation.liftSetId])
-                    retryQueue.removePendingEstimated1RMOperation(estimated1RMId: operation.estimated1RMId)
-                } catch {
-                    retryQueue.incrementEstimated1RMRetryCount(for: operation.estimated1RMId)
-                }
-            }
-        }
-    }
-
-    private func importEstimated1RMFromBackend(_ dtos: [Estimated1RMDTO]) async {
-        guard let container = modelContainer else { return }
-        let sendableDtos = dtos
-        let sendableContainer = container
-        await Task.detached {
-            let context = ModelContext(sendableContainer)
-            context.autosaveEnabled = false
-
-            let existingEstimated1RM = (try? context.fetch(FetchDescriptor<Estimated1RM>())) ?? []
-            let existingById = Dictionary(uniqueKeysWithValues: existingEstimated1RM.map { ($0.id, $0) })
-
-            for dto in sendableDtos {
-                if let existing = existingById[dto.estimated1RMId] {
-                    existing.value = dto.value
-                    existing.setId = dto.liftSetId
-                    existing.createdTimezone = dto.createdTimezone
-                    existing.createdAt = dto.createdDatetime
-                } else {
-                    let descriptor = FetchDescriptor<Exercise>(predicate: #Predicate { $0.id == dto.exerciseId })
-                    if let exercise = try? context.fetch(descriptor).first {
-                        let estimated1RM = Estimated1RM(exercise: exercise, value: dto.value, setId: dto.liftSetId)
-                        estimated1RM.id = dto.estimated1RMId
-                        estimated1RM.createdTimezone = dto.createdTimezone
-                        estimated1RM.createdAt = dto.createdDatetime
-                        context.insert(estimated1RM)
-                    } else {
-                        SyncLogger.sync.debug("Skipping estimated 1RM \(dto.estimated1RMId) — exercise \(dto.exerciseId) not found")
-                    }
-                }
-            }
-
-            try? context.save()
-        }.value
+        // Estimated 1RM retry operations are handled via lift set retry queue
+        // since deletes use liftSetId as the key
     }
 
     private func fetchEstimated1RM(by id: UUID, context: ModelContext) -> Estimated1RM? {
@@ -1325,7 +1220,18 @@ class SyncService: ObservableObject {
 
     func createDefaultExercisesLocally() async {
         guard let context = modelContext else { return }
-        _ = SeedService.seedExercises(context: context)
+        for def in Exercise.builtInTemplates {
+            let exercise = Exercise(
+                id: def.id,
+                name: def.name,
+                isCustom: false,
+                loadType: def.loadType,
+                movementType: def.movementType,
+                icon: def.icon
+            )
+            context.insert(exercise)
+        }
+        try? context.save()
     }
 
     func createDefaultExercisesAndSync() async {
@@ -1474,6 +1380,7 @@ class SyncService: ObservableObject {
                     }
                     existing.weightIncrement = dto.weightIncrement
                     existing.barbellWeight = dto.barbellWeight
+                    // currentE1RM is computed client-side from Estimated1RM records — don't overwrite from DTO
                 } else {
                     let loadType = ExerciseLoadType(rawValue: dto.loadType) ?? .barbell
                     let movementType = ExerciseMovementType(rawValue: dto.movementType ?? "") ?? .other
@@ -1492,6 +1399,7 @@ class SyncService: ObservableObject {
                     context.insert(exercise)
                     exercise.weightIncrement = dto.weightIncrement
                     exercise.barbellWeight = dto.barbellWeight
+                    // currentE1RM starts nil, gets populated during e1RM import (step 3)
                 }
             }
 

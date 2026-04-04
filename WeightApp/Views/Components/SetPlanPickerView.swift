@@ -15,6 +15,7 @@ struct SetPlanCatalogView: View {
     @State private var showDeleteConfirmation = false
     @State private var templateToDelete: SetPlan?
     @State private var showUpsell = false
+    @State private var shouldScrollToBottom = false
 
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
     private static let effortLevels = ["easy", "moderate", "hard", "redline", "pr"]
@@ -105,6 +106,7 @@ struct SetPlanCatalogView: View {
                 .frame(maxWidth: .infinity)
                 .background(Color(white: 0.12))
 
+                ScrollViewReader { scrollProxy in
                 ScrollView {
                     VStack(spacing: 16) {
                         // Built-in section — free presets
@@ -153,11 +155,23 @@ struct SetPlanCatalogView: View {
 
                         // None option
                         noneCard()
+                            .id("catalogBottom")
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
                     .padding(.top, 8)
                 }
+                .onChange(of: shouldScrollToBottom) { _, scroll in
+                    if scroll {
+                        shouldScrollToBottom = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            withAnimation {
+                                scrollProxy.scrollTo("catalogBottom", anchor: .bottom)
+                            }
+                        }
+                    }
+                }
+                } // ScrollViewReader
             }
         }
         .fullScreenCover(isPresented: $showUpsell) {
@@ -169,18 +183,16 @@ struct SetPlanCatalogView: View {
             Button("Create") {
                 let trimmed = newTemplateName.trimmingCharacters(in: .whitespaces)
                 guard !trimmed.isEmpty else { return }
-                let defaultSequence = SetPlan.builtInTemplates.first(where: { $0.id == SetPlan.standardId })?.sequence ?? ["easy", "easy", "moderate", "moderate", "hard", "pr"]
                 let template = SetPlan(
                     name: trimmed,
-                    effortSequence: defaultSequence,
+                    effortSequence: [],
                     isCustom: true
                 )
                 modelContext.insert(template)
-                userProperties.activeSetPlanId = template.id
                 try? modelContext.save()
+                shouldScrollToBottom = true
                 Task {
                     await SyncService.shared.syncSetPlan(template)
-                    await SyncService.shared.updateActiveSetPlan(template.id)
                 }
             }
         } message: {

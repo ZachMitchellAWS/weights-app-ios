@@ -18,14 +18,7 @@ struct StrengthInsightWidget: View {
     @State private var showAttentionPulse = false
     @State private var audioAnimationPhase = false
     @State private var waitingForAudio = false
-    @AppStorage("debugForceInsightNoAudio") private var debugForceNoAudio = false
-
     private var latestTierUnlock: TierUnlockItem? {
-        #if DEBUG
-        if debugForceNoAudio {
-            return TierUnlockItem(tier: "Beginner", body: "You've taken your first steps into strength training and already your numbers tell a promising story. Your deadlift is leading the way, which is a great sign — it means your posterior chain is responding well to the work you're putting in. Keep showing up and the other lifts will follow.", generatedAt: ISO8601DateFormatter().string(from: Date()), audioUrl: nil)
-        }
-        #endif
         let unlocks = NarrativeBadgeService.shared.tierUnlocks
         guard let latest = unlocks.last,
               let generatedAt = latest.generatedAt,
@@ -35,7 +28,7 @@ struct StrengthInsightWidget: View {
     }
 
     private var hasAudio: Bool {
-        latestTierUnlock?.audioUrl != nil
+        latestTierUnlock?.hasValidAudio == true
     }
 
     private var tier: StrengthTier {
@@ -100,11 +93,13 @@ struct StrengthInsightWidget: View {
                         .frame(width: 72, height: 72)
                         .fixedSize()
                 } else {
-                    // Ambient visual — shown before audio arrives
+                    // Ambient visual — shown before audio arrives or when URL expired
                     Button {
                         withAnimation(.easeInOut(duration: 0.3)) {
                             waitingForAudio = true
                         }
+                        // Refresh tier unlocks to get fresh presigned URLs
+                        Task { await NarrativeBadgeService.shared.fetchAndCacheTierUnlocks() }
                     } label: {
                         ZStack {
                             Circle()

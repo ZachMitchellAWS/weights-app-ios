@@ -1048,6 +1048,46 @@ struct TrendsCalculator {
         )
     }
 
+    /// Lightweight overload that reads `exercise.currentE1RM` instead of iterating Estimated1RM arrays.
+    /// Use this for tier display where historical timeline isn't needed.
+    static func strengthTierAssessment(
+        fromExercises exercises: [Exercise],
+        bodyweight: Double,
+        biologicalSex: String
+    ) -> StrengthTierResult {
+        guard let sex = BiologicalSex(rawValue: biologicalSex) else {
+            let tiers = fundamentalExercises.map { ($0, nil as Double?, StrengthTier.none) }
+            return StrengthTierResult(overallTier: .none, exerciseTiers: tiers, limitingExercise: fundamentalExercises[0])
+        }
+
+        let exerciseById = Dictionary(uniqueKeysWithValues: exercises.compactMap { ex -> (UUID, Exercise)? in
+            (ex.id, ex)
+        })
+
+        var exerciseTiers: [(exercise: FundamentalExercise, e1rm: Double?, tier: StrengthTier)] = []
+        var lowestTier: StrengthTier = .legend
+        var limitingExercise = fundamentalExercises[0]
+
+        for fundamental in fundamentalExercises {
+            if let ex = exerciseById[fundamental.id], let e1rm = ex.currentE1RM {
+                let tier = StrengthTierData.tierForExercise(name: fundamental.name, e1rm: e1rm, bodyweight: bodyweight, sex: sex)
+                exerciseTiers.append((fundamental, e1rm, tier))
+                if tier < lowestTier {
+                    lowestTier = tier
+                    limitingExercise = fundamental
+                }
+            } else {
+                exerciseTiers.append((fundamental, nil, .none))
+                if StrengthTier.none < lowestTier {
+                    lowestTier = .none
+                    limitingExercise = fundamental
+                }
+            }
+        }
+
+        return StrengthTierResult(overallTier: lowestTier, exerciseTiers: exerciseTiers, limitingExercise: limitingExercise)
+    }
+
     // MARK: - Next Focus Exercise
 
     /// Returns the fundamental exercise the user should train next, based on tier progress and recency.
@@ -1241,6 +1281,118 @@ struct TrendsCalculator {
         }
 
         // Overall tier = lowest tier across all 5 exercises (same as StrengthTierWidget logic)
+        var lowestTier: StrengthTier = .legend
+        for exercise in fundamentalExercises {
+            let exerciseTier: StrengthTier
+            if let current = latestByExercise[exercise.id] {
+                exerciseTier = StrengthTierData.tierForExercise(
+                    name: exercise.name,
+                    e1rm: current,
+                    bodyweight: bodyweight,
+                    sex: sex
+                )
+            } else {
+                exerciseTier = .none
+            }
+            if exerciseTier < lowestTier {
+                lowestTier = exerciseTier
+            }
+        }
+
+        return MilestoneResult(
+            batches: batches,
+            currentTier: lowestTier,
+            achievedCount: overallAchieved,
+            totalCount: overallTotal
+        )
+    }
+
+    /// Lightweight overload that reads `exercise.currentE1RM` instead of iterating Estimated1RM arrays.
+    static func strengthMilestones(
+        fromExercises exercises: [Exercise],
+        bodyweight: Double,
+        biologicalSex: String
+    ) -> MilestoneResult? {
+        guard let sex = BiologicalSex(rawValue: biologicalSex) else { return nil }
+
+        let exerciseById = Dictionary(uniqueKeysWithValues: exercises.compactMap { ex -> (UUID, Exercise)? in
+            (ex.id, ex)
+        })
+
+        var latestByExercise: [UUID: Double] = [:]
+        for fundamental in fundamentalExercises {
+            if let ex = exerciseById[fundamental.id], let e1rm = ex.currentE1RM {
+                latestByExercise[fundamental.id] = e1rm
+            }
+        }
+
+        let tiers: [StrengthTier] = [.novice, .beginner, .intermediate, .advanced, .elite, .legend]
+
+        var batches: [TierMilestoneBatch] = []
+        var overallAchieved = 0
+        var overallTotal = 0
+
+        for tier in tiers {
+            var milestones: [TierMilestone] = []
+
+            for exercise in fundamentalExercises {
+                guard let threshold = StrengthTierData.thresholds[exercise.name]?[sex]?[tier] else { continue }
+
+                let targetLbs: Double
+                let targetLabel: String
+
+                if tier == .novice {
+                    let beginnerMin = StrengthTierData.thresholds[exercise.name]?[sex]?[.beginner]?.min ?? 0
+                    targetLbs = beginnerMin * bodyweight
+                    targetLabel = "≥1 set"
+                } else if threshold.isAbsolute {
+                    targetLbs = threshold.min
+                    targetLabel = "\(Int(threshold.min))"
+                } else {
+                    targetLbs = threshold.min * bodyweight
+                    if threshold.min == floor(threshold.min) {
+                        targetLabel = "\(Int(threshold.min))× BW"
+                    } else {
+                        targetLabel = "\(String(format: "%g", threshold.min))× BW"
+                    }
+                }
+
+                let current = latestByExercise[exercise.id] ?? 0
+                let achieved: Bool
+                let progress: Double
+                if tier == .novice {
+                    achieved = current > 0
+                    progress = current > 0 ? 1.0 : 0.0
+                } else {
+                    achieved = targetLbs > 0 && current >= targetLbs
+                    progress = targetLbs > 0 ? min(current / targetLbs, 1.0) : 0
+                }
+
+                milestones.append(TierMilestone(
+                    exerciseName: exercise.name,
+                    exerciseIcon: exercise.icon,
+                    targetLbs: targetLbs,
+                    targetLabel: targetLabel,
+                    isAbsoluteTarget: threshold.isAbsolute,
+                    currentE1RM: current,
+                    achieved: achieved,
+                    progress: progress
+                ))
+            }
+
+            let batchAchieved = milestones.filter(\.achieved).count
+            overallAchieved += batchAchieved
+            overallTotal += milestones.count
+
+            batches.append(TierMilestoneBatch(
+                id: tier.rawValue,
+                tier: tier,
+                milestones: milestones,
+                allAchieved: batchAchieved == milestones.count,
+                achievedCount: batchAchieved
+            ))
+        }
+
         var lowestTier: StrengthTier = .legend
         for exercise in fundamentalExercises {
             let exerciseTier: StrengthTier

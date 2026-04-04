@@ -88,6 +88,8 @@ class InsightsViewModel {
             let response = try await APIService.shared.getWeeklyInsights()
             mapResponse(response, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
         } catch let error as APIError {
+            // Don't replace cached content with an error state
+            if case .loaded = state { return }
             switch error {
             case .httpError(let code, _) where code == 403:
                 if isPremium {
@@ -103,6 +105,7 @@ class InsightsViewModel {
                 state = .error("Something went wrong. Pull to refresh to try again.")
             }
         } catch {
+            if case .loaded = state { return }
             state = .error("Something went wrong. Pull to refresh to try again.")
         }
     }
@@ -120,6 +123,10 @@ class InsightsViewModel {
             saveCache(response)
             return
         }
+
+        // Don't replace existing cached content with an empty state.
+        // The API may return empty transiently (e.g., cache miss, timing).
+        if case .loaded = state { return }
 
         if hasLocalSetsThisWeek {
             let sundayDate = nextSundayFormatted()
@@ -162,7 +169,7 @@ class InsightsViewModel {
     private var needsAudioPoll: Bool {
         if case .loaded(let response) = state,
            let sections = response.sections, !sections.isEmpty {
-            return sections.contains { $0.audioUrl == nil }
+            return sections.contains { !$0.hasValidAudio }
         }
         return false
     }

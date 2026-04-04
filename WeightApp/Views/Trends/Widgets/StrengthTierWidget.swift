@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct StrengthTierWidget: View {
-    let allEstimated1RM: [Estimated1RM]
+    let exercises: [Exercise]
     @Bindable var userProperties: UserProperties
     var isPremium: Bool = true
     @Binding var showUpsell: Bool
@@ -17,7 +17,7 @@ struct StrengthTierWidget: View {
     private var bodyweight: Double { userProperties.bodyweight ?? 0 }
 
     @State private var tierResult: TrendsCalculator.StrengthTierResult = TrendsCalculator.strengthTierAssessment(
-        from: [],
+        fromExercises: [],
         bodyweight: 0,
         biologicalSex: "male"
     )
@@ -32,9 +32,9 @@ struct StrengthTierWidget: View {
             .background(Color(white: 0.14))
             .clipShape(RoundedRectangle(cornerRadius: 12))
             // .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.4), lineWidth: 1.5))
-            .task(id: allEstimated1RM.count) {
+            .task(id: exercises.compactMap(\.currentE1RM).count) {
                 tierResult = TrendsCalculator.strengthTierAssessment(
-                    from: allEstimated1RM,
+                    fromExercises: exercises,
                     bodyweight: bodyweight,
                     biologicalSex: biologicalSex
                 )

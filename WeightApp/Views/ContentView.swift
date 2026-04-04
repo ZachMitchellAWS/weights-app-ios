@@ -16,6 +16,7 @@ class SelectedSetData: ObservableObject {
     @Published var shouldPopulate: Bool = false
     @Published var pendingTrendsTab: TrendsTab? = nil
     @Published var pendingScrollToStrengthTop: Bool = false
+    @Published var pendingScrollToMilestones: Bool = false
 }
 
 struct LazyView<Content: View>: View {
