@@ -585,7 +585,7 @@ struct MoreView: View {
                     .padding(.top, 8)
                 }
 
-                #if DEBUG
+                if APIConfig.environment == "staging" {
                 // Developer Section (Bottom, Expandable)
                 Section {
                     Button {
@@ -1329,7 +1329,7 @@ struct MoreView: View {
                         Text("Generate      `s realistic training data for the past 28 days. Update user properties sends a test API call. Replay onboarding/welcome back shows the post-auth flows. Override Premium overrides entitlements to unlock premium features (staging only). Show Exercise IDs displays UUIDs for debugging. Delete all workout data removes all LiftSet and Estimated1RM entries.")
                     }
                 }
-                #endif
+                }
             }
             .navigationBarTitleDisplayMode(.inline)
             .fullScreenCover(isPresented: $showUpsellPreview) {
