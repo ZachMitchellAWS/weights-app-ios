@@ -6,39 +6,72 @@
 //
 
 import SwiftUI
-import SwiftData
 import Combine
+import Sentry
 
 class SelectedSetData: ObservableObject {
     @Published var exerciseId: UUID?
     @Published var reps: Int?
     @Published var weight: Double?
-    @Published var rir: Int?
     @Published var shouldPopulate: Bool = false
+    @Published var pendingTrendsTab: TrendsTab? = nil
+    @Published var pendingScrollToStrengthTop: Bool = false
+    @Published var pendingScrollToMilestones: Bool = false
+    @Published var pendingShowSettings: Bool = false
+}
+
+struct LazyView<Content: View>: View {
+    let build: () -> Content
+    init(_ build: @autoclosure @escaping () -> Content) { self.build = build }
+    var body: some View { build() }
 }
 
 struct ContentView: View {
     @ObservedObject var authViewModel: AuthViewModel
+    var initialExerciseId: UUID? = nil
+
     @State private var selectedTab = 1
     @StateObject private var selectedSetData = SelectedSetData()
+    private var narrativeBadge: NarrativeBadgeService { NarrativeBadgeService.shared }
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            TrendsView(selectedSetData: selectedSetData, selectedTab: $selectedTab)
-                .tabItem { Label("History", systemImage: "clock") }
+            LazyView(TrendsView(selectedSetData: selectedSetData, selectedTab: $selectedTab))
+                .tabItem { Label("Progress", systemImage: "chart.line.uptrend.xyaxis") }
                 .tag(0)
+                .badge(narrativeBadge.hasNewNarrative && selectedTab != 0 ? 1 : 0)
 
-            CheckInView(selectedSetData: selectedSetData)
-                .tabItem { Label("Check In", systemImage: "plus.circle") }
+            Group {
+                if UITestMode.isEnabled {
+                    LegacyCheckInView(selectedSetData: selectedSetData, initialExerciseId: initialExerciseId, selectedTab: $selectedTab)
+                } else {
+                    CheckInView(selectedSetData: selectedSetData, selectedTab: $selectedTab)
+                }
+            }
+                .tabItem { Label("Lift", systemImage: "plus.circle") }
                 .tag(1)
 
-            SettingsView(authViewModel: authViewModel)
-                .tabItem { Label("Settings", systemImage: "gearshape") }
+            MoreView(authViewModel: authViewModel, selectedSetData: selectedSetData)
+                .tabItem { Label("More", systemImage: "arrow.forward.square") }
                 .tag(2)
         }
-        .onChange(of: selectedTab) { _, _ in
+        .tint(Color.appAccent)
+        .toolbarBackground(Color.black, for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
+        .onChange(of: selectedSetData.pendingShowSettings) { _, pending in
+            if pending {
+                selectedTab = 2
+            }
+        }
+        .onChange(of: selectedTab) { _, newTab in
             hapticFeedback.impactOccurred()
+            let crumb = Breadcrumb(level: .info, category: "navigation")
+            crumb.message = "Tab: \(["Progress", "Lift", "More"][newTab])"
+            SentrySDK.addBreadcrumb(crumb)
+            if newTab == 0 && narrativeBadge.hasNewNarrative {
+                selectedSetData.pendingTrendsTab = .narratives
+            }
         }
     }
 }

@@ -6,6 +6,8 @@
 //
 
 import Foundation
+import OSLog
+import Sentry
 
 enum APIError: Error, LocalizedError {
     case invalidURL
@@ -15,6 +17,7 @@ enum APIError: Error, LocalizedError {
     case decodingError(Error)
     case unauthorized
     case noTokensStored
+    case notImplemented(String)
 
     var errorDescription: String? {
         switch self {
@@ -32,6 +35,8 @@ enum APIError: Error, LocalizedError {
             return "Unauthorized"
         case .noTokensStored:
             return "No authentication tokens found"
+        case .notImplemented(let feature):
+            return "\(feature)"
         }
     }
 }
@@ -77,6 +82,8 @@ class APIService {
             request.httpBody = try JSONEncoder().encode(body)
         }
 
+        SyncLogger.api.debug("\(method) \(endpoint)")
+
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -85,26 +92,37 @@ class APIService {
             }
 
             if httpResponse.statusCode == 401 {
+                SyncLogger.api.error("401 Unauthorized: \(method) \(endpoint)")
                 throw APIError.unauthorized
             }
 
             if !(200...299).contains(httpResponse.statusCode) {
                 // Try to decode error message
                 if let errorResponse = try? JSONDecoder().decode(ErrorResponse.self, from: data) {
+                    SyncLogger.api.error("HTTP \(httpResponse.statusCode): \(method) \(endpoint) — \(errorResponse.message)")
                     throw APIError.httpError(httpResponse.statusCode, errorResponse.message)
                 }
+                SyncLogger.api.error("HTTP \(httpResponse.statusCode): \(method) \(endpoint)")
                 throw APIError.httpError(httpResponse.statusCode, "Unknown error")
             }
+
+            SyncLogger.api.debug("\(method) \(endpoint) → \(httpResponse.statusCode)")
 
             do {
                 let decodedData = try JSONDecoder().decode(T.self, from: data)
                 return decodedData
             } catch {
+                SyncLogger.api.error("Decode error: \(method) \(endpoint) — \(error)")
                 throw APIError.decodingError(error)
             }
         } catch let error as APIError {
+            if case .unauthorized = error { } else {
+                SentrySDK.capture(error: error)
+            }
             throw error
         } catch {
+            SyncLogger.api.error("Network error: \(method) \(endpoint) — \(error)")
+            SentrySDK.capture(error: error)
             throw APIError.networkError(error)
         }
     }
@@ -113,14 +131,17 @@ class APIService {
 
     func refreshTokenIfNeeded() async throws {
         guard let tokenStorage = KeychainService.shared.getTokenStorage() else {
+            SyncLogger.api.error("No tokens stored, cannot refresh")
             throw APIError.noTokensStored
         }
 
         // Check if we should refresh (at 75% of lifetime)
         if tokenStorage.shouldRefresh && !tokenStorage.isExpired {
+            SyncLogger.api.debug("Token nearing expiry, refreshing proactively")
             try await refreshToken()
         } else if tokenStorage.isExpired {
             // Token is completely expired, force refresh
+            SyncLogger.api.debug("Token expired, forcing refresh")
             try await refreshToken()
         }
     }
@@ -136,12 +157,14 @@ class APIService {
             headers: APIConfig.commonHeaders
         )
 
-        // Store tokens
+        // Store tokens and email
         KeychainService.shared.saveTokens(
             accessToken: response.accessToken,
             refreshToken: response.refreshToken,
             userId: response.userId,
-            expiresIn: response.expiresIn
+            accessTokenExpiresIn: response.accessTokenExpiresIn,
+            refreshTokenExpiresIn: response.refreshTokenExpiresIn,
+            email: response.emailAddress
         )
 
         return response
@@ -156,12 +179,14 @@ class APIService {
             headers: APIConfig.commonHeaders
         )
 
-        // Store tokens
+        // Store tokens and email
         KeychainService.shared.saveTokens(
             accessToken: response.accessToken,
             refreshToken: response.refreshToken,
             userId: response.userId,
-            expiresIn: response.expiresIn
+            accessTokenExpiresIn: response.accessTokenExpiresIn,
+            refreshTokenExpiresIn: response.refreshTokenExpiresIn,
+            email: response.emailAddress
         )
 
         return response
@@ -184,7 +209,7 @@ class APIService {
         KeychainService.shared.updateAccessToken(
             accessToken: response.accessToken,
             userId: response.userId,
-            expiresIn: response.expiresIn
+            accessTokenExpiresIn: response.accessTokenExpiresIn
         )
     }
 
@@ -219,8 +244,269 @@ class APIService {
         )
     }
 
-    func updateUserProperties() async throws -> UserPropertiesResponse {
-        let body = UserPropertiesRequest(placeholderBool: false)
+    func authenticateWithApple(identityToken: String, authorizationCode: String, email: String?, fullName: String?) async throws -> AuthResponse {
+        let body = AppleSignInRequest(identityToken: identityToken, authorizationCode: authorizationCode, email: email, fullName: fullName)
+        let response: AuthResponse = try await request(
+            endpoint: "/auth/apple-signin",
+            method: "POST",
+            body: body,
+            headers: APIConfig.commonHeaders
+        )
+
+        KeychainService.shared.saveTokens(
+            accessToken: response.accessToken,
+            refreshToken: response.refreshToken,
+            userId: response.userId,
+            accessTokenExpiresIn: response.accessTokenExpiresIn,
+            refreshTokenExpiresIn: response.refreshTokenExpiresIn,
+            email: response.emailAddress
+        )
+
+        return response
+    }
+
+    // Note: User properties use String timestamps with standard JSONDecoder (not .iso8601),
+    // while checkin DTOs use Date with .iso8601 decoder via requestWithDateDecoding(). This is intentional.
+    func getUserProperties() async throws -> UserPropertiesResponse {
+        return try await request(
+            endpoint: "/user/properties",
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+
+    func updateUserProperties(_ request: UserPropertiesRequest) async throws -> UserPropertiesResponse {
+        return try await self.request(
+            endpoint: "/user/properties",
+            method: "POST",
+            body: request,
+            headers: APIConfig.commonHeaders,
+            requiresAuth: true
+        )
+    }
+
+    // MARK: - Account Management
+
+    func requestAccountDeletion() async throws -> MessageResponse {
+        return try await request(
+            endpoint: "/user/delete-account",
+            method: "POST",
+            requiresAuth: true
+        )
+    }
+
+    // MARK: - Feedback
+
+    func submitFeedback(message: String) async throws -> MessageResponse {
+        let body = ["message": message]
+        return try await request(
+            endpoint: "/user/feedback",
+            method: "POST",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    // MARK: - Exercise Sync Endpoints
+
+    func getExercises() async throws -> GetExercisesResponse {
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/exercises",
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+
+    func upsertExercises(_ exercises: [ExerciseDTO]) async throws -> UpsertExercisesResponse {
+        let body = UpsertExercisesRequest(exercises: exercises)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/exercises",
+            method: "POST",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    func deleteExercises(_ exerciseIds: [UUID]) async throws -> DeleteExercisesResponse {
+        let body = DeleteExercisesRequest(exerciseItemIds: exerciseIds)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/exercises",
+            method: "DELETE",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    // MARK: - Lift Set Sync Endpoints
+
+    func getLiftSet(limit: Int = 100, pageToken: String? = nil) async throws -> GetLiftSetsResponse {
+        var endpoint = "/checkin/lift-sets?limit=\(limit)"
+        if let pageToken = pageToken {
+            endpoint += "&pageToken=\(pageToken)"
+        }
+        return try await requestWithDateDecoding(
+            endpoint: endpoint,
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+
+    func createLiftSet(_ liftSets: [LiftSetDTO], isPremiumOnClient: Bool = false) async throws -> CreateLiftSetsResponse {
+        let body = CreateLiftSetsRequest(liftSets: liftSets, isPremiumOnClient: isPremiumOnClient ? true : nil)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/lift-sets",
+            method: "POST",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    func deleteLiftSet(_ liftSetIds: [UUID]) async throws -> DeleteLiftSetsResponse {
+        let body = DeleteLiftSetsRequest(liftSetIds: liftSetIds)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/lift-sets",
+            method: "DELETE",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    // MARK: - Estimated 1RM Sync Endpoints
+
+    func getEstimated1RM(limit: Int = 100, pageToken: String? = nil) async throws -> GetEstimated1RMResponse {
+        var endpoint = "/checkin/estimated-1rm?limit=\(limit)"
+        if let pageToken = pageToken {
+            endpoint += "&pageToken=\(pageToken)"
+        }
+        return try await requestWithDateDecoding(
+            endpoint: endpoint,
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+
+    func createEstimated1RM(_ estimated1RMs: [Estimated1RMDTO]) async throws -> CreateEstimated1RMResponse {
+        let body = CreateEstimated1RMRequest(estimated1RMs: estimated1RMs)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/estimated-1rm",
+            method: "POST",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    func deleteEstimated1RM(liftSetIds: [UUID]) async throws -> DeleteEstimated1RMResponse {
+        let body = DeleteEstimated1RMRequest(liftSetIds: liftSetIds)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/estimated-1rm",
+            method: "DELETE",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+
+    // MARK: - Set Plans
+
+    func getSetPlans() async throws -> GetSetPlansResponse {
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/set-plans",
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+
+    func upsertSetPlans(_ plans: [SetPlanDTO]) async throws -> UpsertSetPlansResponse {
+        let body = UpsertSetPlansRequest(plans: plans)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/set-plans",
+            method: "POST",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    func deleteSetPlans(_ planIds: [UUID]) async throws -> DeleteSetPlansResponse {
+        let body = DeleteSetPlansRequest(planIds: planIds)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/set-plans",
+            method: "DELETE",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    // MARK: - Groups
+
+    func getGroups() async throws -> GetGroupsResponse {
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/groups",
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+
+    func upsertGroups(_ groups: [GroupDTO]) async throws -> UpsertGroupsResponse {
+        let body = UpsertGroupsRequest(groups: groups)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/groups",
+            method: "POST",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    func deleteGroups(_ groupIds: [UUID]) async throws -> DeleteGroupsResponse {
+        let body = DeleteGroupsRequest(groupIds: groupIds)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/groups",
+            method: "DELETE",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    // MARK: - Accessory Goal Checkin Endpoints
+
+    func getAccessoryGoalCheckins(limit: Int = 100, pageToken: String? = nil, metricType: String? = nil) async throws -> GetAccessoryGoalCheckinsResponse {
+        var endpoint = "/checkin/accessory-goal-checkins?limit=\(limit)"
+        if let pageToken = pageToken {
+            endpoint += "&pageToken=\(pageToken)"
+        }
+        if let metricType = metricType {
+            endpoint += "&metricType=\(metricType)"
+        }
+        return try await requestWithDateDecoding(
+            endpoint: endpoint,
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+
+    func createAccessoryGoalCheckins(_ checkins: [AccessoryGoalCheckinDTO]) async throws -> CreateAccessoryGoalCheckinsResponse {
+        let body = CreateAccessoryGoalCheckinsRequest(checkins: checkins)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/accessory-goal-checkins",
+            method: "POST",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    func deleteAccessoryGoalCheckins(_ checkinIds: [UUID]) async throws -> DeleteAccessoryGoalCheckinsResponse {
+        let body = DeleteAccessoryGoalCheckinsRequest(checkinIds: checkinIds)
+        return try await requestWithDateDecoding(
+            endpoint: "/checkin/accessory-goal-checkins",
+            method: "DELETE",
+            body: body,
+            requiresAuth: true
+        )
+    }
+
+    // MARK: - Push Notification Endpoints
+
+    func registerDeviceToken(_ token: String) async throws -> UserPropertiesResponse {
+        let body = ["apnsDeviceToken": token]
         return try await request(
             endpoint: "/user/properties",
             method: "POST",
@@ -228,5 +514,121 @@ class APIService {
             headers: APIConfig.commonHeaders,
             requiresAuth: true
         )
+    }
+
+    // MARK: - Insights Endpoints
+
+    func getWeeklyInsights() async throws -> WeeklyInsightsResponse {
+        return try await request(
+            endpoint: "/insights/weekly",
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+
+    func getStarterInsight() async throws -> StarterInsightResponse {
+        return try await request(
+            endpoint: "/insights/starter",
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+
+    func postTierUnlock(tier: String) async throws -> TierUnlockResponse {
+        return try await request(
+            endpoint: "/insights/tier-unlock",
+            method: "POST",
+            body: ["tier": tier],
+            requiresAuth: true
+        )
+    }
+
+    func getTierUnlocks() async throws -> TierUnlocksListResponse {
+        return try await request(
+            endpoint: "/insights/tier-unlocks",
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+
+    // MARK: - Request Method with Date Decoding
+
+    private func requestWithDateDecoding<T: Decodable>(
+        endpoint: String,
+        method: String = "GET",
+        body: Encodable? = nil,
+        requiresAuth: Bool = false
+    ) async throws -> T {
+        if requiresAuth {
+            try await refreshTokenIfNeeded()
+        }
+
+        guard let url = URL(string: APIConfig.baseURL + endpoint) else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+
+        var allHeaders = APIConfig.commonHeaders
+        if requiresAuth, let token = KeychainService.shared.getAccessToken() {
+            allHeaders["Authorization"] = "Bearer \(token)"
+        }
+
+        for (key, value) in allHeaders {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+
+        if let body = body {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            request.httpBody = try encoder.encode(body)
+        }
+
+        SyncLogger.api.debug("\(method) \(endpoint)")
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw APIError.invalidResponse
+            }
+
+            if httpResponse.statusCode == 401 {
+                SyncLogger.api.error("401 Unauthorized: \(method) \(endpoint)")
+                throw APIError.unauthorized
+            }
+
+            if !(200...299).contains(httpResponse.statusCode) {
+                if let errorResponse = try? JSONDecoder().decode(ErrorResponse.self, from: data) {
+                    SyncLogger.api.error("HTTP \(httpResponse.statusCode): \(method) \(endpoint) — \(errorResponse.message)")
+                    throw APIError.httpError(httpResponse.statusCode, errorResponse.message)
+                }
+                SyncLogger.api.error("HTTP \(httpResponse.statusCode): \(method) \(endpoint)")
+                throw APIError.httpError(httpResponse.statusCode, "Unknown error")
+            }
+
+            SyncLogger.api.debug("\(method) \(endpoint) → \(httpResponse.statusCode) (\(data.count) bytes)")
+
+            do {
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                let decodedData = try decoder.decode(T.self, from: data)
+                return decodedData
+            } catch {
+                let rawBody = String(data: data.prefix(500), encoding: .utf8) ?? "<non-utf8>"
+                SyncLogger.api.error("Decode error: \(method) \(endpoint) — \(error)\nRaw body: \(rawBody)")
+                throw APIError.decodingError(error)
+            }
+        } catch let error as APIError {
+            if case .unauthorized = error { } else {
+                SentrySDK.capture(error: error)
+            }
+            throw error
+        } catch {
+            SyncLogger.api.error("Network error: \(method) \(endpoint) — \(error)")
+            SentrySDK.capture(error: error)
+            throw APIError.networkError(error)
+        }
     }
 }

@@ -17,6 +17,26 @@ enum OneRMCalculator {
         return weight * (1.0 + Double(reps) / 30.0)
     }
 
+    static func calibrated1RM(weight: Double, reps: Int, effortFraction: Double) -> Double {
+        guard effortFraction > 0 else { return estimate1RM(weight: weight, reps: reps) }
+        return estimate1RM(weight: weight, reps: reps) / effortFraction
+    }
+
+    /// Inverse Epley: max reps possible at a given weight for a given estimated 1RM.
+    static func maxRepsAtWeight(weight: Double, estimated1RM: Double) -> Double {
+        guard weight > 0, estimated1RM > 0 else { return 0 }
+        let I = weight / estimated1RM
+        guard I < 1.0 else { return 1.0 }
+        return 30.0 * (1.0 / I - 1.0)
+    }
+
+    /// Estimated Reps In Reserve: how many reps the lifter had left.
+    static func estimatedRIR(weight: Double, reps: Int, estimated1RM: Double) -> Double? {
+        guard estimated1RM > 0, weight > 0 else { return nil }
+        let maxReps = maxRepsAtWeight(weight: weight, estimated1RM: estimated1RM)
+        return maxReps - Double(reps)
+    }
+
     static func current1RM(from sets: [LiftSet]) -> Double {
         let eligible = sets.filter { $0.reps >= 1 && $0.weight >= 0 }
         let best = eligible.map { estimate1RM(weight: $0.weight, reps: $0.reps) }.max() ?? 0
@@ -34,7 +54,7 @@ enum OneRMCalculator {
     static func minimizedSuggestions(current1RM: Double, increment: Double) -> [Suggestion] {
         guard increment > 0 else { return [] }
         let base = max(0, current1RM)
-        let repsRange = Array(1...10)
+        let repsRange = Array(1...12)
 
         return repsRange.map { reps in
             let mult: Double = (reps == 1) ? 1.0 : (1.0 + Double(reps)/30.0)
@@ -54,5 +74,128 @@ enum OneRMCalculator {
 
             return Suggestion(reps: reps, weight: suggestedWeight, projected1RM: proj, delta: delta)
         }
+    }
+
+    static func tierBreakerSuggestion(
+        current1RM: Double,
+        targetE1RM: Double,
+        increment: Double,
+        repRange: ClosedRange<Int> = 5...10
+    ) -> Suggestion? {
+        guard increment > 0, targetE1RM > current1RM else { return nil }
+
+        var best: Suggestion?
+
+        for reps in repRange {
+            let mult: Double = (reps == 1) ? 1.0 : (1.0 + Double(reps) / 30.0)
+            let requiredRaw = targetE1RM / mult
+            var weight = requiredRaw.roundedUp(toIncrement: increment)
+
+            var proj = estimate1RM(weight: weight, reps: reps)
+            while proj < targetE1RM {
+                weight += increment
+                proj = estimate1RM(weight: weight, reps: reps)
+            }
+
+            let delta = proj - current1RM
+
+            if best == nil || proj < best!.projected1RM {
+                best = Suggestion(reps: reps, weight: weight, projected1RM: proj, delta: delta)
+            }
+        }
+
+        return best
+    }
+
+    struct GuidedSuggestion: Identifiable {
+        let id = UUID()
+        let weight: Double
+        let reps: Int
+        let label: String
+    }
+
+    static func guidedBodyweightSuggestions(
+        maxLoggedWeight: Double,
+        increment: Double,
+        repRange: ClosedRange<Int>
+    ) -> [GuidedSuggestion] {
+        let nextWeight = maxLoggedWeight > 0 ? maxLoggedWeight + increment : increment
+        let midReps = (repRange.lowerBound + repRange.upperBound) / 2
+        return [GuidedSuggestion(
+            weight: nextWeight,
+            reps: midReps,
+            label: "Next Step"
+        )]
+    }
+
+    struct EffortSuggestion: Identifiable {
+        let id = UUID()
+        let reps: Int
+        let weight: Double
+        let percent1RM: Double
+    }
+
+    /// Returns the set of weights achievable using a single plate per side.
+    /// Barbell: 45 lb bar + one plate from {10,15,25,35,45,55} on each side.
+    /// Single load: individual plate weights from {10,15,25,35,45,55}.
+    static func macroPlateWeights(loadType: ExerciseLoadType, barWeight: Double = 45.0) -> Set<Double> {
+        let plates: [Double] = [10, 15, 25, 35, 45, 55]
+        switch loadType {
+        case .barbell:
+            return Set(plates.map { barWeight + $0 * 2 }).union([barWeight])
+        case .singleLoad, .bodyweightPlusSingleLoad:
+            return Set(plates)
+        }
+    }
+
+    /// Returns weights achievable using multi-plate combos (1-3 plates per side).
+    /// Barbell: barWeight + sum_of_plates * 2. Single load: sum_of_plates.
+    static func efficientPlateWeights(loadType: ExerciseLoadType, barWeight: Double = 45.0, availablePlates: [Double] = [10, 15, 25, 35, 45, 55]) -> Set<Double> {
+        var weights = Set<Double>()
+        let maxPlatesPerSide = 3
+        // Generate all combinations of 1..maxPlatesPerSide plates (with repetition)
+        func enumerate(_ remaining: Int, _ startIndex: Int, _ currentSum: Double) {
+            if remaining == 0 { return }
+            for i in startIndex..<availablePlates.count {
+                let newSum = currentSum + availablePlates[i]
+                switch loadType {
+                case .barbell:
+                    weights.insert(barWeight + newSum * 2)
+                case .singleLoad, .bodyweightPlusSingleLoad:
+                    weights.insert(newSum)
+                }
+                enumerate(remaining - 1, i, newSum)
+            }
+        }
+        enumerate(maxPlatesPerSide, 0, 0)
+        if loadType == .barbell { weights.insert(barWeight) }
+        return weights
+    }
+
+    static func effortSuggestions(
+        current1RM: Double,
+        targetPercent1RMs: [Double],
+        loadType: ExerciseLoadType,
+        repRange: ClosedRange<Int>,
+        barWeight: Double = 45.0
+    ) -> [EffortSuggestion] {
+        guard current1RM > 0 else { return [] }
+        let increment: Double = loadType.isBarbell ? 5.0 : 2.5
+        let minWeight: Double = loadType.isBarbell ? barWeight : increment
+        var seen = Set<String>()
+        var results: [EffortSuggestion] = []
+        for pct in targetPercent1RMs {
+            let targetE1RM = pct * current1RM
+            for reps in repRange {
+                let rawWeight = targetE1RM * 30.0 / (30.0 + Double(reps))
+                let rounded = max(0, (rawWeight / increment).rounded() * increment)
+                guard rounded >= minWeight else { continue }
+                let key = "\(rounded)-\(reps)"
+                guard seen.insert(key).inserted else { continue }
+                let actualPct = estimate1RM(weight: rounded, reps: reps) / current1RM * 100.0
+                results.append(EffortSuggestion(reps: reps, weight: rounded, percent1RM: actualPct))
+            }
+        }
+        return results
     }
 }

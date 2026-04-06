@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import AuthenticationServices
 
 struct AuthView: View {
     @ObservedObject var authViewModel: AuthViewModel
@@ -17,7 +18,11 @@ struct AuthView: View {
     @State private var showToast = false
     @State private var toastMessage = ""
     @State private var isKeyboardVisible = false
+    @State private var isSubmitting = false
+    @State private var safariURL: URL?
     @FocusState private var focusedField: Field?
+    private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
+
 
     enum Field {
         case email
@@ -40,92 +45,120 @@ struct AuthView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.black
+                Color(white: 0.08)
                     .ignoresSafeArea()
 
                 ScrollView {
                     VStack(spacing: 32) {
-                        // Logo/Title (hidden when keyboard is visible)
-                        if !isKeyboardVisible {
+                        // Logo/Title (hidden when keyboard is visible or submitting)
+                        if !isKeyboardVisible && !isSubmitting {
                             VStack(spacing: 12) {
-                                Image(systemName: "dumbbell.fill")
-                                    .font(.system(size: 60))
-                                    .foregroundStyle(.cyan)
+                                Image("LiftTheBullIcon")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 80, height: 80)
+                                    .foregroundStyle(Color.appLogoColor)
 
-                                Text("WeightApp")
-                                    .font(.largeTitle.weight(.bold))
-                                    .foregroundStyle(.white)
+                                VStack(spacing: 4) {
+                                    Text("Lift the Bull")
+                                        .font(.bebasNeue(size: 34))
+                                        .foregroundStyle(.white)
+
+                                    Text("Strength Tracker")
+                                        .font(.inter(size: 14))
+                                        .foregroundStyle(.white.opacity(0.6))
+                                }
                             }
                             .padding(.top, 60)
                             .transition(.opacity.combined(with: .move(edge: .top)))
                         } else {
-                            // Add minimal top padding when keyboard is visible
+                            // Add minimal top padding when keyboard is visible or submitting
                             Spacer()
                                 .frame(height: 20)
                         }
 
-                        // Tab Selector
-                        HStack(spacing: 0) {
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    authMode = .signUp
-                                }
-                            } label: {
-                                Text("Sign Up")
-                                    .font(.headline)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                    .background(authMode == .signUp ? Color.cyan : Color.clear)
-                                    .foregroundStyle(authMode == .signUp ? .black : .white.opacity(0.6))
-                            }
+                        // Tab Selector - Segmented Picker Style
+                        ZStack(alignment: .center) {
+                            // Background
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color(white: 0.1))
+                                .frame(height: 40)
 
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    authMode = .login
+                            // Sliding indicator
+                            GeometryReader { geometry in
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color.appAccent)
+                                    .frame(width: geometry.size.width / 2 - 6, height: 34)
+                                    .offset(x: authMode == .signUp ? 3 : geometry.size.width / 2 + 3, y: 3)
+                                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: authMode)
+                            }
+                            .frame(height: 40)
+
+                            // Tab buttons
+                            HStack(spacing: 0) {
+                                Button {
+                                    hapticFeedback.impactOccurred()
+                                    authMode = .signUp
+                                    authViewModel.errorMessage = nil
+                                } label: {
+                                    Text("Sign Up")
+                                        .font(.interSemiBold(size: 14))
+                                        .foregroundStyle(authMode == .signUp ? .black : .white.opacity(0.5))
+                                        .frame(maxWidth: .infinity)
+                                        .contentShape(Rectangle())
                                 }
-                            } label: {
-                                Text("Login")
-                                    .font(.headline)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                    .background(authMode == .login ? Color.cyan : Color.clear)
-                                    .foregroundStyle(authMode == .login ? .black : .white.opacity(0.6))
+                                .buttonStyle(.plain)
+                                .frame(height: 40)
+
+                                Button {
+                                    hapticFeedback.impactOccurred()
+                                    authMode = .login
+                                    authViewModel.errorMessage = nil
+                                } label: {
+                                    Text("Login")
+                                        .font(.interSemiBold(size: 14))
+                                        .foregroundStyle(authMode == .login ? .black : .white.opacity(0.5))
+                                        .frame(maxWidth: .infinity)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .frame(height: 40)
                             }
                         }
-                        .background(Color(white: 0.12))
-                        .cornerRadius(10)
+                        .frame(height: 40)
                         .padding(.horizontal, 32)
 
                         // Auth Form
                         VStack(spacing: 20) {
                             // Email Field
-                            VStack(alignment: .leading, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 6) {
                                 Text("Email")
-                                    .font(.subheadline.weight(.semibold))
+                                    .font(.interSemiBold(size: 14))
                                     .foregroundStyle(.white.opacity(0.7))
 
                                 TextField("", text: $email)
                                     .textContentType(.emailAddress)
                                     .keyboardType(.emailAddress)
                                     .autocapitalization(.none)
-                                    .font(.body)
-                                    .padding(14)
+                                    .font(.inter(size: 16))
+                                    .padding(.horizontal, 12)
+                                    .frame(height: 40)
                                     .background(Color(white: 0.12))
-                                    .cornerRadius(10)
+                                    .cornerRadius(8)
                                     .foregroundStyle(.white)
                                     .focused($focusedField, equals: .email)
 
                                 if !email.isEmpty && !isValidEmail && focusedField != .email {
                                     Text("Please enter a valid email address")
-                                        .font(.caption)
+                                        .font(.inter(size: 12))
                                         .foregroundStyle(.red)
                                 }
                             }
 
                             // Password Field
-                            VStack(alignment: .leading, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 6) {
                                 Text("Password")
-                                    .font(.subheadline.weight(.semibold))
+                                    .font(.interSemiBold(size: 14))
                                     .foregroundStyle(.white.opacity(0.7))
 
                                 HStack {
@@ -137,7 +170,7 @@ struct AuthView: View {
                                         }
                                     }
                                     .textContentType(authMode == .signUp ? .newPassword : .password)
-                                    .font(.body)
+                                    .font(.inter(size: 16))
                                     .focused($focusedField, equals: .password)
 
                                     Button {
@@ -147,34 +180,40 @@ struct AuthView: View {
                                             .foregroundStyle(.white.opacity(0.5))
                                     }
                                 }
-                                .padding(14)
+                                .padding(.horizontal, 12)
+                                .frame(height: 40)
                                 .background(Color(white: 0.12))
-                                .cornerRadius(10)
+                                .cornerRadius(8)
                                 .foregroundStyle(.white)
 
                                 if !password.isEmpty && password.count < 8 && focusedField != .password {
                                     Text("Password must be at least 8 characters")
-                                        .font(.caption)
+                                        .font(.inter(size: 12))
                                         .foregroundStyle(.red)
                                 }
                             }
 
-                            // Forgot Password (only in login mode)
+                            // Forgot Password (only in login mode) / Spacer for sign up
                             if authMode == .login {
                                 Button {
                                     showForgotPassword = true
                                 } label: {
                                     Text("Forgot Password?")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.cyan)
+                                        .font(.inter(size: 14))
+                                        .foregroundStyle(Color.appAccent)
                                 }
                                 .frame(maxWidth: .infinity)
+                            } else {
+                                // Invisible spacer to match login layout
+                                Text(" ")
+                                    .font(.inter(size: 14))
+                                    .frame(maxWidth: .infinity)
                             }
 
                             // Error Message
                             if let error = authViewModel.errorMessage {
                                 Text(error)
-                                    .font(.caption)
+                                    .font(.inter(size: 12))
                                     .foregroundStyle(.red)
                                     .multilineTextAlignment(.center)
                                     .padding(.horizontal)
@@ -182,6 +221,7 @@ struct AuthView: View {
 
                             // Submit Button
                             Button {
+                                hapticFeedback.impactOccurred()
                                 Task {
                                     await handleSubmit()
                                 }
@@ -192,37 +232,74 @@ struct AuthView: View {
                                             .tint(.black)
                                     } else {
                                         Text(authMode == .signUp ? "Sign Up" : "Login")
-                                            .font(.headline)
+                                            .font(.interSemiBold(size: 14))
                                     }
                                 }
                                 .frame(maxWidth: .infinity)
-                                .padding(.vertical, 16)
-                                .background(.cyan)
-                                .cornerRadius(12)
+                                .frame(height: 40)
+                                .background(Color.appAccent)
+                                .cornerRadius(10)
                                 .foregroundStyle(.black)
                             }
                             .disabled(authViewModel.isLoading || !canSubmit)
-                            .opacity((authViewModel.isLoading || !canSubmit) ? 0.6 : 1.0)
+                            // .opacity((authViewModel.isLoading || !canSubmit) ? 0.6 : 1.0)
+
+                            // Divider with "or" text
+                            HStack {
+                                Rectangle()
+                                    .fill(Color.white.opacity(0.2))
+                                    .frame(height: 1)
+                                Text("or")
+                                    .font(.inter(size: 12))
+                                    .foregroundStyle(.white.opacity(0.5))
+                                Rectangle()
+                                    .fill(Color.white.opacity(0.2))
+                                    .frame(height: 1)
+                            }
+                            .padding(.top, 8)
+
+                            // Sign in with Apple
+                            SignInWithAppleButton(authMode == .signUp ? .signUp : .signIn) { request in
+                                request.requestedScopes = [.fullName, .email]
+                            } onCompletion: { result in
+                                handleAppleSignIn(result)
+                            }
+                            .signInWithAppleButtonStyle(.white)
+                            .frame(height: 44)
+                            .cornerRadius(10)
+                            .id(authMode)
+
+                            // Terms and Privacy footer
+                            VStack(spacing: 4) {
+                                Text("By signing up you agree to the")
+                                    .font(.inter(size: 12))
+                                    .foregroundStyle(.white.opacity(0.5))
+
+                                HStack(spacing: 4) {
+                                    Button {
+                                        safariURL = SubscriptionConfig.termsURL
+                                    } label: {
+                                        Text("Terms and Conditions")
+                                            .font(.inter(size: 12))
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+
+                                    Text("and")
+                                        .font(.inter(size: 12))
+                                        .foregroundStyle(.white.opacity(0.5))
+
+                                    Button {
+                                        safariURL = SubscriptionConfig.privacyURL
+                                    } label: {
+                                        Text("Privacy Policy")
+                                            .font(.inter(size: 12))
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+                                }
+                            }
+                            .padding(.top, 16)
                         }
                         .padding(.horizontal, 32)
-
-                        // Bottom Text
-                        VStack(spacing: 8) {
-                            Text(authMode == .signUp ? "Already have an account?" : "Don't have an account?")
-                                .foregroundStyle(.white.opacity(0.7))
-
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    authMode = authMode == .signUp ? .login : .signUp
-                                    authViewModel.errorMessage = nil
-                                }
-                            } label: {
-                                Text(authMode == .signUp ? "Login" : "Sign Up")
-                                    .fontWeight(.semibold)
-                                    .foregroundStyle(.cyan)
-                            }
-                        }
-                        .font(.subheadline)
 
                         Spacer(minLength: 40)
                     }
@@ -233,7 +310,7 @@ struct AuthView: View {
                     VStack {
                         Spacer()
                         Text(toastMessage)
-                            .font(.subheadline)
+                            .font(.inter(size: 14))
                             .foregroundStyle(.white)
                             .multilineTextAlignment(.center)
                             .padding(20)
@@ -265,12 +342,24 @@ struct AuthView: View {
                 NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillShowNotification, object: nil)
                 NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillHideNotification, object: nil)
             }
+            .sheet(item: $safariURL) { url in
+                SafariView(url: url)
+                    .ignoresSafeArea()
+            }
         }
     }
 
     private func handleSubmit() async {
+        // Freeze layout and dismiss keyboard before auth transition
+        isSubmitting = true
+        focusedField = nil
+
         if authMode == .signUp {
             let result = await authViewModel.createUser(email: email, password: password)
+            if result != .success {
+                // Reset layout freeze on failure
+                isSubmitting = false
+            }
             if result == .userAlreadyExists {
                 // Show toast and switch to login
                 toastMessage = "Try logging in instead"
@@ -294,7 +383,26 @@ struct AuthView: View {
                 }
             }
         } else {
-            await authViewModel.login(email: email, password: password)
+            let result = await authViewModel.login(email: email, password: password)
+            if result != .success {
+                // Reset layout freeze on failure
+                isSubmitting = false
+            }
+        }
+    }
+
+    private func handleAppleSignIn(_ result: Result<ASAuthorization, Error>) {
+        switch result {
+        case .success(let authorization):
+            Task {
+                _ = await authViewModel.handleAppleAuthorization(authorization)
+            }
+        case .failure(let error):
+            let authError = error as? ASAuthorizationError
+            if authError?.code != .canceled {
+                authViewModel.errorMessage = error.localizedDescription
+            }
         }
     }
 }
+

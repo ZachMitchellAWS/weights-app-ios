@@ -17,20 +17,16 @@ struct SplashView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 20) {
-                Image(systemName: "dumbbell.fill")
-                    .font(.system(size: 80))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.cyan, .cyan.opacity(0.6)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                Image("LiftTheBullIcon")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 100, height: 100)
+                    .foregroundStyle(Color.appLogoColor)
                     .scaleEffect(scale)
                     .opacity(opacity)
 
-                Text("WeightApp")
-                    .font(.title.weight(.bold))
+                Text("Lift the Bull")
+                    .font(.bebasNeue(size: 34))
                     .foregroundStyle(.white)
                     .opacity(opacity)
             }

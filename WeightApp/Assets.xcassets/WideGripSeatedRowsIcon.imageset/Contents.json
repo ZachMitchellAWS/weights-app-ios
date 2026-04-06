@@ -1,0 +1,16 @@
+{
+  "images" : [
+    {
+      "filename" : "wide_grip_seated_rows_icon.svg",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  },
+  "properties" : {
+    "preserves-vector-representation" : true,
+    "template-rendering-intent" : "template"
+  }
+}

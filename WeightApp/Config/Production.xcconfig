@@ -1,0 +1,5 @@
+APP_ENVIRONMENT = production
+API_BASE_URL = https:$(/)$(/)api.liftthebull.io
+API_KEY = HMie8dJvgq2SgYiGccz3Za5TlX9xLgZs7QsOyiB9
+APP_BUNDLE_ID_SUFFIX =
+APP_DISPLAY_NAME = Lift the Bull

@@ -7,7 +7,9 @@
 
 import Foundation
 import Combine
-
+import SwiftData
+import AuthenticationServices
+import Sentry
 enum AuthResult {
     case success
     case userAlreadyExists
@@ -20,17 +22,84 @@ class AuthViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var userId: String?
+    @Published var isNewUser = false
+    @Published var showPostAuthFlow = false
+    @Published var sessionExpired = false
 
     nonisolated(unsafe) private var tokenRefreshTimer: Timer?
+    private var modelContext: ModelContext?
 
     init() {
         checkAuthStatus()
         startTokenRefreshTimer()
     }
 
+    func setModelContext(_ context: ModelContext) {
+        self.modelContext = context
+    }
+
+    /// Tracks whether a newly created user still needs onboarding.
+    /// Set to `true` in `createUser()`, cleared in `completePostAuthFlow()`.
+    /// Existing users who never had this flag are unaffected.
+    private static let onboardingPendingKey = "onboardingPending"
+
+    private var isOnboardingPending: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.onboardingPendingKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.onboardingPendingKey) }
+    }
+
     func checkAuthStatus() {
-        isAuthenticated = KeychainService.shared.isAuthenticated()
+        // First check if we have tokens
+        guard KeychainService.shared.isAuthenticated() else {
+            isAuthenticated = false
+            userId = nil
+            return
+        }
+
+        // Check if refresh token is expired
+        if let tokenStorage = KeychainService.shared.getTokenStorage(),
+           tokenStorage.isRefreshTokenExpired {
+            handleSessionExpired()
+            return
+        }
+
+        isAuthenticated = true
         userId = KeychainService.shared.getUserId()
+
+        // Resume onboarding if it was interrupted (e.g. force quit mid-onboarding)
+        if isOnboardingPending {
+            isNewUser = true
+            showPostAuthFlow = true
+        }
+    }
+
+    func completePostAuthFlow() {
+        showPostAuthFlow = false
+    }
+
+    func markOnboardingComplete() {
+        isOnboardingPending = false
+    }
+
+    func handleSessionExpired() {
+        SentrySDK.setUser(nil)
+
+        // Clear all tokens
+        KeychainService.shared.clearTokens()
+
+        // Clear sync retry queue
+        SyncService.shared.clearOnLogout()
+
+        // Update state
+        isOnboardingPending = false
+        isAuthenticated = false
+        userId = nil
+        sessionExpired = true
+        stopTokenRefreshTimer()
+    }
+
+    func dismissSessionExpiredAlert() {
+        sessionExpired = false
     }
 
     func login(email: String, password: String) async -> AuthResult {
@@ -39,8 +108,19 @@ class AuthViewModel: ObservableObject {
 
         do {
             let response = try await APIService.shared.login(email: email, password: password)
+            isNewUser = false
+            showPostAuthFlow = true
             isAuthenticated = true
             userId = response.userId
+
+            let sentryUser = Sentry.User(userId: response.userId)
+            sentryUser.email = email
+            SentrySDK.setUser(sentryUser)
+
+            // Perform initial sync for returning user (includes user properties sync)
+            await SyncService.shared.performInitialSync(isNewUser: false)
+            await EntitlementsService.shared.syncEntitlementStatus()
+
             isLoading = false
             return .success
         } catch {
@@ -56,8 +136,20 @@ class AuthViewModel: ObservableObject {
 
         do {
             let response = try await APIService.shared.createUser(email: email, password: password)
+            isNewUser = true
+            isOnboardingPending = true
+            showPostAuthFlow = true
             isAuthenticated = true
             userId = response.userId
+
+            let sentryUser = Sentry.User(userId: response.userId)
+            sentryUser.email = email
+            SentrySDK.setUser(sentryUser)
+
+            // Perform initial sync for new user (includes user properties sync)
+            await SyncService.shared.performInitialSync(isNewUser: true)
+            await EntitlementsService.shared.syncEntitlementStatus()
+
             isLoading = false
             return .success
         } catch let error as APIError {
@@ -76,7 +168,76 @@ class AuthViewModel: ObservableObject {
         }
     }
 
-    func logout() async {
+    func signInWithApple() async -> AuthResult {
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            let result = try await AppleSignInService.shared.signIn()
+            return try await completeAppleSignIn(result)
+        } catch let error as AppleSignInService.AppleSignInError {
+            if case .cancelled = error {
+                isLoading = false
+                return .error
+            }
+            errorMessage = error.localizedDescription
+            isLoading = false
+            return .error
+        } catch {
+            errorMessage = error.localizedDescription
+            isLoading = false
+            return .error
+        }
+    }
+
+    func handleAppleAuthorization(_ authorization: ASAuthorization) async -> AuthResult {
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            let result = try AppleSignInService.shared.handleAuthorization(authorization)
+            return try await completeAppleSignIn(result)
+        } catch {
+            errorMessage = error.localizedDescription
+            isLoading = false
+            return .error
+        }
+    }
+
+    private func completeAppleSignIn(_ result: AppleSignInService.AppleSignInResult) async throws -> AuthResult {
+        var fullName: String? = nil
+        if let nameComponents = result.fullName {
+            let formatter = PersonNameComponentsFormatter()
+            let formattedName = formatter.string(from: nameComponents)
+            if !formattedName.isEmpty {
+                fullName = formattedName
+            }
+        }
+
+        let response = try await APIService.shared.authenticateWithApple(
+            identityToken: result.identityToken,
+            authorizationCode: result.authorizationCode,
+            email: result.email,
+            fullName: fullName
+        )
+        isNewUser = response.isNewUser ?? false
+        if isNewUser {
+            isOnboardingPending = true
+        }
+        showPostAuthFlow = true
+        isAuthenticated = true
+        userId = response.userId
+
+        let sentryUser = Sentry.User(userId: response.userId)
+        SentrySDK.setUser(sentryUser)
+
+        await SyncService.shared.performInitialSync(isNewUser: isNewUser)
+        await EntitlementsService.shared.syncEntitlementStatus()
+        isLoading = false
+        return .success
+    }
+
+    func logout(onDataCleanup: @escaping () -> Void) async {
         isLoading = true
         errorMessage = nil
 
@@ -86,8 +247,12 @@ class AuthViewModel: ObservableObject {
             errorMessage = error.localizedDescription
         }
 
-        // Always clear tokens and log out, regardless of API success/failure
+        onDataCleanup()
+        SyncService.shared.clearOnLogout()
+        NarrativeBadgeService.shared.clearOnLogout()
         KeychainService.shared.clearTokens()
+        SentrySDK.setUser(nil)
+        isOnboardingPending = false
         isAuthenticated = false
         userId = nil
         stopTokenRefreshTimer()
@@ -113,11 +278,24 @@ class AuthViewModel: ObservableObject {
     private func refreshTokenIfNeeded() async {
         guard isAuthenticated else { return }
 
+        // Check if refresh token is expired before attempting refresh
+        if let tokenStorage = KeychainService.shared.getTokenStorage(),
+           tokenStorage.isRefreshTokenExpired {
+            handleSessionExpired()
+            return
+        }
+
         do {
             try await APIService.shared.refreshTokenIfNeeded()
+        } catch let error as APIError {
+            // If we get unauthorized, the refresh token is likely expired/invalid
+            if case .unauthorized = error {
+                handleSessionExpired()
+            }
+            // For other errors, silently fail and retry on next attempt
+            // This allows recovery from temporary network issues
         } catch {
             // Silently fail and retry on next attempt
-            // This allows recovery from temporary network issues
         }
     }
 

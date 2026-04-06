@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "display_analytics_card.jpg",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

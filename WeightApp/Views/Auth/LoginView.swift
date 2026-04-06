@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import AuthenticationServices
 
 struct LoginView: View {
     @ObservedObject var authViewModel: AuthViewModel
@@ -27,10 +28,10 @@ struct LoginView: View {
                         VStack(spacing: 12) {
                             Image(systemName: "dumbbell.fill")
                                 .font(.system(size: 60))
-                                .foregroundStyle(.cyan)
+                                .foregroundStyle(Color.appAccent)
 
                             Text("WeightApp")
-                                .font(.largeTitle.weight(.bold))
+                                .font(.bebasNeue(size: 38))
                                 .foregroundStyle(.white)
                         }
                         .padding(.top, 60)
@@ -40,14 +41,14 @@ struct LoginView: View {
                             // Email Field
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("Email")
-                                    .font(.subheadline.weight(.semibold))
+                                    .font(.interSemiBold(size: 14))
                                     .foregroundStyle(.white.opacity(0.7))
 
                                 TextField("", text: $email)
                                     .textContentType(.emailAddress)
                                     .keyboardType(.emailAddress)
                                     .autocapitalization(.none)
-                                    .font(.body)
+                                    .font(.inter(size: 16))
                                     .padding(14)
                                     .background(Color(white: 0.12))
                                     .cornerRadius(10)
@@ -57,7 +58,7 @@ struct LoginView: View {
                             // Password Field
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("Password")
-                                    .font(.subheadline.weight(.semibold))
+                                    .font(.interSemiBold(size: 14))
                                     .foregroundStyle(.white.opacity(0.7))
 
                                 HStack {
@@ -69,7 +70,7 @@ struct LoginView: View {
                                         }
                                     }
                                     .textContentType(.password)
-                                    .font(.body)
+                                    .font(.inter(size: 16))
 
                                     Button {
                                         showPassword.toggle()
@@ -89,15 +90,15 @@ struct LoginView: View {
                                 showForgotPassword = true
                             } label: {
                                 Text("Forgot Password?")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.cyan)
+                                    .font(.inter(size: 14))
+                                    .foregroundStyle(Color.appAccent)
                             }
                             .frame(maxWidth: .infinity, alignment: .trailing)
 
                             // Error Message
                             if let error = authViewModel.errorMessage {
                                 Text(error)
-                                    .font(.caption)
+                                    .font(.inter(size: 12))
                                     .foregroundStyle(.red)
                                     .multilineTextAlignment(.center)
                                     .padding(.horizontal)
@@ -115,17 +116,41 @@ struct LoginView: View {
                                             .tint(.black)
                                     } else {
                                         Text("Login")
-                                            .font(.headline)
+                                            .font(.interSemiBold(size: 17))
                                     }
                                 }
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 16)
-                                .background(.cyan)
+                                .background(Color.appAccent)
                                 .cornerRadius(12)
                                 .foregroundStyle(.black)
                             }
                             .disabled(authViewModel.isLoading || email.isEmpty || password.isEmpty)
                             .opacity((authViewModel.isLoading || email.isEmpty || password.isEmpty) ? 0.6 : 1.0)
+
+                            // Divider with "or" text
+                            HStack {
+                                Rectangle()
+                                    .fill(Color.white.opacity(0.2))
+                                    .frame(height: 1)
+                                Text("or")
+                                    .font(.inter(size: 12))
+                                    .foregroundStyle(.white.opacity(0.5))
+                                Rectangle()
+                                    .fill(Color.white.opacity(0.2))
+                                    .frame(height: 1)
+                            }
+                            .padding(.top, 8)
+
+                            // Sign in with Apple
+                            SignInWithAppleButton(.signIn) { request in
+                                request.requestedScopes = [.fullName, .email]
+                            } onCompletion: { result in
+                                handleAppleSignIn(result)
+                            }
+                            .signInWithAppleButtonStyle(.white)
+                            .frame(height: 50)
+                            .cornerRadius(12)
                         }
                         .padding(.horizontal, 32)
 
@@ -138,10 +163,10 @@ struct LoginView: View {
                             } label: {
                                 Text("Sign Up")
                                     .fontWeight(.semibold)
-                                    .foregroundStyle(.cyan)
+                                    .foregroundStyle(Color.appAccent)
                             }
                         }
-                        .font(.subheadline)
+                        .font(.inter(size: 14))
 
                         Spacer(minLength: 40)
                     }
@@ -152,6 +177,20 @@ struct LoginView: View {
             }
             .navigationDestination(isPresented: $showForgotPassword) {
                 ForgotPasswordView(authViewModel: authViewModel)
+            }
+        }
+    }
+
+    private func handleAppleSignIn(_ result: Result<ASAuthorization, Error>) {
+        switch result {
+        case .success(let authorization):
+            Task {
+                _ = await authViewModel.handleAppleAuthorization(authorization)
+            }
+        case .failure(let error):
+            let authError = error as? ASAuthorizationError
+            if authError?.code != .canceled {
+                authViewModel.errorMessage = error.localizedDescription
             }
         }
     }
