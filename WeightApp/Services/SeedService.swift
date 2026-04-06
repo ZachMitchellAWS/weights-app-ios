@@ -95,24 +95,24 @@ enum SeedService {
         let existing = (try? context.fetch(existingDescriptor)) ?? []
         let existingIds = Set(existing.map { $0.id })
 
-        for def in SetPlan.builtInTemplates {
+        for def in SetPlan.builtInPlans {
             if existingIds.contains(def.id) {
-                if let template = existing.first(where: { $0.id == def.id }) {
-                    template.name = def.name
-                    template.effortSequence = def.sequence
-                    template.templateDescription = def.description
+                if let plan = existing.first(where: { $0.id == def.id }) {
+                    plan.name = def.name
+                    plan.effortSequence = def.sequence
+                    plan.planDescription = def.description
                 }
                 continue
             }
 
-            let template = SetPlan(
+            let plan = SetPlan(
                 id: def.id,
                 name: def.name,
                 effortSequence: def.sequence,
                 isCustom: false,
-                templateDescription: def.description
+                planDescription: def.description
             )
-            context.insert(template)
+            context.insert(plan)
         }
 
         if let userProps = try? context.fetch(FetchDescriptor<UserProperties>()).first,

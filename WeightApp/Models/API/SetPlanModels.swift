@@ -3,35 +3,35 @@ import Foundation
 // MARK: - Data Transfer Object
 
 struct SetPlanDTO: Codable {
-    let templateId: UUID
+    let planId: UUID
     let name: String
     let effortSequence: [String]
     let isCustom: Bool
     let createdTimezone: String
-    let templateDescription: String?
+    let planDescription: String?
     let createdDatetime: Date?
     let deleted: Bool?
 
-    init(from template: SetPlan) {
-        self.templateId = template.id
-        self.name = template.name
-        self.effortSequence = template.effortSequence
-        self.isCustom = template.isCustom
-        self.createdTimezone = template.createdTimezone
-        self.templateDescription = template.templateDescription
-        self.createdDatetime = template.createdAt
-        self.deleted = template.deleted
+    init(from plan: SetPlan) {
+        self.planId = plan.id
+        self.name = plan.name
+        self.effortSequence = plan.effortSequence
+        self.isCustom = plan.isCustom
+        self.createdTimezone = plan.createdTimezone
+        self.planDescription = plan.planDescription
+        self.createdDatetime = plan.createdAt
+        self.deleted = plan.deleted
     }
 
-    init(templateId: UUID, name: String, effortSequence: [String], isCustom: Bool,
-         createdTimezone: String, templateDescription: String? = nil,
+    init(planId: UUID, name: String, effortSequence: [String], isCustom: Bool,
+         createdTimezone: String, planDescription: String? = nil,
          createdDatetime: Date? = nil, deleted: Bool? = nil) {
-        self.templateId = templateId
+        self.planId = planId
         self.name = name
         self.effortSequence = effortSequence
         self.isCustom = isCustom
         self.createdTimezone = createdTimezone
-        self.templateDescription = templateDescription
+        self.planDescription = planDescription
         self.createdDatetime = createdDatetime
         self.deleted = deleted
     }
@@ -40,21 +40,21 @@ struct SetPlanDTO: Codable {
 // MARK: - Request Models
 
 struct UpsertSetPlansRequest: Codable {
-    let templates: [SetPlanDTO]
+    let plans: [SetPlanDTO]
 }
 
 struct DeleteSetPlansRequest: Codable {
-    let templateIds: [UUID]
+    let planIds: [UUID]
 }
 
 // MARK: - Response Models
 
 struct GetSetPlansResponse: Codable {
-    let templates: [SetPlanDTO]
+    let plans: [SetPlanDTO]
 }
 
 struct UpsertSetPlansResponse: Codable {
-    let templates: [SetPlanDTO]?
+    let plans: [SetPlanDTO]?
     let created: Int?
     let updated: Int?
 }

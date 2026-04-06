@@ -7,35 +7,35 @@ final class SetPlan {
     var createdAt: Date
     var createdTimezone: String
     var name: String
-    var templateDescription: String?
+    var planDescription: String?
     var effortSequence: [String]
     var isCustom: Bool
     var deleted: Bool
 
-    init(id: UUID = UUID(), name: String, effortSequence: [String], isCustom: Bool = true, templateDescription: String? = nil) {
+    init(id: UUID = UUID(), name: String, effortSequence: [String], isCustom: Bool = true, planDescription: String? = nil) {
         self.id = id
         self.createdAt = Date()
         self.createdTimezone = TimeZone.current.identifier
         self.name = name
-        self.templateDescription = templateDescription
+        self.planDescription = planDescription
         self.effortSequence = effortSequence
         self.isCustom = isCustom
         self.deleted = false
     }
 
-    init(id: UUID, name: String, effortSequence: [String], isCustom: Bool, templateDescription: String?,
+    init(id: UUID, name: String, effortSequence: [String], isCustom: Bool, planDescription: String?,
          createdAt: Date, createdTimezone: String, deleted: Bool = false) {
         self.id = id
         self.name = name
         self.effortSequence = effortSequence
         self.isCustom = isCustom
-        self.templateDescription = templateDescription
+        self.planDescription = planDescription
         self.createdAt = createdAt
         self.createdTimezone = createdTimezone
         self.deleted = deleted
     }
 
-    // MARK: - Built-in Template IDs (deterministic)
+    // MARK: - Built-in Plan IDs (deterministic)
 
     static let standardId        = UUID(uuidString: "00000000-0000-0000-0000-000000000101")!
     static let greaseId          = UUID(uuidString: "00000000-0000-0000-0000-000000000102")!
@@ -65,7 +65,7 @@ final class SetPlan {
 
     // MARK: - Built-in Definitions
 
-    static let builtInTemplates: [(id: UUID, name: String, sequence: [String], description: String)] = [
+    static let builtInPlans: [(id: UUID, name: String, sequence: [String], description: String)] = [
         (standardId,       "Standard",            ["easy", "easy", "moderate", "moderate", "hard", "pr"],                      "Progressive warmup to PR attempt"),
         (maintenanceId,    "Maintenance",         ["moderate", "moderate", "hard"],                                            "Moderate volume, hold strength"),
         (deloadId,         "Deload",              ["easy", "easy", "easy"],                                                    "Recovery phase"),

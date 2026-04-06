@@ -90,7 +90,7 @@ struct UserPropertiesRequest: Codable {
         case bodyweight, availableChangePlates, minReps, maxReps
         case biologicalSex
         case weightUnit
-        case activeSetPlanId = "activeSetPlanTemplateId"
+        case activeSetPlanId
         case stepsGoal, proteinGoal, bodyweightTarget
         case timezone
         case hasMetStrengthTierConditions
@@ -169,7 +169,7 @@ struct UserPropertiesResponse: Codable {
     private enum CodingKeys: String, CodingKey {
         case userId, bodyweight, availableChangePlates, minReps, maxReps
         case biologicalSex, weightUnit
-        case activeSetPlanId = "activeSetPlanTemplateId"
+        case activeSetPlanId
         case stepsGoal, proteinGoal, bodyweightTarget, timezone
         case hasMetStrengthTierConditions
         case createdDatetime, lastModifiedDatetime

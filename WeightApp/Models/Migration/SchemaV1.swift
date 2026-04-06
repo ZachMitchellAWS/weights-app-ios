@@ -119,13 +119,13 @@ enum SchemaV1: VersionedSchema {
         var createdAt: Date
         var createdTimezone: String
         var name: String
-        var templateDescription: String?
+        var planDescription: String?
         var effortSequence: [String]
         var isCustom: Bool
         var deleted: Bool
 
-        init(id: UUID = UUID(), createdAt: Date = Date(), createdTimezone: String = "", name: String = "", templateDescription: String? = nil, effortSequence: [String] = [], isCustom: Bool = false, deleted: Bool = false) {
-            self.id = id; self.createdAt = createdAt; self.createdTimezone = createdTimezone; self.name = name; self.templateDescription = templateDescription; self.effortSequence = effortSequence; self.isCustom = isCustom; self.deleted = deleted
+        init(id: UUID = UUID(), createdAt: Date = Date(), createdTimezone: String = "", name: String = "", planDescription: String? = nil, effortSequence: [String] = [], isCustom: Bool = false, deleted: Bool = false) {
+            self.id = id; self.createdAt = createdAt; self.createdTimezone = createdTimezone; self.name = name; self.planDescription = planDescription; self.effortSequence = effortSequence; self.isCustom = isCustom; self.deleted = deleted
         }
     }
 

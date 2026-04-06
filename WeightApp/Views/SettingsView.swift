@@ -66,7 +66,13 @@ struct SettingsView: View {
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active { Task { await refreshNotificationStatus() } }
         }
-        .onAppear { loadDrafts() }
+        .onAppear {
+            loadDrafts()
+            Task {
+                await SyncService.shared.syncUserProperties()
+                loadDrafts()
+            }
+        }
         .overlay(alignment: .bottom) {
             if hasChanges {
                 Button { save() } label: {

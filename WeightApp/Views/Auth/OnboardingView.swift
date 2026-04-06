@@ -1358,7 +1358,7 @@ private struct OnboardingMilestonesConcept: View {
                     guard !Task.isCancelled else { return }
 
                     let targetE1RM = startE1RMs[exerciseIndex] + e1rmIncrements[exerciseIndex] * (round + 1)
-                    let currentE1RM = exerciseE1RMs[exerciseIndex]
+                    let currentE1RMLocalCache = exerciseE1RMs[exerciseIndex]
                     let steps = 8
                     let stepDuration: UInt64 = 100
 
@@ -1367,7 +1367,7 @@ private struct OnboardingMilestonesConcept: View {
                         guard !Task.isCancelled else { return }
                         try? await Task.sleep(for: .milliseconds(stepDuration))
                         let fraction = CGFloat(step) / CGFloat(steps)
-                        let interpolatedE1RM = currentE1RM + Int(Double(targetE1RM - currentE1RM) * Double(fraction))
+                        let interpolatedE1RM = currentE1RMLocalCache + Int(Double(targetE1RM - currentE1RMLocalCache) * Double(fraction))
                         withAnimation(.easeOut(duration: 0.3)) {
                             exerciseProgress[exerciseIndex] = fraction
                             exerciseE1RMs[exerciseIndex] = interpolatedE1RM

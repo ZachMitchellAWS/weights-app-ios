@@ -14,14 +14,14 @@ import SwiftData
 struct ExerciseReportData {
     let name: String
     let icon: String
-    let currentE1RM: Double?
+    let currentE1RMLocalCache: Double?
     let firstE1RM: Double?
     let tier: StrengthTier
     let bwRatio: Double? // e1RM / bodyweight
     let tierProgress: Double? // 0..1 progress within current tier toward next
 
     var delta: Double? {
-        guard let current = currentE1RM, let first = firstE1RM else { return nil }
+        guard let current = currentE1RMLocalCache, let first = firstE1RM else { return nil }
         let diff = current - first
         return diff == 0 ? nil : diff
     }
@@ -115,10 +115,10 @@ enum ReportCardGenerator {
             let sorted = records.sorted { $0.createdAt < $1.createdAt }
 
             let firstE1RM = sorted.first?.value
-            let currentE1RM = sorted.last?.value
+            let currentE1RMLocalCache = sorted.last?.value
 
             let currentTier: StrengthTier
-            if let e1rm = currentE1RM {
+            if let e1rm = currentE1RMLocalCache {
                 currentTier = StrengthTierData.tierForExercise(
                     name: fundamental.name, e1rm: e1rm, bodyweight: bodyweight, sex: sex
                 )
@@ -136,11 +136,11 @@ enum ReportCardGenerator {
             }
             previousTiers.append(previousTier)
 
-            let bwRatio = currentE1RM.map { $0 / bodyweight }
+            let bwRatio = currentE1RMLocalCache.map { $0 / bodyweight }
 
             // Tier progress (0..1 within current tier toward next)
             let progress: Double? = {
-                guard let e1rm = currentE1RM, currentTier != .legend else { return currentTier == .legend ? 1.0 : nil }
+                guard let e1rm = currentE1RMLocalCache, currentTier != .legend else { return currentTier == .legend ? 1.0 : nil }
                 let currentMin = StrengthTierData.currentTierMinimum(
                     name: fundamental.name, tier: currentTier, bodyweight: bodyweight, sex: sex
                 )
@@ -155,7 +155,7 @@ enum ReportCardGenerator {
             exercises.append(ExerciseReportData(
                 name: fundamental.name,
                 icon: fundamental.icon,
-                currentE1RM: currentE1RM,
+                currentE1RMLocalCache: currentE1RMLocalCache,
                 firstE1RM: firstE1RM,
                 tier: currentTier,
                 bwRatio: bwRatio,

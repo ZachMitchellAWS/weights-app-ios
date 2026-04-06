@@ -10,6 +10,9 @@ import SwiftData
 import Charts
 
 struct BalanceView: View {
+    /// How many months of Estimated1RM history to query for hybrid e1RM lookups.
+    private static let e1rmQueryMonths = -3
+
     @Binding var trendsTab: TrendsTab
     @Query(filter: #Predicate<Exercise> { !$0.deleted }) private var exercises: [Exercise]
     @Query private var userPropertiesArray: [UserProperties]
@@ -35,7 +38,7 @@ struct BalanceView: View {
     @State private var currentOverallTier: StrengthTier = .none
 
     private static var setsDescriptor: FetchDescriptor<LiftSet> {
-        let cutoff = Calendar.current.date(byAdding: .month, value: -3, to: Date())!
+        let cutoff = Calendar.current.date(byAdding: .month, value: e1rmQueryMonths, to: Date())!
         return FetchDescriptor<LiftSet>(
             predicate: #Predicate { !$0.deleted && $0.createdAt >= cutoff },
             sortBy: [SortDescriptor(\.createdAt)]
@@ -44,7 +47,7 @@ struct BalanceView: View {
     @Query(setsDescriptor) private var allSets: [LiftSet]
 
     private static var estimated1RMsDescriptor: FetchDescriptor<Estimated1RM> {
-        let cutoff = Calendar.current.date(byAdding: .month, value: -3, to: Date())!
+        let cutoff = Calendar.current.date(byAdding: .month, value: e1rmQueryMonths, to: Date())!
         return FetchDescriptor<Estimated1RM>(
             predicate: #Predicate { !$0.deleted && $0.createdAt >= cutoff }
         )
@@ -64,10 +67,14 @@ struct BalanceView: View {
         ScrollView {
             VStack(spacing: 16) {
                 StrengthTierWidget(
+                    allEstimated1RM: allEstimated1RM,
                     exercises: exercises,
                     userProperties: userProperties,
                     isPremium: true,
-                    showUpsell: $showUpsell
+                    showUpsell: $showUpsell,
+                    onSettingsTapped: {
+                        selectedSetData.pendingShowSettings = true
+                    }
                 )
                 .id("strengthTierWidget")
 
@@ -75,9 +82,10 @@ struct BalanceView: View {
                     .id("strengthInsightWidget")
 
                 StrengthMilestonesWidget(
+                    allEstimated1RM: allEstimated1RM,
                     exercises: exercises,
-                    bodyweight: userProperties.bodyweight,
-                    biologicalSex: userProperties.biologicalSex,
+                    bodyweight: userProperties.bodyweight ?? 200.0,
+                    biologicalSex: userProperties.biologicalSex ?? "male",
                     isPremium: true,
                     weightUnit: userProperties.preferredWeightUnit,
                     showUpsell: $showUpsell
@@ -121,10 +129,11 @@ struct BalanceView: View {
             .padding(.bottom, 70)
         }
         .scrollIndicators(.hidden)
-        .task(id: exercises.compactMap(\.currentE1RM).count) {
+        .task(id: "\(exercises.compactMap(\.currentE1RMLocalCache).count)-\(allEstimated1RM.count)") {
             currentOverallTier = TrendsCalculator.strengthTierAssessment(
-                fromExercises: exercises,
-                bodyweight: userProperties.bodyweight ?? 0,
+                from: allEstimated1RM,
+                exercises: exercises,
+                bodyweight: userProperties.bodyweight ?? 200.0,
                 biologicalSex: userProperties.biologicalSex ?? "male"
             ).overallTier
             balanceData = TrendsCalculator.strengthBalance(from: allEstimated1RM)

@@ -9,8 +9,10 @@ import SwiftUI
 import SwiftData
 
 struct AnalyticsView: View {
+    private static let queryMonths = -6
+
     private static var setsDescriptor: FetchDescriptor<LiftSet> {
-        let cutoff = Calendar.current.date(byAdding: .month, value: -6, to: Date())!
+        let cutoff = Calendar.current.date(byAdding: .month, value: queryMonths, to: Date())!
         return FetchDescriptor<LiftSet>(
             predicate: #Predicate { !$0.deleted && $0.createdAt >= cutoff },
             sortBy: [SortDescriptor(\.createdAt)]
@@ -19,7 +21,7 @@ struct AnalyticsView: View {
     @Query(setsDescriptor) private var allSets: [LiftSet]
 
     private static var estimated1RMsDescriptor: FetchDescriptor<Estimated1RM> {
-        let cutoff = Calendar.current.date(byAdding: .month, value: -6, to: Date())!
+        let cutoff = Calendar.current.date(byAdding: .month, value: queryMonths, to: Date())!
         return FetchDescriptor<Estimated1RM>(
             predicate: #Predicate { !$0.deleted && $0.createdAt >= cutoff }
         )

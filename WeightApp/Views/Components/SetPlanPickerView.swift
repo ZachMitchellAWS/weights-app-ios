@@ -5,15 +5,15 @@ struct SetPlanCatalogView: View {
     @Environment(\.modelContext) private var modelContext
 
     @Query(filter: #Predicate<SetPlan> { !$0.deleted })
-    private var allTemplates: [SetPlan]
+    private var allPlans: [SetPlan]
 
     @Query private var userPropertiesItems: [UserProperties]
     @Query private var entitlementRecords: [EntitlementGrant]
 
-    @State private var showNewTemplateAlert = false
-    @State private var newTemplateName = ""
+    @State private var showNewPlanAlert = false
+    @State private var newPlanName = ""
     @State private var showDeleteConfirmation = false
-    @State private var templateToDelete: SetPlan?
+    @State private var planToDelete: SetPlan?
     @State private var showUpsell = false
     @State private var shouldScrollToBottom = false
 
@@ -37,12 +37,12 @@ struct SetPlanCatalogView: View {
         return props
     }
 
-    private var builtInTemplates: [SetPlan] {
-        allTemplates.filter { !$0.isCustom }.sorted { $0.createdAt < $1.createdAt }
+    private var builtInPlans: [SetPlan] {
+        allPlans.filter { !$0.isCustom }.sorted { $0.createdAt < $1.createdAt }
     }
 
-    private var customTemplates: [SetPlan] {
-        allTemplates.filter { $0.isCustom }.sorted { $0.createdAt < $1.createdAt }
+    private var customPlans: [SetPlan] {
+        allPlans.filter { $0.isCustom }.sorted { $0.createdAt < $1.createdAt }
     }
 
     var body: some View {
@@ -65,8 +65,8 @@ struct SetPlanCatalogView: View {
 
                     Button {
                         if isPremium {
-                            newTemplateName = ""
-                            showNewTemplateAlert = true
+                            newPlanName = ""
+                            showNewPlanAlert = true
                         } else {
                             showUpsell = true
                         }
@@ -110,27 +110,27 @@ struct SetPlanCatalogView: View {
                 ScrollView {
                     VStack(spacing: 16) {
                         // Built-in section — free presets
-                        if !builtInTemplates.isEmpty {
+                        if !builtInPlans.isEmpty {
                             sectionHeader("Presets")
 
-                            ForEach(builtInTemplates.filter { SetPlan.freePresetIds.contains($0.id) }) { template in
-                                templateCard(template: template, isEditable: false)
+                            ForEach(builtInPlans.filter { SetPlan.freePresetIds.contains($0.id) }) { plan in
+                                planCard(plan: plan, isEditable: false)
                             }
 
                             // Premium presets
-                            let premiumPresets = builtInTemplates.filter { !SetPlan.freePresetIds.contains($0.id) }
+                            let premiumPresets = builtInPlans.filter { !SetPlan.freePresetIds.contains($0.id) }
                             if !premiumPresets.isEmpty {
                                 sectionHeader("Premium Set Plans")
 
                                 if isPremium {
-                                    ForEach(premiumPresets) { template in
-                                        templateCard(template: template, isEditable: false)
+                                    ForEach(premiumPresets) { plan in
+                                        planCard(plan: plan, isEditable: false)
                                     }
                                 } else {
                                     // Show just a few cards as preview behind the lock
                                     VStack(spacing: 8) {
-                                        ForEach(premiumPresets.prefix(3)) { template in
-                                            templateCard(template: template, isEditable: false)
+                                        ForEach(premiumPresets.prefix(3)) { plan in
+                                            planCard(plan: plan, isEditable: false)
                                         }
                                     }
                                     .premiumLocked(
@@ -144,12 +144,12 @@ struct SetPlanCatalogView: View {
                             }
                         }
 
-                        // User-created templates section
-                        if !customTemplates.isEmpty {
-                            sectionHeader("Your Templates")
+                        // User-created plans section
+                        if !customPlans.isEmpty {
+                            sectionHeader("Your Plans")
 
-                            ForEach(customTemplates) { template in
-                                templateCard(template: template, isEditable: true)
+                            ForEach(customPlans) { plan in
+                                planCard(plan: plan, isEditable: true)
                             }
                         }
 
@@ -177,40 +177,40 @@ struct SetPlanCatalogView: View {
         .fullScreenCover(isPresented: $showUpsell) {
             UpsellView(initialPage: setPlansUpsellPage) { _ in showUpsell = false }
         }
-        .alert("New Template", isPresented: $showNewTemplateAlert) {
-            TextField("Name", text: $newTemplateName)
+        .alert("New Plan", isPresented: $showNewPlanAlert) {
+            TextField("Name", text: $newPlanName)
             Button("Cancel", role: .cancel) { }
             Button("Create") {
-                let trimmed = newTemplateName.trimmingCharacters(in: .whitespaces)
+                let trimmed = newPlanName.trimmingCharacters(in: .whitespaces)
                 guard !trimmed.isEmpty else { return }
-                let template = SetPlan(
+                let plan = SetPlan(
                     name: trimmed,
                     effortSequence: [],
                     isCustom: true
                 )
-                modelContext.insert(template)
+                modelContext.insert(plan)
                 try? modelContext.save()
                 shouldScrollToBottom = true
                 Task {
-                    await SyncService.shared.syncSetPlan(template)
+                    await SyncService.shared.syncSetPlan(plan)
                 }
             }
         } message: {
-            Text("Name your custom template")
+            Text("Name your custom plan")
         }
-        .alert("Delete Template?", isPresented: $showDeleteConfirmation) {
+        .alert("Delete Plan?", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) {
-                templateToDelete = nil
+                planToDelete = nil
             }
             Button("Delete", role: .destructive) {
-                if let template = templateToDelete {
-                    deleteTemplate(template)
+                if let plan = planToDelete {
+                    deletePlan(plan)
                 }
-                templateToDelete = nil
+                planToDelete = nil
             }
         } message: {
-            if let template = templateToDelete {
-                Text("This will permanently delete \"\(template.name)\".")
+            if let plan = planToDelete {
+                Text("This will permanently delete \"\(plan.name)\".")
             }
         }
     }
@@ -228,17 +228,17 @@ struct SetPlanCatalogView: View {
     }
 
     @ViewBuilder
-    private func templateCard(template: SetPlan, isEditable: Bool) -> some View {
-        let isActive = userProperties.activeSetPlanId == template.id
+    private func planCard(plan: SetPlan, isEditable: Bool) -> some View {
+        let isActive = userProperties.activeSetPlanId == plan.id
 
         VStack(alignment: .leading, spacing: 10) {
             // Title row with selection
             HStack(spacing: 12) {
                 Button {
                     hapticFeedback.impactOccurred()
-                    userProperties.activeSetPlanId = template.id
+                    userProperties.activeSetPlanId = plan.id
                     try? modelContext.save()
-                    Task { await SyncService.shared.updateActiveSetPlan(template.id) }
+                    Task { await SyncService.shared.updateActiveSetPlan(plan.id) }
                 } label: {
                     Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 20))
@@ -248,11 +248,11 @@ struct SetPlanCatalogView: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
-                        Text(template.name)
+                        Text(plan.name)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.white)
 
-                        if !template.isCustom {
+                        if !plan.isCustom {
                             Text("PRESET")
                                 .font(.system(size: 9, weight: .bold))
                                 .foregroundStyle(.white.opacity(0.4))
@@ -263,7 +263,7 @@ struct SetPlanCatalogView: View {
                         }
                     }
 
-                    if let desc = template.templateDescription {
+                    if let desc = plan.planDescription {
                         Text(desc)
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.5))
@@ -275,7 +275,7 @@ struct SetPlanCatalogView: View {
                 if isEditable {
                     Button {
                         hapticFeedback.impactOccurred()
-                        templateToDelete = template
+                        planToDelete = plan
                         showDeleteConfirmation = true
                     } label: {
                         Image(systemName: "trash")
@@ -291,20 +291,20 @@ struct SetPlanCatalogView: View {
             // Effort squares
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(Array(template.effortSequence.enumerated()), id: \.offset) { index, effort in
+                    ForEach(Array(plan.effortSequence.enumerated()), id: \.offset) { index, effort in
                         if isEditable {
                             SequenceSquareView(effort: effort)
                                 .onTapGesture {
                                     let levels = Self.effortLevels
                                     let next = levels[((levels.firstIndex(of: effort) ?? 0) + 1) % levels.count]
-                                    template.effortSequence[index] = next
-                                    saveAndSyncTemplate(template)
+                                    plan.effortSequence[index] = next
+                                    saveAndSyncPlan(plan)
                                     hapticFeedback.impactOccurred()
                                 }
                                 .onLongPressGesture {
-                                    guard template.effortSequence.count > 1 else { return }
-                                    template.effortSequence.remove(at: index)
-                                    saveAndSyncTemplate(template)
+                                    guard plan.effortSequence.count > 1 else { return }
+                                    plan.effortSequence.remove(at: index)
+                                    saveAndSyncPlan(plan)
                                     hapticFeedback.impactOccurred()
                                 }
                         } else {
@@ -312,10 +312,10 @@ struct SetPlanCatalogView: View {
                         }
                     }
 
-                    if isEditable && template.effortSequence.count < 20 {
+                    if isEditable && plan.effortSequence.count < 20 {
                         Button {
-                            template.effortSequence.append("easy")
-                            saveAndSyncTemplate(template)
+                            plan.effortSequence.append("easy")
+                            saveAndSyncPlan(plan)
                             hapticFeedback.impactOccurred()
                         } label: {
                             RoundedRectangle(cornerRadius: 6)
@@ -361,9 +361,9 @@ struct SetPlanCatalogView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             hapticFeedback.impactOccurred()
-            userProperties.activeSetPlanId = template.id
+            userProperties.activeSetPlanId = plan.id
             try? modelContext.save()
-            Task { await SyncService.shared.updateActiveSetPlan(template.id) }
+            Task { await SyncService.shared.updateActiveSetPlan(plan.id) }
         }
     }
 
@@ -418,19 +418,19 @@ struct SetPlanCatalogView: View {
         }
     }
 
-    private func saveAndSyncTemplate(_ template: SetPlan) {
+    private func saveAndSyncPlan(_ plan: SetPlan) {
         try? modelContext.save()
-        Task { await SyncService.shared.syncSetPlan(template) }
+        Task { await SyncService.shared.syncSetPlan(plan) }
     }
 
-    private func deleteTemplate(_ template: SetPlan) {
-        template.deleted = true
-        if userProperties.activeSetPlanId == template.id {
+    private func deletePlan(_ plan: SetPlan) {
+        plan.deleted = true
+        if userProperties.activeSetPlanId == plan.id {
             userProperties.activeSetPlanId = SetPlan.standardId
         }
         try? modelContext.save()
         Task {
-            await SyncService.shared.deleteSetPlan(template.id)
+            await SyncService.shared.deleteSetPlan(plan.id)
             if userProperties.activeSetPlanId == SetPlan.standardId {
                 await SyncService.shared.updateActiveSetPlan(SetPlan.standardId)
             }

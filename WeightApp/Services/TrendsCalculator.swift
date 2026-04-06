@@ -1048,10 +1048,11 @@ struct TrendsCalculator {
         )
     }
 
-    /// Lightweight overload that reads `exercise.currentE1RM` instead of iterating Estimated1RM arrays.
-    /// Use this for tier display where historical timeline isn't needed.
+    /// Hybrid overload: uses Estimated1RM records as primary source, falls back to exercise.currentE1RMLocalCache
+    /// for exercises not present in the recent query window.
     static func strengthTierAssessment(
-        fromExercises exercises: [Exercise],
+        from estimated1RMs: [Estimated1RM],
+        exercises: [Exercise],
         bodyweight: Double,
         biologicalSex: String
     ) -> StrengthTierResult {
@@ -1060,6 +1061,22 @@ struct TrendsCalculator {
             return StrengthTierResult(overallTier: .none, exerciseTiers: tiers, limitingExercise: fundamentalExercises[0])
         }
 
+        let fundamentalIds = Set(fundamentalExercises.map(\.id))
+
+        // Primary: latest e1RM from Estimated1RM records per exercise
+        let grouped = Dictionary(grouping: estimated1RMs.filter { rec in
+            guard let eid = rec.exercise?.id else { return false }
+            return fundamentalIds.contains(eid)
+        }) { $0.exercise!.id }
+
+        var latestByExercise: [UUID: Double] = [:]
+        for (exerciseId, records) in grouped {
+            if let mostRecent = records.max(by: { $0.createdAt < $1.createdAt }) {
+                latestByExercise[exerciseId] = mostRecent.value
+            }
+        }
+
+        // Fallback: exercise.currentE1RMLocalCache
         let exerciseById = Dictionary(uniqueKeysWithValues: exercises.compactMap { ex -> (UUID, Exercise)? in
             (ex.id, ex)
         })
@@ -1069,7 +1086,9 @@ struct TrendsCalculator {
         var limitingExercise = fundamentalExercises[0]
 
         for fundamental in fundamentalExercises {
-            if let ex = exerciseById[fundamental.id], let e1rm = ex.currentE1RM {
+            // Try authoritative source first, then cache fallback
+            let e1rm = latestByExercise[fundamental.id] ?? exerciseById[fundamental.id]?.currentE1RMLocalCache
+            if let e1rm {
                 let tier = StrengthTierData.tierForExercise(name: fundamental.name, e1rm: e1rm, bodyweight: bodyweight, sex: sex)
                 exerciseTiers.append((fundamental, e1rm, tier))
                 if tier < lowestTier {
@@ -1167,7 +1186,7 @@ struct TrendsCalculator {
         let targetLbs: Double
         let targetLabel: String
         let isAbsoluteTarget: Bool // true when targetLabel is in lbs (not BW-relative)
-        let currentE1RM: Double
+        let currentE1RMLocalCache: Double
         let achieved: Bool
         let progress: Double
     }
@@ -1261,7 +1280,7 @@ struct TrendsCalculator {
                     targetLbs: targetLbs,
                     targetLabel: targetLabel,
                     isAbsoluteTarget: threshold.isAbsolute,
-                    currentE1RM: current,
+                    currentE1RMLocalCache: current,
                     achieved: achieved,
                     progress: progress
                 ))
@@ -1307,7 +1326,7 @@ struct TrendsCalculator {
         )
     }
 
-    /// Lightweight overload that reads `exercise.currentE1RM` instead of iterating Estimated1RM arrays.
+    /// Lightweight overload that reads `exercise.currentE1RMLocalCache` instead of iterating Estimated1RM arrays.
     static func strengthMilestones(
         fromExercises exercises: [Exercise],
         bodyweight: Double,
@@ -1321,7 +1340,7 @@ struct TrendsCalculator {
 
         var latestByExercise: [UUID: Double] = [:]
         for fundamental in fundamentalExercises {
-            if let ex = exerciseById[fundamental.id], let e1rm = ex.currentE1RM {
+            if let ex = exerciseById[fundamental.id], let e1rm = ex.currentE1RMLocalCache {
                 latestByExercise[fundamental.id] = e1rm
             }
         }
@@ -1374,7 +1393,134 @@ struct TrendsCalculator {
                     targetLbs: targetLbs,
                     targetLabel: targetLabel,
                     isAbsoluteTarget: threshold.isAbsolute,
-                    currentE1RM: current,
+                    currentE1RMLocalCache: current,
+                    achieved: achieved,
+                    progress: progress
+                ))
+            }
+
+            let batchAchieved = milestones.filter(\.achieved).count
+            overallAchieved += batchAchieved
+            overallTotal += milestones.count
+
+            batches.append(TierMilestoneBatch(
+                id: tier.rawValue,
+                tier: tier,
+                milestones: milestones,
+                allAchieved: batchAchieved == milestones.count,
+                achievedCount: batchAchieved
+            ))
+        }
+
+        var lowestTier: StrengthTier = .legend
+        for exercise in fundamentalExercises {
+            let exerciseTier: StrengthTier
+            if let current = latestByExercise[exercise.id] {
+                exerciseTier = StrengthTierData.tierForExercise(
+                    name: exercise.name,
+                    e1rm: current,
+                    bodyweight: bodyweight,
+                    sex: sex
+                )
+            } else {
+                exerciseTier = .none
+            }
+            if exerciseTier < lowestTier {
+                lowestTier = exerciseTier
+            }
+        }
+
+        return MilestoneResult(
+            batches: batches,
+            currentTier: lowestTier,
+            achievedCount: overallAchieved,
+            totalCount: overallTotal
+        )
+    }
+
+    /// Hybrid overload: uses Estimated1RM as primary, falls back to exercise.currentE1RMLocalCache.
+    static func strengthMilestones(
+        from estimated1RMs: [Estimated1RM],
+        exercises: [Exercise],
+        bodyweight: Double,
+        biologicalSex: String
+    ) -> MilestoneResult? {
+        guard let sex = BiologicalSex(rawValue: biologicalSex) else { return nil }
+
+        let fundamentalIds = Set(fundamentalExercises.map(\.id))
+
+        // Primary: latest e1RM from Estimated1RM records per exercise
+        let grouped = Dictionary(grouping: estimated1RMs.filter { rec in
+            guard let eid = rec.exercise?.id else { return false }
+            return fundamentalIds.contains(eid)
+        }) { $0.exercise!.id }
+
+        var latestByExercise: [UUID: Double] = [:]
+        for (exerciseId, records) in grouped {
+            if let mostRecent = records.max(by: { $0.createdAt < $1.createdAt }) {
+                latestByExercise[exerciseId] = mostRecent.value
+            }
+        }
+
+        // Fallback: exercise.currentE1RMLocalCache
+        let exerciseById = Dictionary(uniqueKeysWithValues: exercises.compactMap { ex -> (UUID, Exercise)? in
+            (ex.id, ex)
+        })
+        for fundamental in fundamentalExercises where latestByExercise[fundamental.id] == nil {
+            if let ex = exerciseById[fundamental.id], let e1rm = ex.currentE1RMLocalCache {
+                latestByExercise[fundamental.id] = e1rm
+            }
+        }
+
+        let tiers: [StrengthTier] = [.novice, .beginner, .intermediate, .advanced, .elite, .legend]
+
+        var batches: [TierMilestoneBatch] = []
+        var overallAchieved = 0
+        var overallTotal = 0
+
+        for tier in tiers {
+            var milestones: [TierMilestone] = []
+
+            for exercise in fundamentalExercises {
+                guard let threshold = StrengthTierData.thresholds[exercise.name]?[sex]?[tier] else { continue }
+
+                let targetLbs: Double
+                let targetLabel: String
+
+                if tier == .novice {
+                    let beginnerMin = StrengthTierData.thresholds[exercise.name]?[sex]?[.beginner]?.min ?? 0
+                    targetLbs = beginnerMin * bodyweight
+                    targetLabel = "≥1 set"
+                } else if threshold.isAbsolute {
+                    targetLbs = threshold.min
+                    targetLabel = "\(Int(threshold.min))"
+                } else {
+                    targetLbs = threshold.min * bodyweight
+                    if threshold.min == floor(threshold.min) {
+                        targetLabel = "\(Int(threshold.min))× BW"
+                    } else {
+                        targetLabel = "\(String(format: "%g", threshold.min))× BW"
+                    }
+                }
+
+                let current = latestByExercise[exercise.id] ?? 0
+                let achieved: Bool
+                let progress: Double
+                if tier == .novice {
+                    achieved = current > 0
+                    progress = current > 0 ? 1.0 : 0.0
+                } else {
+                    achieved = targetLbs > 0 && current >= targetLbs
+                    progress = targetLbs > 0 ? min(current / targetLbs, 1.0) : 0
+                }
+
+                milestones.append(TierMilestone(
+                    exerciseName: exercise.name,
+                    exerciseIcon: exercise.icon,
+                    targetLbs: targetLbs,
+                    targetLabel: targetLabel,
+                    isAbsoluteTarget: threshold.isAbsolute,
+                    currentE1RMLocalCache: current,
                     achieved: achieved,
                     progress: progress
                 ))

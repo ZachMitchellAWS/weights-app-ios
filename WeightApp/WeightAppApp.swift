@@ -161,6 +161,26 @@ struct WeightAppApp: App {
                 SeedService.seedSetPlans(context: context)
                 SeedService.seedGroups(context: context)
 
+                // Refresh currentE1RMLocalCache from 12 months of Estimated1RM data
+                do {
+                    let cacheRefreshCutoff = Calendar.current.date(byAdding: .month, value: -12, to: Date())!
+                    let e1rmDescriptor = FetchDescriptor<Estimated1RM>(
+                        predicate: #Predicate { !$0.deleted && $0.createdAt >= cacheRefreshCutoff }
+                    )
+                    let allE1RMs = try context.fetch(e1rmDescriptor)
+                    let grouped = Dictionary(grouping: allE1RMs.filter { $0.exercise != nil }) { $0.exercise!.id }
+                    for (exerciseId, records) in grouped {
+                        guard let maxRecord = records.max(by: { $0.value < $1.value }) else { continue }
+                        if let exercise = records.first(where: { $0.exercise?.id == exerciseId })?.exercise {
+                            exercise.currentE1RMLocalCache = maxRecord.value
+                            exercise.currentE1RMDateLocalCache = maxRecord.createdAt
+                        }
+                    }
+                    try context.save()
+                } catch {
+                    print("Failed to refresh currentE1RMLocalCache: \(error)")
+                }
+
                 // Start listening for StoreKit transaction updates (renewals, etc.)
                 transactionListenerTask = PurchaseService.shared.listenForTransactions()
 
@@ -171,7 +191,7 @@ struct WeightAppApp: App {
                         await SyncService.shared.processUserPropertiesRetryQueue()
                         await SyncService.shared.processLiftSetRetryQueue()
                         await SyncService.shared.processEstimated1RMRetryQueue()
-                        await SyncService.shared.processTemplateRetryQueue()
+                        await SyncService.shared.processPlanRetryQueue()
                         await SyncService.shared.processGroupRetryQueue()
                         await SyncService.shared.processAccessoryGoalCheckinRetryQueue()
 

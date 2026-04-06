@@ -406,30 +406,30 @@ class APIService {
     }
 
 
-    // MARK: - Set Plan Templates
+    // MARK: - Set Plans
 
     func getSetPlans() async throws -> GetSetPlansResponse {
         return try await requestWithDateDecoding(
-            endpoint: "/checkin/set-plan-templates",
+            endpoint: "/checkin/set-plans",
             method: "GET",
             requiresAuth: true
         )
     }
 
-    func upsertSetPlans(_ templates: [SetPlanDTO]) async throws -> UpsertSetPlansResponse {
-        let body = UpsertSetPlansRequest(templates: templates)
+    func upsertSetPlans(_ plans: [SetPlanDTO]) async throws -> UpsertSetPlansResponse {
+        let body = UpsertSetPlansRequest(plans: plans)
         return try await requestWithDateDecoding(
-            endpoint: "/checkin/set-plan-templates",
+            endpoint: "/checkin/set-plans",
             method: "POST",
             body: body,
             requiresAuth: true
         )
     }
 
-    func deleteSetPlans(_ templateIds: [UUID]) async throws -> DeleteSetPlansResponse {
-        let body = DeleteSetPlansRequest(templateIds: templateIds)
+    func deleteSetPlans(_ planIds: [UUID]) async throws -> DeleteSetPlansResponse {
+        let body = DeleteSetPlansRequest(planIds: planIds)
         return try await requestWithDateDecoding(
-            endpoint: "/checkin/set-plan-templates",
+            endpoint: "/checkin/set-plans",
             method: "DELETE",
             body: body,
             requiresAuth: true

@@ -8,16 +8,19 @@
 import SwiftUI
 
 struct StrengthTierWidget: View {
+    let allEstimated1RM: [Estimated1RM]
     let exercises: [Exercise]
     @Bindable var userProperties: UserProperties
     var isPremium: Bool = true
     @Binding var showUpsell: Bool
+    var onSettingsTapped: (() -> Void)? = nil
 
     private var biologicalSex: String { userProperties.biologicalSex ?? "male" }
-    private var bodyweight: Double { userProperties.bodyweight ?? 0 }
+    private var bodyweight: Double { userProperties.bodyweight ?? 200.0 }
 
     @State private var tierResult: TrendsCalculator.StrengthTierResult = TrendsCalculator.strengthTierAssessment(
-        fromExercises: [],
+        from: [],
+        exercises: [],
         bodyweight: 0,
         biologicalSex: "male"
     )
@@ -32,9 +35,10 @@ struct StrengthTierWidget: View {
             .background(Color(white: 0.14))
             .clipShape(RoundedRectangle(cornerRadius: 12))
             // .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.4), lineWidth: 1.5))
-            .task(id: exercises.compactMap(\.currentE1RM).count) {
+            .task(id: "\(exercises.compactMap(\.currentE1RMLocalCache).count)-\(allEstimated1RM.count)") {
                 tierResult = TrendsCalculator.strengthTierAssessment(
-                    fromExercises: exercises,
+                    from: allEstimated1RM,
+                    exercises: exercises,
                     bodyweight: bodyweight,
                     biologicalSex: biologicalSex
                 )
@@ -254,22 +258,28 @@ struct StrengthTierWidget: View {
             // Static tier legend
             tierLegendBar
 
-            // Explanation
-            if isChecklistMode {
-                Text("Log at least one set of each exercise above to see your strength tier.")
-                    .font(.caption2)
-                    .italic()
-                    .foregroundStyle(.white.opacity(0.3))
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-            } else {
-                Text("Your overall tier is determined by your lowest lift. All five exercises must reach a tier for it to apply.")
-                    .font(.caption2)
-                    .italic()
-                    .foregroundStyle(.white.opacity(0.3))
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
+            // Explanation with profile settings link
+            Group {
+                if isChecklistMode {
+                    (Text("Log at least one set of each exercise above to see your strength tier. Tier ranges are based on your ")
+                        .foregroundStyle(.white.opacity(0.3))
+                    + Text("profile settings")
+                        .foregroundStyle(Color.appAccent)
+                    + Text(".")
+                        .foregroundStyle(.white.opacity(0.3)))
+                } else {
+                    (Text("Your overall tier is determined by your lowest lift. Tier ranges are based on your ")
+                        .foregroundStyle(.white.opacity(0.3))
+                    + Text("profile settings")
+                        .foregroundStyle(Color.appAccent)
+                    + Text(".")
+                        .foregroundStyle(.white.opacity(0.3)))
+                }
             }
+            .font(.caption2)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .onTapGesture { onSettingsTapped?() }
         }
     }
 

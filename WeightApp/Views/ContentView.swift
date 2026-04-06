@@ -17,6 +17,7 @@ class SelectedSetData: ObservableObject {
     @Published var pendingTrendsTab: TrendsTab? = nil
     @Published var pendingScrollToStrengthTop: Bool = false
     @Published var pendingScrollToMilestones: Bool = false
+    @Published var pendingShowSettings: Bool = false
 }
 
 struct LazyView<Content: View>: View {
@@ -51,13 +52,18 @@ struct ContentView: View {
                 .tabItem { Label("Lift", systemImage: "plus.circle") }
                 .tag(1)
 
-            MoreView(authViewModel: authViewModel)
+            MoreView(authViewModel: authViewModel, selectedSetData: selectedSetData)
                 .tabItem { Label("More", systemImage: "arrow.forward.square") }
                 .tag(2)
         }
         .tint(Color.appAccent)
         .toolbarBackground(Color.black, for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)
+        .onChange(of: selectedSetData.pendingShowSettings) { _, pending in
+            if pending {
+                selectedTab = 2
+            }
+        }
         .onChange(of: selectedTab) { _, newTab in
             hapticFeedback.impactOccurred()
             let crumb = Breadcrumb(level: .info, category: "navigation")

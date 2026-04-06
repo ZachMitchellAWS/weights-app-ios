@@ -5,11 +5,23 @@ import Sentry
 struct CheckInView: View {
     @Environment(\.modelContext) private var modelContext
 
+    /// How many months of Estimated1RM history to query for hybrid e1RM lookups.
+    private static let e1rmQueryMonths = -3
+
+    private static var estimated1RMsDescriptor: FetchDescriptor<Estimated1RM> {
+        let cutoff = Calendar.current.date(byAdding: .month, value: e1rmQueryMonths, to: Date())!
+        return FetchDescriptor<Estimated1RM>(
+            predicate: #Predicate { !$0.deleted && $0.createdAt >= cutoff },
+            sortBy: [SortDescriptor(\.createdAt)]
+        )
+    }
+
     @Query(filter: #Predicate<Exercise> { !$0.deleted }, sort: \Exercise.createdAt) private var exercises: [Exercise]
     @Query private var userPropertiesItems: [UserProperties]
-    @Query(filter: #Predicate<SetPlan> { !$0.deleted }) private var allTemplates: [SetPlan]
+    @Query(filter: #Predicate<SetPlan> { !$0.deleted }) private var allPlans: [SetPlan]
     @Query(filter: #Predicate<ExerciseGroup> { !$0.deleted }) private var allGroups: [ExerciseGroup]
     @Query private var entitlementRecords: [EntitlementGrant]
+    @Query(estimated1RMsDescriptor) private var allEstimated1RM: [Estimated1RM]
 
     @ObservedObject var selectedSetData: SelectedSetData
     @ObservedObject private var syncService = SyncService.shared
@@ -161,7 +173,11 @@ struct CheckInView: View {
     private var isViewingToday: Bool { viewingDate == actualToday }
 
     private var current1RM: Double {
-        selectedExercise?.currentE1RM ?? 0
+        if let exerciseId = selectedExercise?.id,
+           let fromQuery = allEstimated1RM.filter({ $0.exercise?.id == exerciseId }).max(by: { $0.createdAt < $1.createdAt }) {
+            return fromQuery.value
+        }
+        return selectedExercise?.currentE1RMLocalCache ?? 0
     }
 
     private var availablePlates: [Double] {
@@ -245,7 +261,7 @@ struct CheckInView: View {
     // Set plan
     private var activeSetPlan: SetPlan? {
         guard let planId = userProperties.activeSetPlanId else { return nil }
-        return allTemplates.first(where: { $0.id == planId })
+        return allPlans.first(where: { $0.id == planId })
     }
 
     // MARK: - Body
@@ -402,7 +418,7 @@ struct CheckInView: View {
                             Text("e1RM Progression")
                                 .font(.interSemiBold(size: 13))
                                 .foregroundStyle(.white.opacity(0.85))
-                            Text(exercise.name)
+                            Text("\(exercise.name) · Last 3 months")
                                 .font(.inter(size: 11))
                                 .foregroundStyle(.white.opacity(0.45))
                         }
@@ -551,9 +567,10 @@ struct CheckInView: View {
 
     private var checkInLifecycle: some View {
         checkInContent
-        .task(id: "\(exercises.compactMap(\.currentE1RM).reduce(0, +))-\(activeGroupId)") {
+        .task(id: "\(exercises.compactMap(\.currentE1RMLocalCache).reduce(0, +))-\(activeGroupId)-\(allEstimated1RM.count)") {
             strengthTierResult = TrendsCalculator.strengthTierAssessment(
-                fromExercises: exercises,
+                from: allEstimated1RM,
+                exercises: exercises,
                 bodyweight: bodyweight,
                 biologicalSex: biologicalSex
             )
@@ -561,10 +578,14 @@ struct CheckInView: View {
             var e1rms: [UUID: Double] = [:]
             var trainedDates: [UUID: Date] = [:]
             for ex in activeGroupExercises {
-                if let e1rm = ex.currentE1RM {
+                // Check allEstimated1RM for latest value for this exercise
+                if let fromQuery = allEstimated1RM.filter({ $0.exercise?.id == ex.id }).max(by: { $0.createdAt < $1.createdAt }) {
+                    e1rms[ex.id] = fromQuery.value
+                } else if let e1rm = ex.currentE1RMLocalCache {
+                    // Fall back to cache
                     e1rms[ex.id] = e1rm
                 }
-                if let date = ex.currentE1RMDate {
+                if let date = ex.currentE1RMDateLocalCache {
                     trainedDates[ex.id] = date
                 }
             }
@@ -572,8 +593,14 @@ struct CheckInView: View {
             lastTrainedDates = trainedDates
         }
         .onAppear {
-            guard !hasAppeared else { return }
+            if hasAppeared {
+                // Re-fetch exercise data on tab return (e.g., after deleting from History)
+                loadDataForSelectedLift()
+                return
+            }
             hasAppeared = true
+
+            print("📋 LOCAL UserProperties on appear: bodyweight=\(String(describing: userProperties.bodyweight)), biologicalSex=\(String(describing: userProperties.biologicalSex)), weightUnit=\(userProperties.preferredWeightUnit.rawValue)")
 
             // Show sync overlay if sync hasn't completed and user hasn't dismissed it
             if !syncService.initialSyncComplete && !syncOverlayDismissed {
@@ -596,7 +623,7 @@ struct CheckInView: View {
                 loadDataForSelectedLift()
             }
         }
-        .onChange(of: exercises.compactMap(\.currentE1RM).count) { oldCount, newCount in
+        .onChange(of: exercises.compactMap(\.currentE1RMLocalCache).count) { oldCount, newCount in
             // Reload exercise data whenever e1RM count increases and sets are empty.
             if newCount > oldCount && setsForExercise.isEmpty {
                 loadDataForSelectedLift()
@@ -1286,7 +1313,7 @@ struct CheckInView: View {
 
         // Don't show journey if sync hasn't populated data yet for a returning user
         let syncComplete = syncService.initialSyncComplete
-        let hasData = exercises.contains(where: { $0.currentE1RM != nil })
+        let hasData = exercises.contains(where: { $0.currentE1RMLocalCache != nil })
 
         // Show tier journey intro for fresh users (no e1RM data at all)
         if !hasSeenTierIntro,
@@ -1364,7 +1391,7 @@ struct CheckInView: View {
     @ViewBuilder
     private var setsWidgetCard: some View {
         // Don't show "log first set" if exercise has e1RM data — sets just haven't loaded yet
-        let hasE1RM = selectedExercise?.currentE1RM != nil
+        let hasE1RM = selectedExercise?.currentE1RMLocalCache != nil
         if setsForExercise.isEmpty && isViewingToday && !hasE1RM {
             setsWidgetEmptyState
         } else {
@@ -2997,7 +3024,7 @@ struct CheckInView: View {
             estimated1RMId = associated1RM.id
         }
 
-        // Recompute exercise.currentE1RM from remaining records
+        // Recompute exercise.currentE1RMLocalCache from remaining records
         if let ex = exercise {
             let exerciseId = ex.id
             let remainingDescriptor = FetchDescriptor<Estimated1RM>(
@@ -3005,13 +3032,19 @@ struct CheckInView: View {
                 sortBy: [SortDescriptor(\.value, order: .reverse)]
             )
             if let maxRecord = try? modelContext.fetch(remainingDescriptor).first {
-                ex.currentE1RM = maxRecord.value
-                ex.currentE1RMDate = maxRecord.createdAt
+                ex.currentE1RMLocalCache = maxRecord.value
+                ex.currentE1RMDateLocalCache = maxRecord.createdAt
+                latestE1RMs[exerciseId] = maxRecord.value
             } else {
-                ex.currentE1RM = nil
-                ex.currentE1RMDate = nil
+                ex.currentE1RMLocalCache = nil
+                ex.currentE1RMDateLocalCache = nil
+                latestE1RMs.removeValue(forKey: exerciseId)
             }
         }
+
+        // Immediately remove from in-memory arrays
+        setsForExercise.removeAll { $0.id == setId }
+        estimated1RMsForExercise.removeAll { $0.setId == setId || $0.id == estimated1RMId }
 
         try? modelContext.save()
 
@@ -3021,8 +3054,6 @@ struct CheckInView: View {
                 await SyncService.shared.deleteEstimated1RM(estimated1RMId: e1rmId, liftSetId: setId)
             }
         }
-
-        loadDataForSelectedLift()
     }
 
     // MARK: - Actions
@@ -3033,14 +3064,15 @@ struct CheckInView: View {
     }
 
     private func loadDataForExercise(_ exerciseId: UUID, preserveInputs: Bool = false) {
+        let cutoff = Calendar.current.date(byAdding: .month, value: Self.e1rmQueryMonths, to: Date())!
         let setDescriptor = FetchDescriptor<LiftSet>(
-            predicate: #Predicate { !$0.deleted && $0.exercise?.id == exerciseId },
+            predicate: #Predicate { !$0.deleted && $0.exercise?.id == exerciseId && $0.createdAt >= cutoff },
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
         )
         setsForExercise = (try? modelContext.fetch(setDescriptor)) ?? []
 
         let e1rmDescriptor = FetchDescriptor<Estimated1RM>(
-            predicate: #Predicate { !$0.deleted && $0.exercise?.id == exerciseId },
+            predicate: #Predicate { !$0.deleted && $0.exercise?.id == exerciseId && $0.createdAt >= cutoff },
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
         )
         estimated1RMsForExercise = (try? modelContext.fetch(e1rmDescriptor)) ?? []
@@ -3097,7 +3129,7 @@ struct CheckInView: View {
         guard let ex = selectedExercise else { return }
         if !isViewingToday { viewingDate = actualToday }
 
-        let isFirstWeightedSet = ex.currentE1RM == nil && weight > 0
+        let isFirstWeightedSet = !allEstimated1RM.contains(where: { $0.exercise?.id == ex.id }) && ex.currentE1RMLocalCache == nil && weight > 0
 
         let before = current1RM
         let set = LiftSet(exercise: ex, reps: reps, weight: weight)
@@ -3176,10 +3208,10 @@ struct CheckInView: View {
         }
         modelContext.insert(estimated)
 
-        // Update exercise's cached currentE1RM
-        if after > (ex.currentE1RM ?? 0) {
-            ex.currentE1RM = after
-            ex.currentE1RMDate = Date()
+        // Update exercise's cached currentE1RMLocalCache
+        if after > (ex.currentE1RMLocalCache ?? 0) {
+            ex.currentE1RMLocalCache = after
+            ex.currentE1RMDateLocalCache = Date()
             latestE1RMs[ex.id] = after
         }
 
@@ -3204,23 +3236,20 @@ struct CheckInView: View {
         crumb.message = "Set logged: \(ex.name) \(set.weight)×\(set.reps)"
         SentrySDK.addBreadcrumb(crumb)
 
-        Task {
-            await SyncService.shared.syncLiftSet(set, isPremiumOnClient: isPremium)
-            await SyncService.shared.syncEstimated1RM(estimated)
-        }
+        // Determine tier unlock before sync so we can trigger it after sync completes
+        var tierToUnlock: StrengthTier? = nil
 
-        // Redirect tier journey milestones (first log of any tier exercise during journey)
-        // Compute fresh tier result since @State may not have updated yet
         if isFirstTierLog {
             let tierResult = TrendsCalculator.strengthTierAssessment(
-                fromExercises: exercises,
+                from: allEstimated1RM,
+                exercises: exercises,
                 bodyweight: bodyweight,
                 biologicalSex: biologicalSex
             )
             let loggedAfterThis = tierResult.exerciseTiers.filter { $0.e1rm != nil }.count
             if loggedAfterThis >= 5 {
                 tierJourneyMode = .completion(tier: tierResult.overallTier)
-                Task { await NarrativeBadgeService.shared.triggerTierUnlock(tier: tierResult.overallTier) }
+                tierToUnlock = tierResult.overallTier
                 if let props = userPropertiesItems.first, !props.hasMetStrengthTierConditions {
                     props.hasMetStrengthTierConditions = true
                     try? modelContext.save()
@@ -3235,6 +3264,15 @@ struct CheckInView: View {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                 showTierJourneyOverlay = true
             }
+
+            // Sync data, then trigger tier unlock after backend has the e1RM
+            Task {
+                await SyncService.shared.syncLiftSet(set, isPremiumOnClient: isPremium)
+                await SyncService.shared.syncEstimated1RM(estimated)
+                if let tier = tierToUnlock {
+                    await NarrativeBadgeService.shared.triggerTierUnlock(tier: tier)
+                }
+            }
             return
         }
 
@@ -3243,7 +3281,7 @@ struct CheckInView: View {
             let newOverallTier = strengthTierResult.overallTier
             if newOverallTier > previousOverallTier && newOverallTier > .none {
                 tierJourneyMode = .completion(tier: newOverallTier)
-                Task { await NarrativeBadgeService.shared.triggerTierUnlock(tier: newOverallTier) }
+                tierToUnlock = newOverallTier
                 if let props = userPropertiesItems.first, !props.hasMetStrengthTierConditions {
                     props.hasMetStrengthTierConditions = true
                     try? modelContext.save()
@@ -3256,8 +3294,23 @@ struct CheckInView: View {
                 withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                     showTierJourneyOverlay = true
                 }
+
+                // Sync data, then trigger tier unlock after backend has the e1RM
+                Task {
+                    await SyncService.shared.syncLiftSet(set, isPremiumOnClient: isPremium)
+                    await SyncService.shared.syncEstimated1RM(estimated)
+                    if let tier = tierToUnlock {
+                        await NarrativeBadgeService.shared.triggerTierUnlock(tier: tier)
+                    }
+                }
                 return
             }
+        }
+
+        // No tier unlock — sync normally
+        Task {
+            await SyncService.shared.syncLiftSet(set, isPremiumOnClient: isPremium)
+            await SyncService.shared.syncEstimated1RM(estimated)
         }
 
         // Not a tier journey redirect — clear suppress flag
@@ -3365,36 +3418,35 @@ struct CheckInView: View {
         estimated.value = calibratedValue
         modelContext.insert(estimated)
 
-        // Update exercise's cached currentE1RM
+        // Update exercise's cached currentE1RMLocalCache
         if let ex = set.exercise {
-            ex.currentE1RM = calibratedValue
-            ex.currentE1RMDate = Date()
+            ex.currentE1RMLocalCache = calibratedValue
+            ex.currentE1RMDateLocalCache = Date()
             latestE1RMs[ex.id] = calibratedValue
         }
 
         try? modelContext.save()
 
-        Task {
-            await SyncService.shared.syncLiftSet(set, isPremiumOnClient: isPremium)
-            await SyncService.shared.syncEstimated1RM(estimated)
-        }
-
         if let exId = set.exercise?.id {
             loadDataForExercise(exId)
         }
+
+        // Determine tier unlock before sync
+        var calibrationTierToUnlock: StrengthTier? = nil
 
         // Redirect tier journey milestones (first log of any tier exercise during journey)
         // Compute fresh tier result since @State may not have updated yet
         if isMilestone, let exerciseForJourney = set.exercise {
             let tierResult = TrendsCalculator.strengthTierAssessment(
-                fromExercises: exercises,
+                from: allEstimated1RM,
+                exercises: exercises,
                 bodyweight: bodyweight,
                 biologicalSex: biologicalSex
             )
             let loggedAfterThis = tierResult.exerciseTiers.filter { $0.e1rm != nil }.count
             if loggedAfterThis >= 5 {
                 tierJourneyMode = .completion(tier: tierResult.overallTier)
-                Task { await NarrativeBadgeService.shared.triggerTierUnlock(tier: tierResult.overallTier) }
+                calibrationTierToUnlock = tierResult.overallTier
                 if let props = userPropertiesItems.first, !props.hasMetStrengthTierConditions {
                     props.hasMetStrengthTierConditions = true
                     try? modelContext.save()
@@ -3409,6 +3461,14 @@ struct CheckInView: View {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                 showTierJourneyOverlay = true
             }
+
+            Task {
+                await SyncService.shared.syncLiftSet(set, isPremiumOnClient: isPremium)
+                await SyncService.shared.syncEstimated1RM(estimated)
+                if let tier = calibrationTierToUnlock {
+                    await NarrativeBadgeService.shared.triggerTierUnlock(tier: tier)
+                }
+            }
             pendingCalibrationSet = nil
             pendingCalibrationEstimated = nil
             return
@@ -3419,7 +3479,7 @@ struct CheckInView: View {
             let newOverallTier = strengthTierResult.overallTier
             if newOverallTier > previousOverallTier && newOverallTier > .none {
                 tierJourneyMode = .completion(tier: newOverallTier)
-                Task { await NarrativeBadgeService.shared.triggerTierUnlock(tier: newOverallTier) }
+                calibrationTierToUnlock = newOverallTier
                 if let props = userPropertiesItems.first, !props.hasMetStrengthTierConditions {
                     props.hasMetStrengthTierConditions = true
                     try? modelContext.save()
@@ -3432,10 +3492,24 @@ struct CheckInView: View {
                 withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                     showTierJourneyOverlay = true
                 }
+
+                Task {
+                    await SyncService.shared.syncLiftSet(set, isPremiumOnClient: isPremium)
+                    await SyncService.shared.syncEstimated1RM(estimated)
+                    if let tier = calibrationTierToUnlock {
+                        await NarrativeBadgeService.shared.triggerTierUnlock(tier: tier)
+                    }
+                }
                 pendingCalibrationSet = nil
                 pendingCalibrationEstimated = nil
                 return
             }
+        }
+
+        // No tier unlock — sync normally
+        Task {
+            await SyncService.shared.syncLiftSet(set, isPremiumOnClient: isPremium)
+            await SyncService.shared.syncEstimated1RM(estimated)
         }
 
         // Not a tier journey redirect — clear suppress flag

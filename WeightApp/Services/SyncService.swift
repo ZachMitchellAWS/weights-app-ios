@@ -34,7 +34,7 @@ class SyncService: ObservableObject {
         // Per-step completion
         var userPropertiesComplete: Bool = false
         var exercisesComplete: Bool = false
-        var templatesComplete: Bool = false
+        var plansComplete: Bool = false
         var groupsComplete: Bool = false
         var liftSetsComplete: Bool = false
         var estimated1RMsComplete: Bool = false
@@ -143,21 +143,21 @@ class SyncService: ObservableObject {
         }
 
 
-        // Step 2.7: Sync set plan templates
-        if !state.templatesComplete {
-            SyncLogger.sync.info("Step 2.7: Syncing set plan templates")
-            let backendTemplateCount = await syncSetPlansFromBackend()
-            await processTemplateRetryQueue()
-            state.templatesComplete = true
+        // Step 2.7: Sync set plans
+        if !state.plansComplete {
+            SyncLogger.sync.info("Step 2.7: Syncing set plans")
+            let backendPlanCount = await syncSetPlansFromBackend()
+            await processPlanRetryQueue()
+            state.plansComplete = true
             syncState = state
 
             // Seed only if backend had nothing (new user)
-            if backendTemplateCount == 0, let ctx = modelContext {
+            if backendPlanCount == 0, let ctx = modelContext {
                 SyncLogger.sync.info("No set plans on backend, creating defaults")
                 await createAndSyncDefaultSetPlans(context: ctx)
             }
         } else {
-            SyncLogger.sync.debug("Step 2.7: Templates already synced, skipping")
+            SyncLogger.sync.debug("Step 2.7: Plans already synced, skipping")
         }
 
         // Step 2.8: Sync groups
@@ -230,6 +230,8 @@ class SyncService: ObservableObject {
         do {
             let response = try await APIService.shared.getUserProperties()
 
+            print("📋 UserProperties from backend: bodyweight=\(String(describing: response.bodyweight)), biologicalSex=\(String(describing: response.biologicalSex)), weightUnit=\(String(describing: response.weightUnit))")
+
             // Update local UserProperties with backend data
             let userProperties = fetchOrCreateUserProperties(context: context)
             if let plates = response.availableChangePlates {
@@ -268,10 +270,12 @@ class SyncService: ObservableObject {
             }
 
             try? context.save()
+            print("📋 UserProperties saved locally: bodyweight=\(String(describing: userProperties.bodyweight)), biologicalSex=\(String(describing: userProperties.biologicalSex))")
 
             // Also save createdDatetime to keychain
             KeychainService.shared.saveUserProperties(createdDatetime: response.createdDatetime)
         } catch {
+            print("📋 UserProperties sync FAILED: \(error.localizedDescription)")
             SyncLogger.sync.error("Failed to sync user properties: \(error.localizedDescription)")
             SentrySDK.capture(error: error)
             // Don't block exercise sync - user properties are not critical
@@ -387,18 +391,18 @@ class SyncService: ObservableObject {
         }
     }
 
-    func updateActiveSetPlan(_ templateId: UUID?) async {
+    func updateActiveSetPlan(_ planId: UUID?) async {
         do {
             var request = UserPropertiesRequest()
-            if let templateId = templateId {
-                request.activeSetPlanId = templateId.uuidString
+            if let planId = planId {
+                request.activeSetPlanId = planId.uuidString
             } else {
                 request.clearActiveSetPlan = true
             }
             _ = try await APIService.shared.updateUserProperties(request)
             retryQueue.removePendingUserPropertiesSync()
         } catch {
-            SyncLogger.sync.error("Failed to update active set plan template: \(error.localizedDescription)")
+            SyncLogger.sync.error("Failed to update active set plan: \(error.localizedDescription)")
             retryQueue.addPendingUserPropertiesSync()
         }
     }
@@ -418,8 +422,8 @@ class SyncService: ObservableObject {
                 weightUnit: userProperties.weightUnit,
                 timezone: userProperties.timezoneIdentifier
             )
-            if let templateId = userProperties.activeSetPlanId {
-                request.activeSetPlanId = templateId.uuidString
+            if let planId = userProperties.activeSetPlanId {
+                request.activeSetPlanId = planId.uuidString
             } else {
                 request.clearActiveSetPlan = true
             }
@@ -634,7 +638,7 @@ class SyncService: ObservableObject {
 
             SyncLogger.sync.info("Completed interleaved sync: \(totalLiftSet) lift sets + \(totalE1RMs) estimated 1RMs")
 
-            // Compute currentE1RM per exercise from all synced e1RM records
+            // Compute currentE1RMLocalCache per exercise from all synced e1RM records
             if totalE1RMs > 0, let mainCtx = modelContext {
                 await MainActor.run {
                     let allE1RMs = (try? mainCtx.fetch(FetchDescriptor<Estimated1RM>(predicate: #Predicate { !$0.deleted }))) ?? []
@@ -652,14 +656,14 @@ class SyncService: ObservableObject {
                     for (exerciseId, best) in maxByExercise {
                         let descriptor = FetchDescriptor<Exercise>(predicate: #Predicate { $0.id == exerciseId })
                         if let exercise = try? mainCtx.fetch(descriptor).first {
-                            if best.value > (exercise.currentE1RM ?? 0) {
-                                exercise.currentE1RM = best.value
-                                exercise.currentE1RMDate = best.date
+                            if best.value > (exercise.currentE1RMLocalCache ?? 0) {
+                                exercise.currentE1RMLocalCache = best.value
+                                exercise.currentE1RMDateLocalCache = best.date
                             }
                         }
                     }
                     try? mainCtx.save()
-                    SyncLogger.sync.info("Updated currentE1RM on \(maxByExercise.count) exercises")
+                    SyncLogger.sync.info("Updated currentE1RMLocalCache on \(maxByExercise.count) exercises")
                 }
             }
         } catch {
@@ -879,18 +883,18 @@ class SyncService: ObservableObject {
     }
 
 
-    // MARK: - Set Plan Template Sync
+    // MARK: - Set Plan Sync
 
     func syncSetPlansFromBackend() async -> Int {
         guard let context = modelContext else { return 0 }
 
         do {
             let response = try await APIService.shared.getSetPlans()
-            await importSetPlansFromBackend(response.templates)
+            await importSetPlansFromBackend(response.plans)
 
-            // Push any local-only templates (including built-ins) to backend
-            let allLocal = fetchAllTemplates(context: context)
-            let backendIds = Set(response.templates.map { $0.templateId })
+            // Push any local-only plans (including built-ins) to backend
+            let allLocal = fetchAllPlans(context: context)
+            let backendIds = Set(response.plans.map { $0.planId })
             let localOnly = allLocal.filter { !$0.deleted && !backendIds.contains($0.id) }
 
             if !localOnly.isEmpty {
@@ -898,70 +902,70 @@ class SyncService: ObservableObject {
                 do {
                     _ = try await APIService.shared.upsertSetPlans(dtos)
                 } catch {
-                    SyncLogger.sync.error("Failed to push local templates: \(error.localizedDescription)")
-                    for template in localOnly {
-                        retryQueue.addPendingTemplateUpsert(templateId: template.id)
+                    SyncLogger.sync.error("Failed to push local plans: \(error.localizedDescription)")
+                    for plan in localOnly {
+                        retryQueue.addPendingPlanUpsert(planId: plan.id)
                     }
                 }
             }
 
-            SyncLogger.sync.info("Completed template sync, fetched \(response.templates.count) from backend")
-            return response.templates.count
+            SyncLogger.sync.info("Completed set plan sync, fetched \(response.plans.count) from backend")
+            return response.plans.count
         } catch {
-            SyncLogger.sync.error("Failed to sync templates: \(error.localizedDescription)")
+            SyncLogger.sync.error("Failed to sync set plans: \(error.localizedDescription)")
             return 0
         }
     }
 
-    func syncSetPlan(_ template: SetPlan) async {
-        let dto = template.toDTO()
+    func syncSetPlan(_ plan: SetPlan) async {
+        let dto = plan.toDTO()
 
         do {
             _ = try await APIService.shared.upsertSetPlans([dto])
-            retryQueue.removePendingTemplateOperation(templateId: template.id)
-            SyncLogger.sync.debug("Synced template \(template.id)")
+            retryQueue.removePendingPlanOperation(planId: plan.id)
+            SyncLogger.sync.debug("Synced set plan \(plan.id)")
         } catch {
-            SyncLogger.sync.error("Failed to sync template \(template.id): \(error.localizedDescription)")
-            retryQueue.addPendingTemplateUpsert(templateId: template.id)
+            SyncLogger.sync.error("Failed to sync set plan \(plan.id): \(error.localizedDescription)")
+            retryQueue.addPendingPlanUpsert(planId: plan.id)
         }
     }
 
-    func deleteSetPlan(_ templateId: UUID) async {
+    func deleteSetPlan(_ planId: UUID) async {
         do {
-            _ = try await APIService.shared.deleteSetPlans([templateId])
-            retryQueue.removePendingTemplateOperation(templateId: templateId)
-            SyncLogger.sync.debug("Deleted template \(templateId)")
+            _ = try await APIService.shared.deleteSetPlans([planId])
+            retryQueue.removePendingPlanOperation(planId: planId)
+            SyncLogger.sync.debug("Deleted set plan \(planId)")
         } catch {
-            SyncLogger.sync.error("Failed to delete template \(templateId): \(error.localizedDescription)")
-            retryQueue.addPendingTemplateDelete(templateId: templateId)
+            SyncLogger.sync.error("Failed to delete set plan \(planId): \(error.localizedDescription)")
+            retryQueue.addPendingPlanDelete(planId: planId)
         }
     }
 
-    func processTemplateRetryQueue() async {
+    func processPlanRetryQueue() async {
         guard let context = modelContext else { return }
 
-        let pendingOperations = retryQueue.getPendingTemplateOperations()
+        let pendingOperations = retryQueue.getPendingPlanOperations()
 
         for operation in pendingOperations {
             switch operation.operationType {
             case .upsert:
-                if let template = fetchTemplate(by: operation.templateId, context: context) {
+                if let plan = fetchPlan(by: operation.planId, context: context) {
                     do {
-                        _ = try await APIService.shared.upsertSetPlans([template.toDTO()])
-                        retryQueue.removePendingTemplateOperation(templateId: operation.templateId)
+                        _ = try await APIService.shared.upsertSetPlans([plan.toDTO()])
+                        retryQueue.removePendingPlanOperation(planId: operation.planId)
                     } catch {
-                        retryQueue.incrementTemplateRetryCount(for: operation.templateId)
+                        retryQueue.incrementPlanRetryCount(for: operation.planId)
                     }
                 } else {
-                    retryQueue.removePendingTemplateOperation(templateId: operation.templateId)
+                    retryQueue.removePendingPlanOperation(planId: operation.planId)
                 }
 
             case .delete:
                 do {
-                    _ = try await APIService.shared.deleteSetPlans([operation.templateId])
-                    retryQueue.removePendingTemplateOperation(templateId: operation.templateId)
+                    _ = try await APIService.shared.deleteSetPlans([operation.planId])
+                    retryQueue.removePendingPlanOperation(planId: operation.planId)
                 } catch {
-                    retryQueue.incrementTemplateRetryCount(for: operation.templateId)
+                    retryQueue.incrementPlanRetryCount(for: operation.planId)
                 }
             }
         }
@@ -975,35 +979,35 @@ class SyncService: ObservableObject {
             let context = ModelContext(sendableContainer)
             context.autosaveEnabled = false
 
-            let existingTemplates = (try? context.fetch(FetchDescriptor<SetPlan>())) ?? []
-            let existingById = Dictionary(uniqueKeysWithValues: existingTemplates.map { ($0.id, $0) })
+            let existingPlans = (try? context.fetch(FetchDescriptor<SetPlan>())) ?? []
+            let existingById = Dictionary(uniqueKeysWithValues: existingPlans.map { ($0.id, $0) })
 
             for dto in sendableDtos {
                 if dto.deleted == true {
-                    if let existing = existingById[dto.templateId] {
+                    if let existing = existingById[dto.planId] {
                         existing.deleted = true
                     }
                     continue
                 }
 
-                if let existing = existingById[dto.templateId] {
+                if let existing = existingById[dto.planId] {
                     existing.name = dto.name
                     existing.effortSequence = dto.effortSequence
                     existing.isCustom = dto.isCustom
-                    existing.templateDescription = dto.templateDescription
+                    existing.planDescription = dto.planDescription
                     existing.deleted = dto.deleted ?? false
                 } else {
-                    let template = SetPlan(
-                        id: dto.templateId,
+                    let plan = SetPlan(
+                        id: dto.planId,
                         name: dto.name,
                         effortSequence: dto.effortSequence,
                         isCustom: dto.isCustom,
-                        templateDescription: dto.templateDescription,
+                        planDescription: dto.planDescription,
                         createdAt: dto.createdDatetime ?? Date(),
                         createdTimezone: dto.createdTimezone,
                         deleted: dto.deleted ?? false
                     )
-                    context.insert(template)
+                    context.insert(plan)
                 }
             }
 
@@ -1011,12 +1015,12 @@ class SyncService: ObservableObject {
         }.value
     }
 
-    private func fetchTemplate(by id: UUID, context: ModelContext) -> SetPlan? {
+    private func fetchPlan(by id: UUID, context: ModelContext) -> SetPlan? {
         let descriptor = FetchDescriptor<SetPlan>(predicate: #Predicate { $0.id == id })
         return try? context.fetch(descriptor).first
     }
 
-    private func fetchAllTemplates(context: ModelContext) -> [SetPlan] {
+    private func fetchAllPlans(context: ModelContext) -> [SetPlan] {
         let descriptor = FetchDescriptor<SetPlan>()
         return (try? context.fetch(descriptor)) ?? []
     }
@@ -1292,16 +1296,16 @@ class SyncService: ObservableObject {
 
     private func createAndSyncDefaultSetPlans(context: ModelContext) async {
         var dtos: [SetPlanDTO] = []
-        for def in SetPlan.builtInTemplates {
-            let template = SetPlan(
+        for def in SetPlan.builtInPlans {
+            let plan = SetPlan(
                 id: def.id,
                 name: def.name,
                 effortSequence: def.sequence,
                 isCustom: false,
-                templateDescription: def.description
+                planDescription: def.description
             )
-            context.insert(template)
-            dtos.append(template.toDTO())
+            context.insert(plan)
+            dtos.append(plan.toDTO())
         }
         try? context.save()
 
@@ -1319,7 +1323,7 @@ class SyncService: ObservableObject {
         } catch {
             SyncLogger.sync.error("Failed to batch POST default set plans: \(error.localizedDescription)")
             for dto in dtos {
-                retryQueue.addPendingTemplateUpsert(templateId: dto.templateId)
+                retryQueue.addPendingPlanUpsert(planId: dto.planId)
             }
         }
     }
@@ -1330,10 +1334,10 @@ class SyncService: ObservableObject {
     func retryFetchSetPlans() async -> Bool {
         do {
             let response = try await APIService.shared.getSetPlans()
-            if response.templates.isEmpty {
+            if response.plans.isEmpty {
                 return false
             } else {
-                await importSetPlansFromBackend(response.templates)
+                await importSetPlansFromBackend(response.plans)
                 return true
             }
         } catch {
@@ -1344,7 +1348,7 @@ class SyncService: ObservableObject {
 
     func createDefaultSetPlansAndSync() async {
         guard let context = modelContext else { return }
-        let existingPlans = fetchAllTemplates(context: context).filter { !$0.deleted }
+        let existingPlans = fetchAllPlans(context: context).filter { !$0.deleted }
         guard existingPlans.isEmpty else { return }
         await createAndSyncDefaultSetPlans(context: context)
     }
@@ -1380,7 +1384,7 @@ class SyncService: ObservableObject {
                     }
                     existing.weightIncrement = dto.weightIncrement
                     existing.barbellWeight = dto.barbellWeight
-                    // currentE1RM is computed client-side from Estimated1RM records — don't overwrite from DTO
+                    // currentE1RMLocalCache is computed client-side from Estimated1RM records — don't overwrite from DTO
                 } else {
                     let loadType = ExerciseLoadType(rawValue: dto.loadType) ?? .barbell
                     let movementType = ExerciseMovementType(rawValue: dto.movementType ?? "") ?? .other
@@ -1399,7 +1403,7 @@ class SyncService: ObservableObject {
                     context.insert(exercise)
                     exercise.weightIncrement = dto.weightIncrement
                     exercise.barbellWeight = dto.barbellWeight
-                    // currentE1RM starts nil, gets populated during e1RM import (step 3)
+                    // currentE1RMLocalCache starts nil, gets populated during e1RM import (step 3)
                 }
             }
 

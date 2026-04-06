@@ -61,8 +61,8 @@ final class Exercise {
     var movementType: String?
     var weightIncrement: Double?
     var barbellWeight: Double?
-    var currentE1RM: Double?
-    var currentE1RMDate: Date?
+    var currentE1RMLocalCache: Double?
+    var currentE1RMDateLocalCache: Date?
 
     var effectiveBarbellWeight: Double {
         barbellWeight ?? 45.0

@@ -38,7 +38,7 @@ struct HistoryView: View {
 
     var body: some View {
         Group {
-            if sets.isEmpty {
+            if sets.isEmpty && !hasMoreHistory {
                 VStack(spacing: 20) {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 60))
@@ -53,6 +53,27 @@ struct HistoryView: View {
                         .foregroundStyle(.white.opacity(0.6))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 40)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.black)
+            } else if sets.isEmpty && hasMoreHistory {
+                VStack(spacing: 20) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 60))
+                        .foregroundStyle(Color.appAccent.opacity(0.6))
+
+                    Text("No recent history")
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(.white)
+
+                    Button {
+                        displayMonths += 6
+                        loadData()
+                    } label: {
+                        Text("Load Earlier History")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(Color.appAccent)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.black)
@@ -122,6 +143,19 @@ struct HistoryView: View {
                         estimated1RMId = associated1RM.id
                     }
 
+                    // Recompute exercise.currentE1RMLocalCache from remaining records
+                    if let exercise = set.exercise {
+                        let exerciseId = exercise.id
+                        let remainingE1RMs = estimated1RMs.filter { !$0.deleted && $0.exercise?.id == exerciseId }
+                        if let maxRecord = remainingE1RMs.max(by: { $0.value < $1.value }) {
+                            exercise.currentE1RMLocalCache = maxRecord.value
+                            exercise.currentE1RMDateLocalCache = maxRecord.createdAt
+                        } else {
+                            exercise.currentE1RMLocalCache = nil
+                            exercise.currentE1RMDateLocalCache = nil
+                        }
+                    }
+
                     try? modelContext.save()
 
                     // Remove from local arrays and rebuild derived data
@@ -184,9 +218,8 @@ struct HistoryView: View {
         groupedSets = Self.buildGroupedSets(from: fetchedSets)
 
         // Check if there's older data beyond the current window
-        let olderCutoff = Calendar.current.date(byAdding: .month, value: -(displayMonths + 1), to: Date())!
         var olderDescriptor = FetchDescriptor<LiftSet>(
-            predicate: #Predicate { !$0.deleted && $0.createdAt >= olderCutoff && $0.createdAt < cutoff }
+            predicate: #Predicate { !$0.deleted && $0.createdAt < cutoff }
         )
         olderDescriptor.fetchLimit = 1
         hasMoreHistory = ((try? modelContext.fetch(olderDescriptor)) ?? []).count > 0

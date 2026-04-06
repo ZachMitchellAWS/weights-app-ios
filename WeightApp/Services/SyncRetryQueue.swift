@@ -69,13 +69,13 @@ struct PendingEstimated1RMOperation: Codable, Equatable {
 }
 
 struct PendingSetPlanOperation: Codable, Equatable {
-    let templateId: UUID
+    let planId: UUID
     let operationType: PendingOperationType
     var retryCount: Int
     let createdAt: Date
 
-    init(templateId: UUID, operationType: PendingOperationType) {
-        self.templateId = templateId
+    init(planId: UUID, operationType: PendingOperationType) {
+        self.planId = planId
         self.operationType = operationType
         self.retryCount = 0
         self.createdAt = Date()
@@ -117,7 +117,7 @@ class SyncRetryQueue {
     private let userPropertiesKey = "SyncRetryQueue.PendingUserPropertiesSync"
     private let liftSetOperationsKey = "SyncRetryQueue.PendingLiftSetOperations"
     private let estimated1RMOperationsKey = "SyncRetryQueue.PendingEstimated1RMOperations"
-    private let templateOperationsKey = "SyncRetryQueue.PendingSetPlanOperations"
+    private let planOperationsKey = "SyncRetryQueue.PendingSetPlanOperations"
     private let groupOperationsKey = "SyncRetryQueue.PendingGroupOperations"
     private let accessoryGoalCheckinOperationsKey = "SyncRetryQueue.PendingAccessoryGoalCheckinOperations"
     private let maxRetries = 10
@@ -164,13 +164,13 @@ class SyncRetryQueue {
         UserDefaults.standard.removeObject(forKey: userPropertiesKey)
         UserDefaults.standard.removeObject(forKey: liftSetOperationsKey)
         UserDefaults.standard.removeObject(forKey: estimated1RMOperationsKey)
-        UserDefaults.standard.removeObject(forKey: templateOperationsKey)
+        UserDefaults.standard.removeObject(forKey: planOperationsKey)
         UserDefaults.standard.removeObject(forKey: groupOperationsKey)
         UserDefaults.standard.removeObject(forKey: accessoryGoalCheckinOperationsKey)
     }
 
     func hasPendingOperations() -> Bool {
-        return !loadOperations().isEmpty || !loadLiftSetOperations().isEmpty || !loadEstimated1RMOperations().isEmpty || !loadTemplateOperations().isEmpty || !loadGroupOperations().isEmpty || !loadAccessoryGoalCheckinOperations().isEmpty
+        return !loadOperations().isEmpty || !loadLiftSetOperations().isEmpty || !loadEstimated1RMOperations().isEmpty || !loadPlanOperations().isEmpty || !loadGroupOperations().isEmpty || !loadAccessoryGoalCheckinOperations().isEmpty
     }
 
     // MARK: - User Properties Sync Methods
@@ -405,76 +405,76 @@ class SyncRetryQueue {
     }
 
 
-    // MARK: - Set Plan Template Operations
+    // MARK: - Set Plan Operations
 
-    func addPendingTemplateUpsert(templateId: UUID) {
-        SyncLogger.retry.debug("Queuing template upsert: \(templateId)")
-        addTemplateOperation(PendingSetPlanOperation(templateId: templateId, operationType: .upsert))
+    func addPendingPlanUpsert(planId: UUID) {
+        SyncLogger.retry.debug("Queuing set plan upsert: \(planId)")
+        addPlanOperation(PendingSetPlanOperation(planId: planId, operationType: .upsert))
     }
 
-    func addPendingTemplateDelete(templateId: UUID) {
-        SyncLogger.retry.debug("Queuing template delete: \(templateId)")
-        addTemplateOperation(PendingSetPlanOperation(templateId: templateId, operationType: .delete))
+    func addPendingPlanDelete(planId: UUID) {
+        SyncLogger.retry.debug("Queuing set plan delete: \(planId)")
+        addPlanOperation(PendingSetPlanOperation(planId: planId, operationType: .delete))
     }
 
-    func removePendingTemplateOperation(templateId: UUID) {
-        SyncLogger.retry.debug("Removing template operation: \(templateId)")
-        var operations = loadTemplateOperations()
-        operations.removeAll { $0.templateId == templateId }
-        saveTemplateOperations(operations)
+    func removePendingPlanOperation(planId: UUID) {
+        SyncLogger.retry.debug("Removing set plan operation: \(planId)")
+        var operations = loadPlanOperations()
+        operations.removeAll { $0.planId == planId }
+        savePlanOperations(operations)
     }
 
-    func getPendingTemplateOperations() -> [PendingSetPlanOperation] {
-        return loadTemplateOperations()
+    func getPendingPlanOperations() -> [PendingSetPlanOperation] {
+        return loadPlanOperations()
     }
 
-    func incrementTemplateRetryCount(for templateId: UUID) {
-        var operations = loadTemplateOperations()
-        if let index = operations.firstIndex(where: { $0.templateId == templateId }) {
+    func incrementPlanRetryCount(for planId: UUID) {
+        var operations = loadPlanOperations()
+        if let index = operations.firstIndex(where: { $0.planId == planId }) {
             operations[index].retryCount += 1
             if operations[index].retryCount >= maxRetries {
-                SyncLogger.retry.info("Template \(templateId) dropped after \(self.maxRetries) retries")
+                SyncLogger.retry.info("Set plan \(planId) dropped after \(self.maxRetries) retries")
                 operations.remove(at: index)
             }
         }
-        saveTemplateOperations(operations)
+        savePlanOperations(operations)
     }
 
-    func hasTemplatePendingOperations() -> Bool {
-        return !loadTemplateOperations().isEmpty
+    func hasPlanPendingOperations() -> Bool {
+        return !loadPlanOperations().isEmpty
     }
 
-    private func addTemplateOperation(_ operation: PendingSetPlanOperation) {
-        var operations = loadTemplateOperations()
+    private func addPlanOperation(_ operation: PendingSetPlanOperation) {
+        var operations = loadPlanOperations()
 
-        if let existingIndex = operations.firstIndex(where: { $0.templateId == operation.templateId }) {
+        if let existingIndex = operations.firstIndex(where: { $0.planId == operation.planId }) {
             operations[existingIndex] = operation
         } else {
             operations.append(operation)
         }
 
-        saveTemplateOperations(operations)
+        savePlanOperations(operations)
     }
 
-    private func loadTemplateOperations() -> [PendingSetPlanOperation] {
-        guard let data = UserDefaults.standard.data(forKey: templateOperationsKey) else {
+    private func loadPlanOperations() -> [PendingSetPlanOperation] {
+        guard let data = UserDefaults.standard.data(forKey: planOperationsKey) else {
             return []
         }
 
         do {
             return try JSONDecoder().decode([PendingSetPlanOperation].self, from: data)
         } catch {
-            SyncLogger.retry.error("Failed to decode pending template operations: \(error)")
+            SyncLogger.retry.error("Failed to decode pending set plan operations: \(error)")
             return []
         }
     }
 
-    private func saveTemplateOperations(_ operations: [PendingSetPlanOperation]) {
+    private func savePlanOperations(_ operations: [PendingSetPlanOperation]) {
         do {
             let data = try JSONEncoder().encode(operations)
-            UserDefaults.standard.set(data, forKey: templateOperationsKey)
+            UserDefaults.standard.set(data, forKey: planOperationsKey)
         } catch {
-            SyncLogger.retry.error("Failed to encode pending template operations: \(error)")
+            SyncLogger.retry.error("Failed to encode pending set plan operations: \(error)")
         }
     }
 

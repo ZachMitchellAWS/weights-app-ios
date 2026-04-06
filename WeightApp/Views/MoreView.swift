@@ -8,8 +8,14 @@
 import SwiftUI
 import SwiftData
 
+enum MoreDestination: Hashable {
+    case settings
+}
+
 struct MoreView: View {
     @ObservedObject var authViewModel: AuthViewModel
+    @ObservedObject var selectedSetData: SelectedSetData
+    @State private var navigationPath = NavigationPath()
     @Environment(\.modelContext) private var modelContext
     @Query private var userPropertiesItems: [UserProperties]
     @Query private var entitlementRecords: [EntitlementGrant]
@@ -155,7 +161,24 @@ struct MoreView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
+            moreFormContent
+                .navigationDestination(for: MoreDestination.self) { destination in
+                    switch destination {
+                    case .settings:
+                        SettingsView()
+                    }
+                }
+        }
+        .onChange(of: selectedSetData.pendingShowSettings) { _, pending in
+            if pending {
+                selectedSetData.pendingShowSettings = false
+                navigationPath.append(MoreDestination.settings)
+            }
+        }
+    }
+
+    private var moreFormContent: some View {
             Form {
                 // Branding Header
                 Section {
@@ -430,9 +453,7 @@ struct MoreView: View {
 
                 // Settings Section
                 Section {
-                    NavigationLink {
-                        SettingsView()
-                    } label: {
+                    NavigationLink(value: MoreDestination.settings) {
                         HStack(spacing: 12) {
                             Image(systemName: "gearshape")
                                 .foregroundStyle(Color.appAccent)
@@ -1524,7 +1545,6 @@ struct MoreView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: copiedToast)
-        }
     }
 
     private func showCopiedToast(_ message: String) {
@@ -1702,11 +1722,11 @@ struct MoreView: View {
             }
         }
 
-        // Update exercise.currentE1RM from running bests
+        // Update exercise.currentE1RMLocalCache from running bests
         for exercise in exercises {
             if let best = runningBest1RM[exercise.name] {
-                exercise.currentE1RM = best
-                exercise.currentE1RMDate = Date()
+                exercise.currentE1RMLocalCache = best
+                exercise.currentE1RMDateLocalCache = Date()
             }
         }
 
@@ -1827,9 +1847,9 @@ struct MoreView: View {
                 currentTime = calendar.date(byAdding: .minute, value: Int.random(in: 2...4), to: currentTime) ?? currentTime
             }
 
-            // Update exercise's cached currentE1RM
-            exercise.currentE1RM = runningBest
-            exercise.currentE1RMDate = currentTime
+            // Update exercise's cached currentE1RMLocalCache
+            exercise.currentE1RMLocalCache = runningBest
+            exercise.currentE1RMDateLocalCache = currentTime
 
             // Rest between exercises (5-8 minutes)
             currentTime = calendar.date(byAdding: .minute, value: Int.random(in: 5...8), to: currentTime) ?? currentTime
@@ -1933,10 +1953,10 @@ struct MoreView: View {
                 currentTime = calendar.date(byAdding: .minute, value: 3, to: currentTime) ?? currentTime
             }
 
-            // Update exercise's cached currentE1RM
-            if runningBest > (exercise.currentE1RM ?? 0) {
-                exercise.currentE1RM = runningBest
-                exercise.currentE1RMDate = currentTime
+            // Update exercise's cached currentE1RMLocalCache
+            if runningBest > (exercise.currentE1RMLocalCache ?? 0) {
+                exercise.currentE1RMLocalCache = runningBest
+                exercise.currentE1RMDateLocalCache = currentTime
             }
 
             currentTime = calendar.date(byAdding: .minute, value: 5, to: currentTime) ?? currentTime
@@ -2096,11 +2116,11 @@ struct MoreView: View {
             overallTier: .advanced,
             previousOverallTier: .intermediate,
             exercises: [
-                ExerciseReportData(name: "Deadlifts", icon: "DeadliftIcon", currentE1RM: 405, firstE1RM: 315, tier: .advanced, bwRatio: 2.25, tierProgress: 0.65),
-                ExerciseReportData(name: "Squats", icon: "SquatIcon", currentE1RM: 335, firstE1RM: 265, tier: .advanced, bwRatio: 1.86, tierProgress: 0.40),
-                ExerciseReportData(name: "Bench Press", icon: "BenchPressIcon", currentE1RM: 265, firstE1RM: 205, tier: .intermediate, bwRatio: 1.47, tierProgress: 0.75),
-                ExerciseReportData(name: "Overhead Press", icon: "OverheadPressIcon", currentE1RM: 175, firstE1RM: 135, tier: .intermediate, bwRatio: 0.97, tierProgress: 0.55),
-                ExerciseReportData(name: "Barbell Rows", icon: "BarbellRowIcon", currentE1RM: 245, firstE1RM: 185, tier: .intermediate, bwRatio: 1.36, tierProgress: 0.60),
+                ExerciseReportData(name: "Deadlifts", icon: "DeadliftIcon", currentE1RMLocalCache: 405, firstE1RM: 315, tier: .advanced, bwRatio: 2.25, tierProgress: 0.65),
+                ExerciseReportData(name: "Squats", icon: "SquatIcon", currentE1RMLocalCache: 335, firstE1RM: 265, tier: .advanced, bwRatio: 1.86, tierProgress: 0.40),
+                ExerciseReportData(name: "Bench Press", icon: "BenchPressIcon", currentE1RMLocalCache: 265, firstE1RM: 205, tier: .intermediate, bwRatio: 1.47, tierProgress: 0.75),
+                ExerciseReportData(name: "Overhead Press", icon: "OverheadPressIcon", currentE1RMLocalCache: 175, firstE1RM: 135, tier: .intermediate, bwRatio: 0.97, tierProgress: 0.55),
+                ExerciseReportData(name: "Barbell Rows", icon: "BarbellRowIcon", currentE1RMLocalCache: 245, firstE1RM: 185, tier: .intermediate, bwRatio: 1.36, tierProgress: 0.60),
             ],
             totalPRs: 24,
             totalSetsLogged: 847,
@@ -2146,10 +2166,10 @@ struct MoreView: View {
             modelContext.delete(estimated1RM)
         }
 
-        // Clear cached currentE1RM on all exercises
+        // Clear cached currentE1RMLocalCache on all exercises
         for exercise in exercises {
-            exercise.currentE1RM = nil
-            exercise.currentE1RMDate = nil
+            exercise.currentE1RMLocalCache = nil
+            exercise.currentE1RMDateLocalCache = nil
         }
 
         // Save the changes

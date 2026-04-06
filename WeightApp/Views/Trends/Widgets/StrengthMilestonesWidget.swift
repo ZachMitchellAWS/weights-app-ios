@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct StrengthMilestonesWidget: View {
+    let allEstimated1RM: [Estimated1RM]
     let exercises: [Exercise]
     let bodyweight: Double?
     let biologicalSex: String?
@@ -20,9 +21,9 @@ struct StrengthMilestonesWidget: View {
     var body: some View {
         if isPremium {
             unlockedContent
-                .task(id: exercises.compactMap(\.currentE1RM).count) {
+                .task(id: "\(exercises.compactMap(\.currentE1RMLocalCache).count)-\(allEstimated1RM.count)") {
                     if let bw = bodyweight, let sex = biologicalSex {
-                        milestoneResult = TrendsCalculator.strengthMilestones(fromExercises: exercises, bodyweight: bw, biologicalSex: sex)
+                        milestoneResult = TrendsCalculator.strengthMilestones(from: allEstimated1RM, exercises: exercises, bodyweight: bw, biologicalSex: sex)
                     } else {
                         milestoneResult = nil
                     }

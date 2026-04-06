@@ -9,9 +9,21 @@ import SwiftUI
 import SwiftData
 
 struct InsightsView: View {
+    /// How many months of Estimated1RM history to query for hybrid e1RM lookups.
+    private static let e1rmQueryMonths = -3
+
+    private static var estimated1RMsDescriptor: FetchDescriptor<Estimated1RM> {
+        let cutoff = Calendar.current.date(byAdding: .month, value: e1rmQueryMonths, to: Date())!
+        return FetchDescriptor<Estimated1RM>(
+            predicate: #Predicate { !$0.deleted && $0.createdAt >= cutoff },
+            sortBy: [SortDescriptor(\.createdAt)]
+        )
+    }
+
     @State private var viewModel = InsightsViewModel()
     var audioPlayer: AudioPlayerManager
     @Query private var entitlementRecords: [EntitlementGrant]
+    @Query(estimated1RMsDescriptor) private var allEstimated1RM: [Estimated1RM]
     private static var thisWeekSetsDescriptor: FetchDescriptor<LiftSet> {
         let weekStart = Calendar.current.dateInterval(of: .weekOfYear, for: Date())?.start ?? Date()
         return FetchDescriptor<LiftSet>(
@@ -44,12 +56,14 @@ struct InsightsView: View {
         }
         .scrollIndicators(.hidden)
         .refreshable {
+            guard isPremium else { return }
             await viewModel.fetchInsights(force: true, isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek)
         }
-        .task(id: exercises.compactMap(\.currentE1RM).count) {
+        .task(id: "\(exercises.compactMap(\.currentE1RMLocalCache).count)-\(allEstimated1RM.count)") {
             overallTier = TrendsCalculator.strengthTierAssessment(
-                fromExercises: exercises,
-                bodyweight: userProperties.bodyweight ?? 0,
+                from: allEstimated1RM,
+                exercises: exercises,
+                bodyweight: userProperties.bodyweight ?? 200.0,
                 biologicalSex: userProperties.biologicalSex ?? "male"
             ).overallTier
         }
@@ -72,7 +86,7 @@ struct InsightsView: View {
                 return false
             }()
 
-            if elapsed > 5 * 60 || hasExpiredAudio {
+            if isPremium && (elapsed > 5 * 60 || hasExpiredAudio) {
                 UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: key)
                 Task {
                     await viewModel.fetchInsights(force: true, isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek)

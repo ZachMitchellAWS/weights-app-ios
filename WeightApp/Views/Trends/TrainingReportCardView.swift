@@ -185,7 +185,7 @@ struct TrainingReportCardView: View {
 
             // e1RM value — fixed width for cross-row alignment
             Group {
-                if let e1rm = exercise.currentE1RM {
+                if let e1rm = exercise.currentE1RMLocalCache {
                     HStack(alignment: .firstTextBaseline, spacing: 1) {
                         Text("\(Int(weightUnit.fromLbs(e1rm)))")
                             .font(.bebasNeue(size: 22))
@@ -249,7 +249,7 @@ struct TrainingReportCardView: View {
                     .padding(.vertical, 3)
                     .background((delta > 0 ? Color.setEasy : Color.setNearMax).opacity(0.15))
                     .clipShape(Capsule())
-            } else if exercise.currentE1RM != nil {
+            } else if exercise.currentE1RMLocalCache != nil {
                 Text("NEW")
                     .font(.interSemiBold(size: 10))
                     .foregroundColor(.appAccent)

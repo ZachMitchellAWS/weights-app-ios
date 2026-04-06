@@ -13,7 +13,7 @@ struct LegacyCheckInView: View {
 
     @Query(filter: #Predicate<Exercise> { !$0.deleted }, sort: \Exercise.createdAt) private var exercises: [Exercise]
     @Query private var userPropertiesItems: [UserProperties]
-    @Query(filter: #Predicate<SetPlan> { !$0.deleted }) private var allTemplates: [SetPlan]
+    @Query(filter: #Predicate<SetPlan> { !$0.deleted }) private var allPlans: [SetPlan]
     @Query private var entitlementRecords: [EntitlementGrant]
 
     private var isPremium: Bool {
@@ -150,8 +150,8 @@ struct LegacyCheckInView: View {
     }
 
     private var activeSetPlan: SetPlan? {
-        guard let templateId = userProperties.activeSetPlanId else { return nil }
-        return allTemplates.first(where: { $0.id == templateId })
+        guard let planId = userProperties.activeSetPlanId else { return nil }
+        return allPlans.first(where: { $0.id == planId })
     }
 
     private var displaySetPlan: [String] {
@@ -571,7 +571,7 @@ struct LegacyCheckInView: View {
                 if exercises.isEmpty {
                     showNoExercisesAlert = true
                 }
-                if allTemplates.isEmpty {
+                if allPlans.isEmpty {
                     showNoSetPlansAlert = true
                 }
                 // Apply initial exercise from onboarding (only once)
@@ -1354,7 +1354,7 @@ struct LegacyCheckInView: View {
             previousSetPlanId = newValue
             guard wasSet != nil || newValue != nil else { return }
 
-            if let plan = allTemplates.first(where: { $0.id == newValue }) {
+            if let plan = allPlans.first(where: { $0.id == newValue }) {
                 setplanOverlayName = plan.name
                 setplanOverlaySequence = plan.effortSequence
             } else {
@@ -2168,7 +2168,7 @@ struct LegacyCheckInView: View {
                                     Label("Set Plan Catalog", systemImage: "square.stack")
                                 }
                                 Divider()
-                                let sorted = allTemplates.sorted {
+                                let sorted = allPlans.sorted {
                                     if $0.isCustom != $1.isCustom { return !$0.isCustom }
                                     return $0.createdAt < $1.createdAt
                                 }
@@ -4045,7 +4045,7 @@ struct LegacyCheckInView: View {
         Task {
             let success = await SyncService.shared.retryFetchSetPlans()
             isRetryingSync = false
-            if !success && allTemplates.isEmpty {
+            if !success && allPlans.isEmpty {
                 showNoSetPlansAlert = true
             }
         }
