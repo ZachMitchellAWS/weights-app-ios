@@ -10,10 +10,6 @@
 	<string>$(API_KEY)</string>
 	<key>AppEnvironment</key>
 	<string>$(APP_ENVIRONMENT)</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Save your progress card to Photos</string>
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
 	<key>UIAppFonts</key>
 	<array>
 		<string>BebasNeue-Regular.ttf</string>
