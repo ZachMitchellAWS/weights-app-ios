@@ -87,8 +87,12 @@ class AuthViewModel: ObservableObject {
         // Clear all tokens
         KeychainService.shared.clearTokens()
 
-        // Clear sync retry queue
+        // Clear sync retry queue and narrative badge
         SyncService.shared.clearOnLogout()
+        NarrativeBadgeService.shared.clearOnLogout()
+
+        // Hard delete all local data
+        hardDeleteAllData()
 
         // Update state
         isOnboardingPending = false
@@ -96,6 +100,36 @@ class AuthViewModel: ObservableObject {
         userId = nil
         sessionExpired = true
         stopTokenRefreshTimer()
+    }
+
+    private func hardDeleteAllData() {
+        guard let modelContext else { return }
+
+        let allLiftSets = (try? modelContext.fetch(FetchDescriptor<LiftSet>())) ?? []
+        for item in allLiftSets { modelContext.delete(item) }
+
+        let allEstimated1RM = (try? modelContext.fetch(FetchDescriptor<Estimated1RM>())) ?? []
+        for item in allEstimated1RM { modelContext.delete(item) }
+
+        let allExercises = (try? modelContext.fetch(FetchDescriptor<Exercise>())) ?? []
+        for item in allExercises { modelContext.delete(item) }
+
+        let allUserProperties = (try? modelContext.fetch(FetchDescriptor<UserProperties>())) ?? []
+        for item in allUserProperties { modelContext.delete(item) }
+
+        let allEntitlements = (try? modelContext.fetch(FetchDescriptor<EntitlementGrant>())) ?? []
+        for item in allEntitlements { modelContext.delete(item) }
+
+        let allGroups = (try? modelContext.fetch(FetchDescriptor<ExerciseGroup>())) ?? []
+        for item in allGroups { modelContext.delete(item) }
+
+        let allSetPlans = (try? modelContext.fetch(FetchDescriptor<SetPlan>())) ?? []
+        for item in allSetPlans { modelContext.delete(item) }
+
+        let allAccessoryCheckins = (try? modelContext.fetch(FetchDescriptor<AccessoryGoalCheckin>())) ?? []
+        for item in allAccessoryCheckins { modelContext.delete(item) }
+
+        try? modelContext.save()
     }
 
     func dismissSessionExpiredAlert() {

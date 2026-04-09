@@ -33,10 +33,8 @@ struct WeightAppApp: App {
             options.enableMetricKit = true
             #if DEBUG
             options.debug = true
-            options.environment = "development"
-            #else
-            options.environment = APIConfig.environment == "production" ? "production" : "staging"
             #endif
+            options.environment = APIConfig.environment
         }
 
         // Clear stale keychain tokens on fresh install.

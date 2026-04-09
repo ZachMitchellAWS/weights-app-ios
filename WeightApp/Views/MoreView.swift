@@ -229,11 +229,13 @@ struct MoreView: View {
                                         HStack(spacing: 6) {
                                             Image(systemName: "star.fill")
                                             Text("Upgrade to Premium")
+                                                .lineLimit(1)
                                             Image(systemName: "chevron.right")
                                                 .font(.caption2)
                                         }
                                         .font(.subheadline.weight(.semibold))
                                         .foregroundStyle(Color.appAccent)
+                                        .fixedSize(horizontal: true, vertical: false)
                                     }
                                     .buttonStyle(.plain)
                                 }
@@ -1597,7 +1599,7 @@ struct MoreView: View {
                            isFundamental: [false, false, false, false])
 
         // Starting 1RMs (mid-intermediate for ~180lb male)
-        var exerciseMaxes: [String: Double] = [
+        let exerciseMaxes: [String: Double] = [
             "Deadlifts": 315, "Squats": 265, "Bench Press": 205,
             "Barbell Rows": 155, "Overhead Press": 115,
             "Pull Ups": bw + 45, "Weighted Dips": bw + 55,

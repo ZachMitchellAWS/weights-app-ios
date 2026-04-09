@@ -25,6 +25,7 @@ class SyncService: ObservableObject {
     @Published var isSyncingEstimated1RM = false
     @Published var estimated1RMSyncProgress: String?
     @Published var initialSyncComplete = false
+    @Published var syncFailed = false
 
     // MARK: - Persisted Sync State
 
@@ -100,6 +101,7 @@ class SyncService: ObservableObject {
             return
         }
 
+        syncFailed = false
         SyncLogger.sync.info("Starting initial sync (isNewUser: \(isNewUser))")
 
         // Step 1: Sync user properties (non-blocking - failure doesn't stop exercise sync)
@@ -137,6 +139,8 @@ class SyncService: ObservableObject {
             } catch {
                 SyncLogger.sync.error("Initial exercise sync failed: \(error)")
                 SentrySDK.capture(error: error)
+                syncFailed = true
+                return
             }
         } else {
             SyncLogger.sync.debug("Step 2: Exercise already synced, skipping")
@@ -1546,6 +1550,7 @@ class SyncService: ObservableObject {
     func clearOnLogout() {
         SyncLogger.sync.info("Clearing sync state on logout")
         initialSyncComplete = false
+        syncFailed = false
         retryQueue.clearAll()
         UserDefaults.standard.removeObject(forKey: Self.syncStateKey)
         UserDefaults.standard.removeObject(forKey: "insights_cached_response")

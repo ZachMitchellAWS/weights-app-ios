@@ -16,6 +16,7 @@ class KeychainService {
     private let userIdKey = "com.weightapp.userId"
     private let expiresAtKey = "com.weightapp.expiresAt"
     private let refreshTokenExpiresAtKey = "com.weightapp.refreshTokenExpiresAt"
+    private let accessTokenLifetimeKey = "com.weightapp.accessTokenLifetime"
     private let emailKey = "com.weightapp.email"
     private let createdDatetimeKey = "com.weightapp.createdDatetime"
 
@@ -32,6 +33,7 @@ class KeychainService {
         save(key: userIdKey, value: userId)
         save(key: expiresAtKey, value: ISO8601DateFormatter().string(from: expiresAt))
         save(key: refreshTokenExpiresAtKey, value: ISO8601DateFormatter().string(from: refreshTokenExpiresAt))
+        save(key: accessTokenLifetimeKey, value: String(accessTokenExpiresIn))
 
         if let email = email {
             save(key: emailKey, value: email)
@@ -44,6 +46,7 @@ class KeychainService {
         save(key: accessTokenKey, value: accessToken)
         save(key: userIdKey, value: userId)
         save(key: expiresAtKey, value: ISO8601DateFormatter().string(from: expiresAt))
+        save(key: accessTokenLifetimeKey, value: String(accessTokenExpiresIn))
     }
 
     // MARK: - Get Tokens
@@ -83,12 +86,15 @@ class KeychainService {
             refreshTokenExpiresAt = ISO8601DateFormatter().date(from: refreshExpiresAtString)
         }
 
+        let accessTokenLifetime = TimeInterval(get(key: accessTokenLifetimeKey).flatMap { Int($0) } ?? 900)
+
         return TokenStorage(
             accessToken: accessToken,
             refreshToken: refreshToken,
             userId: userId,
             expiresAt: expiresAt,
-            refreshTokenExpiresAt: refreshTokenExpiresAt
+            refreshTokenExpiresAt: refreshTokenExpiresAt,
+            accessTokenLifetime: accessTokenLifetime
         )
     }
 
@@ -110,6 +116,7 @@ class KeychainService {
         delete(key: userIdKey)
         delete(key: expiresAtKey)
         delete(key: refreshTokenExpiresAtKey)
+        delete(key: accessTokenLifetimeKey)
         delete(key: emailKey)
         delete(key: createdDatetimeKey)
     }

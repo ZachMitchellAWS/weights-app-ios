@@ -184,6 +184,7 @@ struct TokenStorage {
     let userId: String
     let expiresAt: Date
     let refreshTokenExpiresAt: Date?
+    let accessTokenLifetime: TimeInterval  // total lifetime in seconds
 
     var isExpired: Bool {
         Date() >= expiresAt
@@ -191,9 +192,7 @@ struct TokenStorage {
 
     var shouldRefresh: Bool {
         let timeUntilExpiry = expiresAt.timeIntervalSince(Date())
-        let totalLifetime: TimeInterval = 15 * 60 // 15 minutes
-        let refreshThreshold = totalLifetime * 0.75
-        return timeUntilExpiry <= (totalLifetime - refreshThreshold)
+        return timeUntilExpiry <= accessTokenLifetime * 0.25
     }
 
     var isRefreshTokenExpired: Bool {

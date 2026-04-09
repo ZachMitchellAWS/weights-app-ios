@@ -116,13 +116,19 @@ class APIService {
                 throw APIError.decodingError(error)
             }
         } catch let error as APIError {
-            if case .unauthorized = error { } else {
+            switch error {
+            case .unauthorized, .httpError(403, _):
+                break
+            default:
                 SentrySDK.capture(error: error)
             }
             throw error
         } catch {
-            SyncLogger.api.error("Network error: \(method) \(endpoint) — \(error)")
-            SentrySDK.capture(error: error)
+            let isTransient = [.cancelled, .timedOut, .networkConnectionLost].contains((error as? URLError)?.code)
+            if !isTransient {
+                SyncLogger.api.error("Network error: \(method) \(endpoint) — \(error)")
+                SentrySDK.capture(error: error)
+            }
             throw APIError.networkError(error)
         }
     }
@@ -612,7 +618,28 @@ class APIService {
 
             do {
                 let decoder = JSONDecoder()
-                decoder.dateDecodingStrategy = .iso8601
+                decoder.dateDecodingStrategy = .custom { decoder in
+                    let container = try decoder.singleValueContainer()
+                    let string = try container.decode(String.self)
+
+                    let iso = ISO8601DateFormatter()
+                    iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                    if let date = iso.date(from: string) { return date }
+
+                    iso.formatOptions = [.withInternetDateTime]
+                    if let date = iso.date(from: string) { return date }
+
+                    // Python's +00:00 offset with microseconds
+                    let df = DateFormatter()
+                    df.locale = Locale(identifier: "en_US_POSIX")
+                    df.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZZZZZ"
+                    if let date = df.date(from: string) { return date }
+
+                    df.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZZZZZ"
+                    if let date = df.date(from: string) { return date }
+
+                    throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Unable to parse date: \(string)"))
+                }
                 let decodedData = try decoder.decode(T.self, from: data)
                 return decodedData
             } catch {
@@ -621,13 +648,19 @@ class APIService {
                 throw APIError.decodingError(error)
             }
         } catch let error as APIError {
-            if case .unauthorized = error { } else {
+            switch error {
+            case .unauthorized, .httpError(403, _):
+                break
+            default:
                 SentrySDK.capture(error: error)
             }
             throw error
         } catch {
-            SyncLogger.api.error("Network error: \(method) \(endpoint) — \(error)")
-            SentrySDK.capture(error: error)
+            let isTransient = [.cancelled, .timedOut, .networkConnectionLost].contains((error as? URLError)?.code)
+            if !isTransient {
+                SyncLogger.api.error("Network error: \(method) \(endpoint) — \(error)")
+                SentrySDK.capture(error: error)
+            }
             throw APIError.networkError(error)
         }
     }

@@ -80,6 +80,7 @@ struct CheckInView: View {
     @State private var syncOverlayDismissed = false
     @State private var showSyncDismissConfirmation = false
     @State private var syncPulsePhase = false
+    @State private var showSyncFailedAlert = false
 
     // Tier journey overlay state
     @AppStorage("hasSeenTierIntro") private var hasSeenTierIntro = false
@@ -552,6 +553,17 @@ struct CheckInView: View {
                 evaluateTierJourney()
             }
         }
+        .onChange(of: syncService.syncFailed) { _, failed in
+            if failed { showSyncFailedAlert = true }
+        }
+        .alert("Sync Failed", isPresented: $showSyncFailedAlert) {
+            Button("Retry") {
+                Task { await SyncService.shared.performInitialSync(isNewUser: false) }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("We couldn't load your data. Check your connection and try again.")
+        }
         .confirmationDialog("Sync in Progress", isPresented: $showSyncDismissConfirmation, titleVisibility: .visible) {
             Button("Continue Anyway") {
                 syncOverlayDismissed = true
@@ -605,6 +617,10 @@ struct CheckInView: View {
             // Show sync overlay if sync hasn't completed and user hasn't dismissed it
             if !syncService.initialSyncComplete && !syncOverlayDismissed {
                 showSyncOverlay = true
+            }
+
+            if syncService.syncFailed {
+                showSyncFailedAlert = true
             }
 
             // Only evaluate tier journey if sync is already done (e.g., subsequent app opens)

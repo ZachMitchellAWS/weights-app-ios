@@ -280,7 +280,7 @@ struct APIValidationView: View {
             // 20
             TestStep(id: 20, name: "DELETE Estimated 1RM") {
                 let response = try await api.deleteEstimated1RM(liftSetIds: [liftSetId])
-                guard response.deletedEstimated1RM.contains(where: { $0.liftSetId == liftSetId }) else { throw ValidationError("deleted e1rm not in response") }
+                guard response.deletedEstimated1RMs.contains(where: { $0.liftSetId == liftSetId }) else { throw ValidationError("deleted e1rm not in response") }
             },
             // 21
             TestStep(id: 21, name: "GET Estimated 1RMs (verify deleted)") {
@@ -290,7 +290,7 @@ struct APIValidationView: View {
             // 22
             TestStep(id: 22, name: "DELETE Lift Set") {
                 let response = try await api.deleteLiftSet([liftSetId])
-                guard response.deletedLiftSet.contains(where: { $0.liftSetId == liftSetId }) else { throw ValidationError("deleted lift set not in response") }
+                guard response.deletedLiftSets.contains(where: { $0.liftSetId == liftSetId }) else { throw ValidationError("deleted lift set not in response") }
             },
             // 23
             TestStep(id: 23, name: "GET Lift Sets (verify deleted)") {
