@@ -313,6 +313,7 @@ struct StrengthTierWidget: View {
                                 .foregroundStyle(.white.opacity(0.3))
                         }
                     }
+                    .fixedSize(horizontal: true, vertical: false)
                 } else {
                     Text("No data")
                         .font(.caption2)

@@ -84,7 +84,7 @@ struct UpsellView: View {
 
                 // Plan-specific subtitle
                 Text(selectedPlan == .yearly
-                     ? "7 days free, then \(SubscriptionConfig.yearlyDisplayPrice)/year. Cancel anytime."
+                     ? "7-day free trial, then \(SubscriptionConfig.yearlyDisplayPrice)/year. Cancel anytime."
                      : "\(SubscriptionConfig.monthlyDisplayPrice)/month. Cancel anytime.")
                     .font(.inter(size: 12))
                     .foregroundStyle(.white.opacity(0.5))
