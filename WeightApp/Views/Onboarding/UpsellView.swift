@@ -394,8 +394,10 @@ struct UpsellView: View {
 
             // Send transaction to backend
             let originalId = String(transaction.originalID)
+            let environment: String? = transaction.environment == .sandbox ? "Sandbox" : nil
             let response = try await EntitlementsService.shared.processTransactions(
-                originalTransactionIds: [originalId]
+                originalTransactionIds: [originalId],
+                environment: environment
             )
 
             // Update local premium status

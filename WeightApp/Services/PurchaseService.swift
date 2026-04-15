@@ -131,11 +131,13 @@ class PurchaseService: ObservableObject {
                 do {
                     let transaction = try self.checkVerified(result)
                     let originalId = String(transaction.originalID)
+                    let environment: String? = transaction.environment == .sandbox ? "Sandbox" : nil
 
                     // Sync with backend
                     do {
                         _ = try await EntitlementsService.shared.processTransactions(
-                            originalTransactionIds: [originalId]
+                            originalTransactionIds: [originalId],
+                            environment: environment
                         )
                         // Refresh local entitlement status from backend
                         await EntitlementsService.shared.syncEntitlementStatus()

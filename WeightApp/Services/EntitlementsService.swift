@@ -34,6 +34,7 @@ private struct ProcessTransactionsRequest: Encodable {
 
     struct AppleTransactions: Encodable {
         let originalTransactionIds: [String]
+        let environment: String?
     }
 }
 
@@ -53,7 +54,10 @@ class EntitlementsService {
     // MARK: - API Methods
 
     /// Send original transaction IDs to the backend for entitlement processing
-    func processTransactions(originalTransactionIds: [String]) async throws -> EntitlementsResponse {
+    /// - Parameters:
+    ///   - originalTransactionIds: Transaction IDs to process
+    ///   - environment: Optional Apple environment ("Sandbox" for TestFlight purchases)
+    func processTransactions(originalTransactionIds: [String], environment: String? = nil) async throws -> EntitlementsResponse {
         try await APIService.shared.refreshTokenIfNeeded()
 
         guard let url = URL(string: APIConfig.baseURL + "/entitlements") else {
@@ -72,7 +76,7 @@ class EntitlementsService {
         }
 
         let body = ProcessTransactionsRequest(
-            apple: .init(originalTransactionIds: originalTransactionIds)
+            apple: .init(originalTransactionIds: originalTransactionIds, environment: environment)
         )
         request.httpBody = try JSONEncoder().encode(body)
 
