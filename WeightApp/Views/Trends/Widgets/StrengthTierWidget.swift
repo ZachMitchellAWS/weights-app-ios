@@ -300,7 +300,7 @@ struct StrengthTierWidget: View {
 
                 if let e1rm = item.e1rm {
                     HStack(spacing: 0) {
-                        Text("\(Int(userProperties.preferredWeightUnit.fromLbs(e1rm))) \(userProperties.preferredWeightUnit.label)")
+                        Text("\(userProperties.preferredWeightUnit.formatWeightTrimmed(e1rm)) \(userProperties.preferredWeightUnit.label)")
                             .font(.caption2)
                             .foregroundStyle(.white.opacity(0.4))
 
@@ -313,13 +313,13 @@ struct StrengthTierWidget: View {
                                 .foregroundStyle(.white.opacity(0.3))
                         }
                     }
-                    .fixedSize(horizontal: true, vertical: false)
                 } else {
                     Text("No data")
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.3))
                 }
             }
+            .fixedSize(horizontal: true, vertical: false)
 
             Spacer()
 

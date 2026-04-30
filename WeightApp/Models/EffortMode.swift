@@ -61,7 +61,7 @@ enum EffortMode: Int, CaseIterable {
 
     var calibrationMidpoint: Double? {
         switch self {
-        case .easy: return 0.60
+        case .easy: return 0.68
         case .moderate: return 0.76
         case .hard: return 0.87
         case .progress: return 0.96

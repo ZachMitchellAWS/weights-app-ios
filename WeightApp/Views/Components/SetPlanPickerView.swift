@@ -96,7 +96,7 @@ struct SetPlanCatalogView: View {
                             Circle()
                                 .fill(SequenceSquareView.color(for: level))
                                 .frame(width: 8, height: 8)
-                            Text(level == "pr" ? "e1RM ↑" : level.capitalized)
+                            Text(level == "pr" ? "Progress" : level.capitalized)
                                 .font(.caption2)
                                 .foregroundStyle(.white.opacity(0.5))
                         }

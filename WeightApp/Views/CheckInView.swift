@@ -1713,7 +1713,7 @@ struct CheckInView: View {
                 LegendItem(color: .setModerate, label: "Moderate")
                 LegendItem(color: .setHard, label: "Hard")
                 LegendItem(color: .setNearMax, label: "Redline")
-                LegendItem(color: .appAccent, label: "e1RM ↑")
+                LegendItem(color: .appAccent, label: "Progress")
             }
         }
         .padding(14)
@@ -2450,7 +2450,7 @@ struct CheckInView: View {
                                     .font(.system(size: 13, weight: .semibold))
                                     .foregroundStyle(card.color)
 
-                                Text("\(Int(userProperties.preferredWeightUnit.fromLbs(card.suggestion.weight))) × \(card.suggestion.reps)")
+                                Text("\(userProperties.preferredWeightUnit.formatWeightTrimmed(card.suggestion.weight)) × \(card.suggestion.reps)")
                                     .font(.system(size: 18, weight: .bold, design: .rounded))
                                     .foregroundStyle(.white)
                             }
@@ -3694,7 +3694,7 @@ struct CheckInView: View {
         case "moderate": return "mod"
         case "hard": return "hard"
         case "redline": return "redline"
-        case "pr": return "e1RM ↑"
+        case "pr": return "progress"
         default: return String(key.prefix(4))
         }
     }

@@ -38,6 +38,13 @@ enum WeightUnit: String, Codable, CaseIterable {
         return converted.formatted(.number.precision(.fractionLength(2)))
     }
 
+    /// Format with up to 2 decimal places, stripping trailing zeros.
+    /// 210 → "210", 210.5 → "210.5", 210.53 → "210.53"
+    func formatWeightTrimmed(_ lbsValue: Double) -> String {
+        let converted = fromLbs(lbsValue)
+        return converted.formatted(.number.precision(.fractionLength(0...2)))
+    }
+
     /// Bodyweight picker range appropriate for this unit
     var bodyweightPickerRange: ClosedRange<Double> {
         switch self {
