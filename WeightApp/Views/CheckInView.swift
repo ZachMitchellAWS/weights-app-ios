@@ -93,6 +93,13 @@ struct CheckInView: View {
     @State private var pendingCalibrationEstimated: Estimated1RM? = nil
     @State private var showCalibrationAlert = false
 
+    // Effort preset hint alert — fires when the user taps an empty effort tile
+    // (easy/moderate/hard/redline) in the Sets widget but no preset can be
+    // computed for the current exercise/state.
+    @State private var presetHintTitle: String = ""
+    @State private var presetHintMessage: String = ""
+    @State private var showPresetHintAlert: Bool = false
+
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
     @State private var tappedTileIndex: Int? = nil
     @State private var scrollProxy: ScrollViewProxy?
@@ -563,6 +570,11 @@ struct CheckInView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("We couldn't load your data. Check your connection and try again.")
+        }
+        .alert(presetHintTitle, isPresented: $showPresetHintAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(presetHintMessage)
         }
         .confirmationDialog("Sync in Progress", isPresented: $showSyncDismissConfirmation, titleVisibility: .visible) {
             Button("Continue Anyway") {
@@ -1215,8 +1227,9 @@ struct CheckInView: View {
 
                     if e1rm > 0 {
                         HStack {
-                            let ratio = e1rm / bodyweight
-                            Text(String(format: "%.2f× BW", ratio))
+                            // Full-precision e1RM in user's preferred weight unit
+                            let convertedE1rm = userProperties.preferredWeightUnit.fromLbs(e1rm)
+                            Text(String(format: "%.2f \(userProperties.preferredWeightUnit.label)", convertedE1rm))
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.white.opacity(0.5))
                             Spacer()
@@ -1598,51 +1611,54 @@ struct CheckInView: View {
                                 .animation(.easeOut(duration: 0.15), value: tappedTileIndex)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
-                                    if index < sequence.count {
-                                        let effort = sequence[index]
-                                        if let shortcuts = effortShortcuts {
-                                            switch effort {
-                                            case "easy":
-                                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                                weight = shortcuts.easy.weight
-                                                reps = shortcuts.easy.reps
-                                                triggerLogSetFlash()
-                                                tappedTileIndex = index
-                                            case "moderate":
-                                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                                weight = shortcuts.moderate.weight
-                                                reps = shortcuts.moderate.reps
-                                                triggerLogSetFlash()
-                                                tappedTileIndex = index
-                                            case "hard":
-                                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                                weight = shortcuts.hard.weight
-                                                reps = shortcuts.hard.reps
-                                                triggerLogSetFlash()
-                                                tappedTileIndex = index
-                                            case "pr":
-                                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                                tappedTileIndex = index
-                                                withAnimation {
-                                                    scrollProxy?.scrollTo("setsWidget", anchor: .top)
-                                                }
-                                                withAnimation(.easeInOut(duration: 0.3)) {
-                                                    progressOptionsHighlighted = true
-                                                }
-                                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                                                    withAnimation(.easeInOut(duration: 0.5)) {
-                                                        progressOptionsHighlighted = false
-                                                    }
-                                                }
-                                            default:
-                                                break
-                                            }
-                                            if tappedTileIndex == index {
-                                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                                                    tappedTileIndex = nil
-                                                }
+                                    guard index < sequence.count else { return }
+                                    let effort = sequence[index]
+                                    switch effort {
+                                    case "easy":
+                                        if let s = effortShortcuts {
+                                            applyPreset(s.easy, atIndex: index)
+                                        } else {
+                                            showPresetUnavailableHint(forEffort: "Easy")
+                                        }
+                                    case "moderate":
+                                        if let s = effortShortcuts {
+                                            applyPreset(s.moderate, atIndex: index)
+                                        } else {
+                                            showPresetUnavailableHint(forEffort: "Moderate")
+                                        }
+                                    case "hard":
+                                        if let s = effortShortcuts {
+                                            applyPreset(s.hard, atIndex: index)
+                                        } else {
+                                            showPresetUnavailableHint(forEffort: "Hard")
+                                        }
+                                    case "redline":
+                                        if let pick = redlineShortcut {
+                                            applyPreset(pick, atIndex: index)
+                                        } else {
+                                            showPresetUnavailableHint(forEffort: "Redline")
+                                        }
+                                    case "pr":
+                                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                        tappedTileIndex = index
+                                        withAnimation {
+                                            scrollProxy?.scrollTo("setsWidget", anchor: .top)
+                                        }
+                                        withAnimation(.easeInOut(duration: 0.3)) {
+                                            progressOptionsHighlighted = true
+                                        }
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                            withAnimation(.easeInOut(duration: 0.5)) {
+                                                progressOptionsHighlighted = false
                                             }
                                         }
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                            if tappedTileIndex == index {
+                                                tappedTileIndex = nil
+                                            }
+                                        }
+                                    default:
+                                        break
                                     }
                                 }
                             }
@@ -2336,6 +2352,22 @@ struct CheckInView: View {
 
     // MARK: - Effort Shortcuts
 
+    // Returns the most recent LiftSet (from the in-memory 3-month window) whose
+    // current percent of e1RM falls inside `bounds`. Used to prefer a real past
+    // set over a computed fresh suggestion when pre-filling Easy/Mod/Hard.
+    private func mostRecentSet(inBounds bounds: ClosedRange<Double>, currentE1RM: Double) -> (weight: Double, reps: Int)? {
+        guard currentE1RM > 0 else { return nil }
+        // setsForExercise is fetched newest-first via the descriptor's SortDescriptor.
+        for set in setsForExercise where !set.deleted {
+            let estimated = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
+            let percent = estimated / currentE1RM * 100.0
+            if bounds.contains(percent) {
+                return (set.weight, set.reps)
+            }
+        }
+        return nil
+    }
+
     private var effortShortcuts: (easy: (weight: Double, reps: Int), moderate: (weight: Double, reps: Int), hard: (weight: Double, reps: Int))? {
         let e1rm = current1RM
         guard e1rm > 0, let ex = selectedExercise else { return nil }
@@ -2358,6 +2390,14 @@ struct CheckInView: View {
         var picks: [(weight: Double, reps: Int)] = []
 
         for tier in tiers {
+            // 1. Prefer the most recent set whose current percent still classifies
+            //    in this effort bucket — usually the user's last matching set.
+            if let recent = mostRecentSet(inBounds: tier.bounds, currentE1RM: e1rm) {
+                picks.append(recent)
+                continue
+            }
+
+            // 2. Fallback: synthesize a fresh suggestion using the existing logic.
             var results = OneRMCalculator.effortSuggestions(
                 current1RM: e1rm,
                 targetPercent1RMs: tier.targets,
@@ -2377,6 +2417,71 @@ struct CheckInView: View {
 
         guard picks.count == 3 else { return nil }
         return (easy: picks[0], moderate: picks[1], hard: picks[2])
+    }
+
+    // Standalone Redline shortcut. Kept separate from `effortShortcuts` so the
+    // existing Easy/Moderate/Hard tuple shape is untouched, and so that Redline
+    // failing (e.g. no recent sets and no synthesizable suggestion) doesn't
+    // nil-out the other shortcuts. Used only by the Sets widget tile-tap when
+    // a plan's effortSequence includes "redline" — there's no Jump-to button
+    // for Redline in the log bar.
+    private var redlineShortcut: (weight: Double, reps: Int)? {
+        let e1rm = current1RM
+        guard e1rm > 0, let ex = selectedExercise else { return nil }
+
+        // 1. Prefer the most recent set whose current percent still classifies as Redline.
+        if let recent = mostRecentSet(inBounds: 92...100, currentE1RM: e1rm) {
+            return recent
+        }
+
+        // 2. Fallback: synthesize a Redline suggestion (heavy singles-to-triples).
+        let loadType = ex.exerciseLoadType
+        let barWt = ex.effectiveBarbellWeight
+        let macroWeights = OneRMCalculator.efficientPlateWeights(loadType: loadType, barWeight: barWt)
+
+        var results = OneRMCalculator.effortSuggestions(
+            current1RM: e1rm,
+            targetPercent1RMs: [0.93, 0.95, 0.97],
+            loadType: loadType,
+            repRange: 1...3,
+            barWeight: barWt
+        )
+        results = results.filter { (92.0...100.0).contains($0.percent1RM) }
+        results.sort { $0.weight < $1.weight }
+        let final = results.filter { macroWeights.contains($0.weight) } + results.filter { !macroWeights.contains($0.weight) }
+
+        guard let first = final.first else { return nil }
+        return (first.weight, first.reps)
+    }
+
+    // Applies a preset (weight, reps) pick to the log bar with the same haptic,
+    // flash, and tile-press animation as the inline tile-tap code used previously.
+    private func applyPreset(_ pick: (weight: Double, reps: Int), atIndex index: Int) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        weight = pick.weight
+        reps = pick.reps
+        triggerLogSetFlash()
+        tappedTileIndex = index
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            if tappedTileIndex == index {
+                tappedTileIndex = nil
+            }
+        }
+    }
+
+    // Shows the preset-unavailable informational alert. Distinguishes "no e1RM
+    // baseline yet" (user hasn't logged a set for this exercise) from "synthesis
+    // failed for this effort despite having a baseline" — the latter usually
+    // means the user's available plates can't hit a clean weight in the bucket.
+    private func showPresetUnavailableHint(forEffort effort: String) {
+        if current1RM > 0 {
+            presetHintTitle = "Preset Unavailable"
+            presetHintMessage = "We couldn't generate a \(effort) preset for this exercise. Try entering the weight and reps manually for this set."
+        } else {
+            presetHintTitle = "No Baseline Yet"
+            presetHintMessage = "Log a set for this exercise first. Once you have a baseline e1RM, the app can fill in matching weights for each effort level."
+        }
+        showPresetHintAlert = true
     }
 
     // MARK: - Phase 3: Recommendation Cards
@@ -2491,8 +2596,12 @@ struct CheckInView: View {
             : (ex?.effectiveWeightIncrement ?? 2.5)
         let projected = OneRMCalculator.estimate1RM(weight: weight, reps: reps)
         return VStack(spacing: 6) {
-            // Intensity label + percent of e1RM
+            // Top row: intensity label (when inputs are set) + Jump-to shortcuts.
+            // The left half is kept in the layout always so the Jump-to shortcuts
+            // stay anchored in the same physical location regardless of whether
+            // the intensity label is visible.
             if current1RM > 0 {
+                let showIntensity = weightIsSet && repsIsSet
                 let percent = projected / current1RM
                 let isProgress = (projected - current1RM) > 0.0001
                 let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: percent)
@@ -2509,7 +2618,8 @@ struct CheckInView: View {
                 let bucketLabel = isProgress ? "Progress" : bucket.rawValue
 
                 HStack(spacing: 0) {
-                    // Left half: intensity info
+                    // Left half: intensity info — invisible (but layout-preserving)
+                    // when inputs are still in their empty/placeholder state.
                     HStack(spacing: 6) {
                         Circle()
                             .fill(bucketColor)
@@ -2520,15 +2630,42 @@ struct CheckInView: View {
                         Text("·")
                             .font(.system(size: 11))
                             .foregroundStyle(.white.opacity(0.3))
-                        Text("\(String(format: "%.2f", percent * 100))% e1RM")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.5))
+                        if isProgress {
+                            // Drop "e1RM" label to make room for the gain readout —
+                            // the most informative number for a Progress set.
+                            // Keep full precision normally, but shorten both percent
+                            // and gain to tenths place when the gain reaches 100+
+                            // to keep the row from wrapping.
+                            let gain = userProperties.preferredWeightUnit.fromLbs(projected - current1RM)
+                            let useShort = gain >= 100.0
+                            let percentStr = useShort
+                                ? String(format: "%.1f", percent * 100)
+                                : String(format: "%.2f", percent * 100)
+                            let gainStr = useShort
+                                ? String(format: "+%.1f", gain)
+                                : String(format: "+%.2f", gain)
+                            Text("\(percentStr)%")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.5))
+                            Text("·")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.white.opacity(0.3))
+                            Text(gainStr)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Color.appAccent)
+                        } else {
+                            Text("\(String(format: "%.2f", percent * 100))% e1RM")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.5))
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .opacity(showIntensity ? 1 : 0)
 
                     Text("|")
                         .font(.system(size: 11))
                         .foregroundStyle(.white.opacity(0.2))
+                        .opacity(showIntensity ? 1 : 0)
 
                     // Right half: effort shortcuts, centered
                     if let shortcuts = effortShortcuts {
