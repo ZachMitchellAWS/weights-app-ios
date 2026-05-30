@@ -10,6 +10,12 @@ import SwiftData
 
 enum MoreDestination: Hashable {
     case settings
+    // FEATURE FLAG: Resources — disabled until tutorial video ships.
+    // To re-enable: uncomment this case AND the matching Section in the Form
+    // below AND the matching switch case in `.navigationDestination(for:)`
+    // (all three are tagged "FEATURE FLAG: Resources"). Also flip
+    // `tutorialPopupEnabled` to true in WeightAppApp.swift.
+    // case resources
 }
 
 struct MoreView: View {
@@ -167,6 +173,10 @@ struct MoreView: View {
                     switch destination {
                     case .settings:
                         SettingsView()
+                    // FEATURE FLAG: Resources — see comment on the `resources`
+                    // case in the MoreDestination enum at the top of this file.
+                    // case .resources:
+                    //     ResourcesListView()
                     }
                 }
         }
@@ -182,50 +192,39 @@ struct MoreView: View {
             Form {
                 // Branding Header
                 Section {
-                    VStack(spacing: 0) {
-                        HStack(spacing: 16) {
-                            Image("LiftTheBullIcon")
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 60, height: 60)
-                                .foregroundStyle(Color.appLogoColor)
+                    Button {
+                        if !isPremium {
+                            showUpsellPreview = true
+                        }
+                    } label: {
+                        VStack(spacing: 0) {
+                            HStack(spacing: 16) {
+                                Image("LiftTheBullIcon")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 60, height: 60)
+                                    .foregroundStyle(Color.appLogoColor)
 
-                            VStack(alignment: .leading, spacing: 4) {
-                                if isPremium {
-                                    Text("Premium")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .textCase(.uppercase)
-                                        .tracking(2)
-                                        .foregroundStyle(Color.appAccent)
-                                        .padding(.horizontal, 16)
-                                        .padding(.vertical, 4)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 6)
-                                                .strokeBorder(Color.appAccent, lineWidth: 1)
-                                        )
-                                }
-
-                                Text("Lift the Bull")
-                                    .font(.bebasNeue(size: 28))
-                                    .foregroundStyle(.white)
-                                    .onTapGesture {
-                                        devTapCount += 1
-                                        devTapTimer?.invalidate()
-                                        devTapTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { _ in
-                                            Task { @MainActor in
-                                                devTapCount = 0
-                                            }
-                                        }
-                                        if devTapCount >= 10 {
-                                            devTapCount = 0
-                                            showForceResyncAlert = true
-                                        }
+                                VStack(alignment: .leading, spacing: 4) {
+                                    if isPremium {
+                                        Text("Premium")
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .textCase(.uppercase)
+                                            .tracking(2)
+                                            .foregroundStyle(Color.appAccent)
+                                            .padding(.horizontal, 16)
+                                            .padding(.vertical, 4)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 6)
+                                                    .strokeBorder(Color.appAccent, lineWidth: 1)
+                                            )
                                     }
 
-                                if !isPremium {
-                                    Button {
-                                        showUpsellPreview = true
-                                    } label: {
+                                    Text("Lift the Bull")
+                                        .font(.bebasNeue(size: 28))
+                                        .foregroundStyle(.white)
+
+                                    if !isPremium {
                                         HStack(spacing: 6) {
                                             Image(systemName: "star.fill")
                                             Text("Upgrade to Premium")
@@ -237,34 +236,29 @@ struct MoreView: View {
                                         .foregroundStyle(Color.appAccent)
                                         .fixedSize(horizontal: true, vertical: false)
                                     }
-                                    .buttonStyle(.plain)
                                 }
-                            }
 
-                            Spacer()
+                                Spacer()
+                            }
                         }
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color(white: 0.12))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(
+                                    isPremium
+                                        ? Color.appLogoColor.opacity(0.5)
+                                        : Color.appAccent.opacity(0.3),
+                                    lineWidth: 1.5
+                                )
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 12))
                     }
-                    .padding(.vertical, 12)
-                    .padding(.horizontal, 16)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color(white: 0.12))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(
-                                isPremium
-                                    ? Color.appLogoColor.opacity(0.5)
-                                    : Color.appAccent.opacity(0.3),
-                                lineWidth: 1.5
-                            )
-                    )
-                    .contentShape(RoundedRectangle(cornerRadius: 12))
-                    .onTapGesture {
-                        if !isPremium {
-                            showUpsellPreview = true
-                        }
-                    }
+                    .buttonStyle(.plain)
                     .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                     .listRowBackground(Color.clear)
                 }
@@ -466,6 +460,27 @@ struct MoreView: View {
                         .padding(.horizontal, 4)
                     }
                 }
+
+                // FEATURE FLAG: Resources — disabled until tutorial video ships.
+                // To re-enable: uncomment the block below AND the matching
+                // enum case + switch case in this file (search "FEATURE FLAG:
+                // Resources"). Also flip `tutorialPopupEnabled` to true in
+                // WeightAppApp.swift.
+                /*
+                // Resources Section
+                Section {
+                    NavigationLink(value: MoreDestination.resources) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "play.rectangle.on.rectangle")
+                                .foregroundStyle(Color.appAccent)
+                                .font(.system(size: 20))
+                            Text("Resources")
+                                .foregroundStyle(Color.appAccent)
+                        }
+                        .padding(.horizontal, 4)
+                    }
+                }
+                */
 
                 // Accessories Section
                 Section {
@@ -770,6 +785,7 @@ struct MoreView: View {
                             .foregroundStyle(.white.opacity(0.5))
 
                         Button {
+                            UserDefaults.standard.set(false, forKey: "hasSeenOnboardingTutorial")
                             authViewModel.isNewUser = true
                             authViewModel.showPostAuthFlow = true
                         } label: {

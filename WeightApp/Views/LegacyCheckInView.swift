@@ -3824,7 +3824,7 @@ struct LegacyCheckInView: View {
                         let mult = beginnerMin / 2.0
                         milestoneTargetLabel = mult == floor(mult) ? "\(Int(mult))× BW" : "\(String(format: "%g", mult))× BW"
                     } else if threshold.isAbsolute {
-                        milestoneTargetLabel = "\(Int(userProperties.preferredWeightUnit.fromLbs(threshold.min))) \(userProperties.preferredWeightUnit.label)"
+                        milestoneTargetLabel = "\(userProperties.preferredWeightUnit.formatWeightRounded(threshold.min)) \(userProperties.preferredWeightUnit.label)"
                     } else {
                         let m = threshold.min
                         milestoneTargetLabel = m == floor(m) ? "\(Int(m))× BW" : "\(String(format: "%g", m))× BW"

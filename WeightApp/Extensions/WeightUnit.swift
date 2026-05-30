@@ -45,6 +45,17 @@ enum WeightUnit: String, Codable, CaseIterable {
         return converted.formatted(.number.precision(.fractionLength(0...2)))
     }
 
+    /// Convert an lbs value to this unit and round to the nearest whole number.
+    /// Use for tier-threshold-derived displays — tier range bounds, milestone
+    /// targets, distance-to-next-tier — where the value should be a whole
+    /// number and must match across every surface that references the same
+    /// threshold. (Unlike `Int(fromLbs(x))`, this rounds rather than truncates,
+    /// so 263.7 → "264" instead of "263".)
+    func formatWeightRounded(_ lbsValue: Double) -> String {
+        let converted = fromLbs(lbsValue)
+        return "\(Int(converted.rounded()))"
+    }
+
     /// Bodyweight picker range appropriate for this unit
     var bodyweightPickerRange: ClosedRange<Double> {
         switch self {

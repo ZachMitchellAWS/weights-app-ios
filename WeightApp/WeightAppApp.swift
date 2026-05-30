@@ -9,6 +9,23 @@ import SwiftUI
 import SwiftData
 import Sentry
 
+// MARK: - Feature flags
+//
+// === FEATURE FLAG: Onboarding tutorial popup ===
+// Temporarily disabled while the tutorial video is being re-recorded.
+// All supporting code is intentionally left in place so re-enabling is a
+// two-step uncomment:
+//   1. Flip `tutorialPopupEnabled` below to `true`.
+//   2. Uncomment the Resources section block in MoreView.swift (search
+//      "FEATURE FLAG: Resources" — there are three matching blocks: the
+//      MoreDestination enum case, the Section in the Form, and the case
+//      in the navigationDestination switch — they must be uncommented
+//      together to keep the switch exhaustive).
+// Leave `OnboardingTutorialPopup`, the Resource catalog, and the
+// `ResourcesListView` / `ResourcePlayerView` files untouched — they're the
+// implementation that gets re-activated by the two-step uncomment.
+private let tutorialPopupEnabled = false
+
 @main
 struct WeightAppApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -20,6 +37,8 @@ struct WeightAppApp: App {
     @State private var initialExerciseId: UUID? = nil
     @State private var showOnboarding = true
     @State private var showUpsell = false
+    @State private var showOnboardingTutorial = false
+    @AppStorage("hasSeenOnboardingTutorial") private var hasSeenOnboardingTutorial = false
     @State private var transactionListenerTask: Task<Void, Error>?
 
     let modelContainer: ModelContainer
@@ -86,6 +105,17 @@ struct WeightAppApp: App {
                                 } else {
                                     // Upsell for new users
                                     UpsellView { didSubscribe in
+                                        // Trigger the tutorial popup in the same
+                                        // tick the upsell exits so it crossfades in
+                                        // over the upsell→ContentView transition
+                                        // instead of arriving late.
+                                        // Gated by `tutorialPopupEnabled` — see
+                                        // FEATURE FLAG comment at top of this file.
+                                        if tutorialPopupEnabled && !hasSeenOnboardingTutorial {
+                                            withAnimation(.easeInOut(duration: 0.28)) {
+                                                showOnboardingTutorial = true
+                                            }
+                                        }
                                         withAnimation(.easeInOut(duration: 0.4)) {
                                             authViewModel.completePostAuthFlow()
                                         }
@@ -106,6 +136,24 @@ struct WeightAppApp: App {
                                 .onAppear {
                                     // Clear initial exercise ID after first use
                                     initialExerciseId = nil
+
+                                    // Safety net for the onboarding tutorial popup:
+                                    // catches users who reached the main tab view
+                                    // without the UpsellView's onComplete trigger
+                                    // having fired (e.g. existing user on a fresh
+                                    // install going Welcome → Auth → WelcomeBack →
+                                    // ContentView, or any other path that skips the
+                                    // new-user upsell). For new users, the popup is
+                                    // already queued by the UpsellView's onComplete
+                                    // closure before this runs, so this check is a
+                                    // no-op for them — the fast path is preserved.
+                                    // Gated by `tutorialPopupEnabled` — see
+                                    // FEATURE FLAG comment at top of this file.
+                                    if tutorialPopupEnabled && !hasSeenOnboardingTutorial && !showOnboardingTutorial {
+                                        withAnimation(.easeInOut(duration: 0.28)) {
+                                            showOnboardingTutorial = true
+                                        }
+                                    }
                                 }
                         }
                     } else {
@@ -143,6 +191,18 @@ struct WeightAppApp: App {
                     SplashView()
                         .transition(.opacity)
                         .zIndex(1)
+                }
+
+                if showOnboardingTutorial,
+                   let resource = ResourceCatalog.all.first {
+                    OnboardingTutorialPopup(resource: resource) {
+                        hasSeenOnboardingTutorial = true
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            showOnboardingTutorial = false
+                        }
+                    }
+                    .transition(.opacity)
+                    .zIndex(2)
                 }
             }
             .onAppear {

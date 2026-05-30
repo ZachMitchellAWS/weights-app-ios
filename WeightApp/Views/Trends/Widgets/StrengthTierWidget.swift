@@ -218,9 +218,15 @@ struct StrengthTierWidget: View {
                     }
                     .frame(height: 6)
 
-                    Text("\(Int(overallProgress * 100))% to \(result.overallTier.next?.title ?? "next tier")")
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.4))
+                    (
+                        Text("\(Int(overallProgress * 100))% to ")
+                            .foregroundColor(.white.opacity(0.4))
+                        +
+                        Text(result.overallTier.next?.title ?? "next tier")
+                            .foregroundColor(result.overallTier.next?.color ?? .white.opacity(0.4))
+                            .bold()
+                    )
+                    .font(.caption2)
                 }
                 .padding(.horizontal, 16)
             }
@@ -401,15 +407,15 @@ struct StrengthTierWidget: View {
     private func expansionRangeLabel(_ threshold: TierThreshold, bodyweight: Double) -> String {
         let unit = userProperties.preferredWeightUnit
         if threshold.isAbsolute {
-            let minDisplay = Int(unit.fromLbs(threshold.min))
-            let maxStr = threshold.max.map { "\(Int(unit.fromLbs($0)))" } ?? "+"
+            let minDisplay = unit.formatWeightRounded(threshold.min)
+            let maxStr = threshold.max.map { unit.formatWeightRounded($0) } ?? "+"
             return "\(minDisplay)–\(maxStr) \(unit.label)"
         } else {
             let minLbs = threshold.min * bodyweight
-            let minDisplay = Int(unit.fromLbs(minLbs))
+            let minDisplay = unit.formatWeightRounded(minLbs)
             if let max = threshold.max {
                 let maxLbs = max * bodyweight
-                let maxDisplay = Int(unit.fromLbs(maxLbs))
+                let maxDisplay = unit.formatWeightRounded(maxLbs)
                 return "\(minDisplay)–\(maxDisplay) \(unit.label) (\(String(format: "%.2g", threshold.min))–\(String(format: "%.2g", max))× BW)"
             } else {
                 return "\(minDisplay)+ \(unit.label) (\(String(format: "%.2g", threshold.min))× BW+)"

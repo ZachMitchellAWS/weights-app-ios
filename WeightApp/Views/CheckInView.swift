@@ -1235,7 +1235,7 @@ struct CheckInView: View {
                             Spacer()
                             if !isNoneState, let nextTier = tier?.next {
                                 HStack(spacing: 0) {
-                                    Text("\(Int(userProperties.preferredWeightUnit.fromLbs(distance))) \(userProperties.preferredWeightUnit.label) to ")
+                                    Text("\(userProperties.preferredWeightUnit.formatWeight2dp(distance)) \(userProperties.preferredWeightUnit.label) to ")
                                         .font(.system(size: 11, weight: .medium))
                                         .foregroundStyle(.white.opacity(0.5))
                                     Text(nextTier.title)
@@ -3318,7 +3318,7 @@ struct CheckInView: View {
                     if newTier == .novice {
                         milestoneTargetLabel = "1 Set Logged"
                     } else if threshold.isAbsolute {
-                        milestoneTargetLabel = "\(Int(userProperties.preferredWeightUnit.fromLbs(threshold.min))) \(userProperties.preferredWeightUnit.label)"
+                        milestoneTargetLabel = "\(userProperties.preferredWeightUnit.formatWeightRounded(threshold.min)) \(userProperties.preferredWeightUnit.label)"
                     } else {
                         let m = threshold.min
                         milestoneTargetLabel = m == floor(m) ? "\(Int(m))× BW" : "\(String(format: "%g", m))× BW"
@@ -3429,9 +3429,16 @@ struct CheckInView: View {
             return
         }
 
-        // Overall tier-up detection (non-journey milestone that bumps overall tier)
+        // Overall tier-up detection (non-journey milestone that bumps overall tier).
+        // `strengthTierResult` is @State and doesn't reflect the just-inserted
+        // Estimated1RM inside this function call, so we substitute the logged
+        // exercise's new tier into the existing list and recompute the overall
+        // tier (= min across all five) ourselves.
         if isMilestone {
-            let newOverallTier = strengthTierResult.overallTier
+            let allTiersAfter: [StrengthTier] = strengthTierResult.exerciseTiers.map { item in
+                item.exercise.id == ex.id ? milestoneTier : item.tier
+            }
+            let newOverallTier = allTiersAfter.min() ?? .none
             if newOverallTier > previousOverallTier && newOverallTier > .none {
                 tierJourneyMode = .completion(tier: newOverallTier)
                 tierToUnlock = newOverallTier
@@ -3550,7 +3557,7 @@ struct CheckInView: View {
                     if newTier == .novice {
                         milestoneTargetLabel = "1 Set Logged"
                     } else if threshold.isAbsolute {
-                        milestoneTargetLabel = "\(Int(userProperties.preferredWeightUnit.fromLbs(threshold.min))) \(userProperties.preferredWeightUnit.label)"
+                        milestoneTargetLabel = "\(userProperties.preferredWeightUnit.formatWeightRounded(threshold.min)) \(userProperties.preferredWeightUnit.label)"
                     } else {
                         let m = threshold.min
                         milestoneTargetLabel = m == floor(m) ? "\(Int(m))× BW" : "\(String(format: "%g", m))× BW"
@@ -3627,9 +3634,15 @@ struct CheckInView: View {
             return
         }
 
-        // Overall tier-up detection (non-journey milestone that bumps overall tier)
+        // Overall tier-up detection (non-journey milestone that bumps overall tier).
+        // Same fix as the regular log path: `strengthTierResult` is @State and
+        // won't reflect the just-inserted estimate yet, so we substitute the
+        // logged exercise's new tier and take the min.
         if isMilestone {
-            let newOverallTier = strengthTierResult.overallTier
+            let allTiersAfter: [StrengthTier] = strengthTierResult.exerciseTiers.map { item in
+                item.exercise.id == set.exercise?.id ? milestoneTier : item.tier
+            }
+            let newOverallTier = allTiersAfter.min() ?? .none
             if newOverallTier > previousOverallTier && newOverallTier > .none {
                 tierJourneyMode = .completion(tier: newOverallTier)
                 calibrationTierToUnlock = newOverallTier

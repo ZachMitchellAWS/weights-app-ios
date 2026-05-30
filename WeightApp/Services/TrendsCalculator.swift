@@ -1251,7 +1251,7 @@ struct TrendsCalculator {
                     targetLabel = "≥1 set"
                 } else if threshold.isAbsolute {
                     targetLbs = threshold.min
-                    targetLabel = "\(Int(threshold.min))"
+                    targetLabel = "\(Int(threshold.min.rounded()))"
                 } else {
                     targetLbs = threshold.min * bodyweight
                     // Format multiplier: "1× BW", "1.25× BW", "0.5× BW"
@@ -1366,7 +1366,7 @@ struct TrendsCalculator {
                     targetLabel = "≥1 set"
                 } else if threshold.isAbsolute {
                     targetLbs = threshold.min
-                    targetLabel = "\(Int(threshold.min))"
+                    targetLabel = "\(Int(threshold.min.rounded()))"
                 } else {
                     targetLbs = threshold.min * bodyweight
                     if threshold.min == floor(threshold.min) {
@@ -1493,7 +1493,7 @@ struct TrendsCalculator {
                     targetLabel = "≥1 set"
                 } else if threshold.isAbsolute {
                     targetLbs = threshold.min
-                    targetLabel = "\(Int(threshold.min))"
+                    targetLabel = "\(Int(threshold.min.rounded()))"
                 } else {
                     targetLbs = threshold.min * bodyweight
                     if threshold.min == floor(threshold.min) {
