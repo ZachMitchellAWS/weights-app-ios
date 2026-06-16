@@ -9,22 +9,7 @@ import SwiftUI
 import SwiftData
 import Sentry
 
-// MARK: - Feature flags
-//
-// === FEATURE FLAG: Onboarding tutorial popup ===
-// Temporarily disabled while the tutorial video is being re-recorded.
-// All supporting code is intentionally left in place so re-enabling is a
-// two-step uncomment:
-//   1. Flip `tutorialPopupEnabled` below to `true`.
-//   2. Uncomment the Resources section block in MoreView.swift (search
-//      "FEATURE FLAG: Resources" — there are three matching blocks: the
-//      MoreDestination enum case, the Section in the Form, and the case
-//      in the navigationDestination switch — they must be uncommented
-//      together to keep the switch exhaustive).
-// Leave `OnboardingTutorialPopup`, the Resource catalog, and the
-// `ResourcesListView` / `ResourcePlayerView` files untouched — they're the
-// implementation that gets re-activated by the two-step uncomment.
-private let tutorialPopupEnabled = false
+private let tutorialPopupEnabled = true
 
 @main
 struct WeightAppApp: App {
@@ -109,8 +94,6 @@ struct WeightAppApp: App {
                                         // tick the upsell exits so it crossfades in
                                         // over the upsell→ContentView transition
                                         // instead of arriving late.
-                                        // Gated by `tutorialPopupEnabled` — see
-                                        // FEATURE FLAG comment at top of this file.
                                         if tutorialPopupEnabled && !hasSeenOnboardingTutorial {
                                             withAnimation(.easeInOut(duration: 0.28)) {
                                                 showOnboardingTutorial = true
@@ -147,8 +130,6 @@ struct WeightAppApp: App {
                                     // already queued by the UpsellView's onComplete
                                     // closure before this runs, so this check is a
                                     // no-op for them — the fast path is preserved.
-                                    // Gated by `tutorialPopupEnabled` — see
-                                    // FEATURE FLAG comment at top of this file.
                                     if tutorialPopupEnabled && !hasSeenOnboardingTutorial && !showOnboardingTutorial {
                                         withAnimation(.easeInOut(duration: 0.28)) {
                                             showOnboardingTutorial = true

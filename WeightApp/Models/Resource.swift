@@ -40,10 +40,10 @@ struct Resource: Identifiable, Hashable {
 enum ResourceCatalog {
     static let all: [Resource] = [
         Resource(
-            youtubeID: "9aFR4WcHL14",
-            title: "Tour the App",
-            subtitle: "How the core loop works",
-            durationSeconds: 30
+            youtubeID: "O9ashjGdP20",
+            title: "How It Works",
+            subtitle: "A complete walkthrough",
+            durationSeconds: 338
         )
     ]
 }

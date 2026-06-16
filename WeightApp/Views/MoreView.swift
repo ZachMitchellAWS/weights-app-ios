@@ -10,12 +10,7 @@ import SwiftData
 
 enum MoreDestination: Hashable {
     case settings
-    // FEATURE FLAG: Resources — disabled until tutorial video ships.
-    // To re-enable: uncomment this case AND the matching Section in the Form
-    // below AND the matching switch case in `.navigationDestination(for:)`
-    // (all three are tagged "FEATURE FLAG: Resources"). Also flip
-    // `tutorialPopupEnabled` to true in WeightAppApp.swift.
-    // case resources
+    case resources
 }
 
 struct MoreView: View {
@@ -173,10 +168,8 @@ struct MoreView: View {
                     switch destination {
                     case .settings:
                         SettingsView()
-                    // FEATURE FLAG: Resources — see comment on the `resources`
-                    // case in the MoreDestination enum at the top of this file.
-                    // case .resources:
-                    //     ResourcesListView()
+                    case .resources:
+                        ResourcesListView()
                     }
                 }
         }
@@ -461,12 +454,6 @@ struct MoreView: View {
                     }
                 }
 
-                // FEATURE FLAG: Resources — disabled until tutorial video ships.
-                // To re-enable: uncomment the block below AND the matching
-                // enum case + switch case in this file (search "FEATURE FLAG:
-                // Resources"). Also flip `tutorialPopupEnabled` to true in
-                // WeightAppApp.swift.
-                /*
                 // Resources Section
                 Section {
                     NavigationLink(value: MoreDestination.resources) {
@@ -480,7 +467,6 @@ struct MoreView: View {
                         .padding(.horizontal, 4)
                     }
                 }
-                */
 
                 // Accessories Section
                 Section {
