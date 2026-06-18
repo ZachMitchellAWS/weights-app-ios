@@ -82,24 +82,26 @@ class AuthViewModel: ObservableObject {
     }
 
     func handleSessionExpired() {
+        // Flip auth state FIRST so SwiftUI unmounts views holding @Query<Exercise>
+        // references before we delete those rows. Deleting SwiftData rows while
+        // authenticated views are still mounted causes a SwiftData fatal
+        // (BackingData.swift:739 "Never access a full future backing data... with nil").
         SentrySDK.setUser(nil)
-
-        // Clear all tokens
         KeychainService.shared.clearTokens()
-
-        // Clear sync retry queue and narrative badge
-        SyncService.shared.clearOnLogout()
-        NarrativeBadgeService.shared.clearOnLogout()
-
-        // Hard delete all local data
-        hardDeleteAllData()
-
-        // Update state
         isOnboardingPending = false
         isAuthenticated = false
         userId = nil
         sessionExpired = true
         stopTokenRefreshTimer()
+
+        // Defer destructive SwiftData work one runloop turn so SwiftUI can
+        // process the auth-state change and tear down the authenticated view
+        // hierarchy before the @Model rows disappear under them.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.hardDeleteAllData()
+            SyncService.shared.clearOnLogout()
+            NarrativeBadgeService.shared.clearOnLogout()
+        }
     }
 
     private func hardDeleteAllData() {
@@ -281,15 +283,28 @@ class AuthViewModel: ObservableObject {
             errorMessage = error.localizedDescription
         }
 
-        onDataCleanup()
-        SyncService.shared.clearOnLogout()
-        NarrativeBadgeService.shared.clearOnLogout()
-        KeychainService.shared.clearTokens()
+        // Flip auth state and clear tokens FIRST so the Keychain is cleared
+        // even if the SwiftData cleanup below crashes. If we cleared tokens
+        // after onDataCleanup() (the old order) and that step faulted, the
+        // user would relaunch into a ghost-auth state — local tokens still
+        // present, but the server-side refresh token already invalidated.
         SentrySDK.setUser(nil)
+        KeychainService.shared.clearTokens()
+        stopTokenRefreshTimer()
         isOnboardingPending = false
         isAuthenticated = false
         userId = nil
-        stopTokenRefreshTimer()
+
+        // Give SwiftUI one render pass to unmount authenticated views before
+        // we delete the @Model rows they reference. Without this, SwiftData
+        // fatals at BackingData.swift:739 when a still-mounted view re-renders
+        // against an already-deleted Exercise/LiftSet/etc.
+        try? await Task.sleep(for: .milliseconds(50))
+
+        onDataCleanup()
+        SyncService.shared.clearOnLogout()
+        NarrativeBadgeService.shared.clearOnLogout()
+
         isLoading = false
     }
 
