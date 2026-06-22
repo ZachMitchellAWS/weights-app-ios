@@ -1109,11 +1109,22 @@ struct TrendsCalculator {
 
     // MARK: - Next Focus Exercise
 
+    /// Skip suggesting an exercise that already has this many (or more) sets logged
+    /// inside the recent window — even if its score would otherwise put it on top.
+    static let nextFocusRecentSetCap = 6
+    static let nextFocusRecentWindowSeconds: TimeInterval = 72 * 3600
+
     /// Returns the fundamental exercise the user should train next, based on tier progress and recency.
     /// Returns nil if all exercises are at Legend tier.
+    ///
+    /// `recentSetCounts` is a per-exercise count of sets logged inside the last
+    /// `nextFocusRecentWindowSeconds`. The highest-scored exercise whose count is
+    /// below `nextFocusRecentSetCap` wins. If every candidate is over the cap, the
+    /// cap is dropped and the highest-scored exercise wins outright.
     static func nextFocusExercise(
         exerciseTiers: [(exercise: FundamentalExercise, e1rm: Double?, tier: StrengthTier)],
         lastTrainedDates: [UUID: Date],
+        recentSetCounts: [UUID: Int],
         bodyweight: Double,
         sex: BiologicalSex
     ) -> FundamentalExercise? {
@@ -1121,8 +1132,7 @@ struct TrendsCalculator {
         guard !exerciseTiers.allSatisfy({ $0.tier == .legend }) else { return nil }
 
         let now = Date()
-        var bestExercise: FundamentalExercise?
-        var bestScore = -1.0
+        var scored: [(exercise: FundamentalExercise, score: Double)] = []
 
         for entry in exerciseTiers {
             let exercise = entry.exercise
@@ -1167,14 +1177,18 @@ struct TrendsCalculator {
             }
 
             let score = 0.7 * tierScore + 0.3 * recencyScore
-
-            if score > bestScore {
-                bestScore = score
-                bestExercise = exercise
-            }
+            scored.append((exercise, score))
         }
 
-        return bestExercise
+        let ranked = scored.sorted { $0.score > $1.score }
+
+        // First pass: highest-scored exercise that hasn't been hammered in the window.
+        if let uncapped = ranked.first(where: { (recentSetCounts[$0.exercise.id] ?? 0) < nextFocusRecentSetCap }) {
+            return uncapped.exercise
+        }
+
+        // Fallback: everyone is over the cap — drop the gate, take the top score.
+        return ranked.first?.exercise
     }
 
     // MARK: - Strength Milestones (Tier-Based)
