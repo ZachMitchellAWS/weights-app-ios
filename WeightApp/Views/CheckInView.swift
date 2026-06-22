@@ -17,6 +17,7 @@ struct CheckInView: View {
     }
 
     @Query(filter: #Predicate<Exercise> { !$0.deleted }, sort: \Exercise.createdAt) private var exercises: [Exercise]
+    @Query(filter: #Predicate<LiftSet> { !$0.deleted }) private var allLiftSets: [LiftSet]
     @Query private var userPropertiesItems: [UserProperties]
     @Query(filter: #Predicate<SetPlan> { !$0.deleted }) private var allPlans: [SetPlan]
     @Query(filter: #Predicate<ExerciseGroup> { !$0.deleted }) private var allGroups: [ExerciseGroup]
@@ -167,11 +168,13 @@ struct CheckInView: View {
     )
     @State private var latestE1RMs: [UUID: Double] = [:]
     @State private var lastTrainedDates: [UUID: Date] = [:]
+    @State private var recentSetCounts: [UUID: Int] = [:]
 
     private var nextFocus: TrendsCalculator.FundamentalExercise? {
         TrendsCalculator.nextFocusExercise(
             exerciseTiers: strengthTierResult.exerciseTiers,
             lastTrainedDates: lastTrainedDates,
+            recentSetCounts: recentSetCounts,
             bodyweight: bodyweight,
             sex: sex
         )
@@ -591,7 +594,7 @@ struct CheckInView: View {
 
     private var checkInLifecycle: some View {
         checkInContent
-        .task(id: "\(exercises.compactMap(\.currentE1RMLocalCache).reduce(0, +))-\(activeGroupId)-\(allEstimated1RM.count)") {
+        .task(id: "\(exercises.compactMap(\.currentE1RMLocalCache).reduce(0, +))-\(activeGroupId)-\(allEstimated1RM.count)-\(allLiftSets.count)") {
             strengthTierResult = TrendsCalculator.strengthTierAssessment(
                 from: allEstimated1RM,
                 exercises: exercises,
@@ -615,6 +618,19 @@ struct CheckInView: View {
             }
             latestE1RMs = e1rms
             lastTrainedDates = trainedDates
+
+            // Count sets logged inside the next-focus rate-limit window, per fundamental
+            // exercise. The function-side gate skips any exercise at/over the cap.
+            let cutoff = Date().addingTimeInterval(-TrendsCalculator.nextFocusRecentWindowSeconds)
+            let fundamentalIds = Set(TrendsCalculator.fundamentalExercises.map(\.id))
+            var counts: [UUID: Int] = [:]
+            for set in allLiftSets {
+                guard set.createdAt >= cutoff,
+                      let exId = set.exercise?.id,
+                      fundamentalIds.contains(exId) else { continue }
+                counts[exId, default: 0] += 1
+            }
+            recentSetCounts = counts
         }
         .onAppear {
             if hasAppeared {
@@ -2589,11 +2605,9 @@ struct CheckInView: View {
     // MARK: - Phase 3: Log Set Controls
 
     private var floatingLogBar: some View {
-        let ex = selectedExercise
-        // In kg mode, use 1.0 kg increments (≈2.2 lbs) for clean display values
-        let increment = userProperties.preferredWeightUnit == .kg
-            ? userProperties.preferredWeightUnit.toLbs(1.0)
-            : (ex?.effectiveWeightIncrement ?? 2.5)
+        // +/- always steps by 0.5 in the user's displayed unit (0.5 kg in kg mode,
+        // 0.5 lbs in lbs mode). Stored as lbs so kg mode converts up here.
+        let increment = userProperties.preferredWeightUnit.toLbs(0.5)
         let projected = OneRMCalculator.estimate1RM(weight: weight, reps: reps)
         return VStack(spacing: 6) {
             // Top row: intensity label (when inputs are set) + Jump-to shortcuts.
@@ -3261,6 +3275,11 @@ struct CheckInView: View {
                     weight = 92.5
                     reps = 5
                 }
+                // Snap to a whole number in the user's displayed unit so the
+                // weight field doesn't open on a fractional value (e.g., 0.56 kg
+                // from a tiny lbs-rounded suggestion).
+                let unit = userProperties.preferredWeightUnit
+                weight = unit.toLbs(unit.fromLbs(weight).rounded())
             }
             weightIsSet = false
             repsIsSet = false
