@@ -18,6 +18,25 @@ struct OnboardingTutorialPopup: View {
     @State private var showPlayer = false
     @State private var cardScale: CGFloat = 0.92
     @State private var cardOpacity: Double = 0
+    /// Wall-clock timestamp when the user opened the player. Nil until the
+    /// poster or "Watch Now" is tapped; used to compute watch duration and
+    /// to distinguish "skipped without watching" from "watched then closed".
+    @State private var playerOpenedAt: Date?
+
+    /// Single funnel point for both player-open paths (poster tap + Watch Now
+    /// button) so the begin-event always fires.
+    private func startWatching() {
+        playerOpenedAt = Date()
+        AnalyticsService.logTutorialBegin(resourceId: resource.id)
+        showPlayer = true
+    }
+
+    private func dismissWithoutWatching() {
+        if playerOpenedAt == nil {
+            AnalyticsService.logTutorialSkipped(resourceId: resource.id)
+        }
+        onDismiss()
+    }
 
     var body: some View {
         ZStack {
@@ -58,6 +77,17 @@ struct OnboardingTutorialPopup: View {
             // When the player dismisses (true → false), close the popup too
             // so the user lands cleanly on the main tab view.
             if wasShowing && !isShowing {
+                if let openedAt = playerOpenedAt {
+                    let duration = Date().timeIntervalSince(openedAt)
+                    // 1s slack: swipe-down dismiss happens slightly before the
+                    // video clock hits exactly the full duration.
+                    let watchedToEnd = duration >= Double(resource.durationSeconds) - 1.0
+                    AnalyticsService.logTutorialEnded(
+                        resourceId: resource.id,
+                        durationSeconds: duration,
+                        watchedToEnd: watchedToEnd,
+                    )
+                }
                 onDismiss()
             }
         }
@@ -84,7 +114,7 @@ struct OnboardingTutorialPopup: View {
 
     private var poster: some View {
         Button {
-            showPlayer = true
+            startWatching()
         } label: {
             posterContent
         }
@@ -148,7 +178,7 @@ struct OnboardingTutorialPopup: View {
 
     private var playButton: some View {
         Button {
-            showPlayer = true
+            startWatching()
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: "play.fill")
@@ -170,7 +200,7 @@ struct OnboardingTutorialPopup: View {
 
     private var skipButton: some View {
         Button {
-            onDismiss()
+            dismissWithoutWatching()
         } label: {
             Text("Maybe later")
                 .font(.inter(size: 13))
@@ -183,7 +213,7 @@ struct OnboardingTutorialPopup: View {
 
     private var closeButton: some View {
         Button {
-            onDismiss()
+            dismissWithoutWatching()
         } label: {
             Image(systemName: "xmark")
                 .font(.system(size: 13, weight: .semibold))

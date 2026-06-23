@@ -780,6 +780,7 @@ struct CheckInView: View {
             Button("Moderate") { applyCalibration(effort: .moderate) }
             Button("Hard") { applyCalibration(effort: .hard) }
             Button("Redline") { applyCalibration(effort: .progress) }
+            Button("Max Effort") { applyCalibration(effortFraction: 1.0) }
         } message: {
             Text("This helps estimate your 1RM for better suggestions.")
         }
@@ -2605,9 +2606,10 @@ struct CheckInView: View {
     // MARK: - Phase 3: Log Set Controls
 
     private var floatingLogBar: some View {
-        // +/- always steps by 0.5 in the user's displayed unit (0.5 kg in kg mode,
-        // 0.5 lbs in lbs mode). Stored as lbs so kg mode converts up here.
-        let increment = userProperties.preferredWeightUnit.toLbs(0.5)
+        // +/- always steps by the unit's smallest plate pair (2.5 lbs / 1.25 kg)
+        // and snaps off-multiple values (e.g. 47.3 lbs) to the nearest multiple
+        // in the direction of the button rather than naively adding the step.
+        let unit = userProperties.preferredWeightUnit
         let projected = OneRMCalculator.estimate1RM(weight: weight, reps: reps)
         return VStack(spacing: 6) {
             // Top row: intensity label (when inputs are set) + Jump-to shortcuts.
@@ -2729,7 +2731,7 @@ struct CheckInView: View {
                 HStack(spacing: 4) {
                     Button {
                         weightIsSet = true
-                        weight = max(0, weight - increment)
+                        weight = unit.toLbs(unit.snappedDown(unit.fromLbs(weight)))
                         hapticFeedback.impactOccurred()
                     } label: {
                         Image(systemName: "minus.circle.fill")
@@ -2773,7 +2775,7 @@ struct CheckInView: View {
 
                     Button {
                         weightIsSet = true
-                        weight += increment
+                        weight = unit.toLbs(unit.snappedUp(unit.fromLbs(weight)))
                         hapticFeedback.impactOccurred()
                     } label: {
                         Image(systemName: "plus.circle.fill")
@@ -3545,9 +3547,17 @@ struct CheckInView: View {
     }
 
     private func applyCalibration(effort: EffortMode) {
+        guard let fraction = effort.calibrationMidpoint else {
+            pendingCalibrationSet = nil
+            pendingCalibrationEstimated = nil
+            return
+        }
+        applyCalibration(effortFraction: fraction, effort: effort)
+    }
+
+    private func applyCalibration(effortFraction fraction: Double, effort: EffortMode? = nil) {
         guard let set = pendingCalibrationSet,
-              let estimated = pendingCalibrationEstimated,
-              let fraction = effort.calibrationMidpoint else {
+              let estimated = pendingCalibrationEstimated else {
             pendingCalibrationSet = nil
             pendingCalibrationEstimated = nil
             return
@@ -3710,7 +3720,12 @@ struct CheckInView: View {
         overlayMilestoneExerciseName = milestoneName
         overlayMilestoneTargetLabel = milestoneTargetLabel
         if !isMilestone {
-            overlayIntensityColor = effort == .progress ? .setNearMax : effort.tileColor
+            // Max Effort path (effort == nil) sits above Redline in intensity, so reuse the setNearMax color.
+            if let effort {
+                overlayIntensityColor = effort == .progress ? .setNearMax : effort.tileColor
+            } else {
+                overlayIntensityColor = .setNearMax
+            }
             overlayIntensityLabel = "Calibrated"
         }
 

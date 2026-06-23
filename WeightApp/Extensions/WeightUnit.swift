@@ -66,4 +66,33 @@ enum WeightUnit: String, Codable, CaseIterable {
 
     /// Bodyweight picker stride
     var bodyweightPickerStride: Double { 1.0 }
+
+    /// Smallest practical plate-pair step for the log-set +/- buttons.
+    /// 2.5 lbs (a pair of 1.25 lb plates) / 1.25 kg.
+    var stepSize: Double {
+        switch self {
+        case .lbs: return 2.5
+        case .kg: return 1.25
+        }
+    }
+
+    /// Snap a value (already in this unit) UP to the next `stepSize` multiple.
+    /// If the value is already on a multiple, advances by one full step.
+    /// Off-multiple values (e.g. 47.3 lbs) snap to the nearest multiple above
+    /// (50 lbs) rather than naively adding the step.
+    func snappedUp(_ value: Double) -> Double {
+        let step = stepSize
+        // Floor-with-epsilon absorbs floating-point error from lb↔kg conversion.
+        let units = (value / step + 1e-4).rounded(.down)
+        return (units + 1) * step
+    }
+
+    /// Snap a value DOWN to the next `stepSize` multiple at or below.
+    /// Mirror of `snappedUp` — on-multiple values retreat by one step, off-
+    /// multiple values snap to the nearest multiple below. Clamped at 0.
+    func snappedDown(_ value: Double) -> Double {
+        let step = stepSize
+        let units = (value / step - 1e-4).rounded(.up)
+        return max(0, (units - 1) * step)
+    }
 }

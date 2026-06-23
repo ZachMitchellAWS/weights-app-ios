@@ -153,6 +153,8 @@ class AuthViewModel: ObservableObject {
             sentryUser.email = email
             SentrySDK.setUser(sentryUser)
 
+            AnalyticsService.logLogin(userId: response.userId)
+
             // Perform initial sync for returning user (includes user properties sync)
             await SyncService.shared.performInitialSync(isNewUser: false)
             await EntitlementsService.shared.syncEntitlementStatus()
@@ -181,6 +183,8 @@ class AuthViewModel: ObservableObject {
             let sentryUser = Sentry.User(userId: response.userId)
             sentryUser.email = email
             SentrySDK.setUser(sentryUser)
+
+            AnalyticsService.logSignUp(userId: response.userId)
 
             // Perform initial sync for new user (includes user properties sync)
             await SyncService.shared.performInitialSync(isNewUser: true)
@@ -266,6 +270,12 @@ class AuthViewModel: ObservableObject {
 
         let sentryUser = Sentry.User(userId: response.userId)
         SentrySDK.setUser(sentryUser)
+
+        if isNewUser {
+            AnalyticsService.logSignUp(userId: response.userId, method: "apple")
+        } else {
+            AnalyticsService.logLogin(userId: response.userId, method: "apple")
+        }
 
         await SyncService.shared.performInitialSync(isNewUser: isNewUser)
         await EntitlementsService.shared.syncEntitlementStatus()
