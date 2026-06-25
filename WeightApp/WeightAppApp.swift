@@ -8,6 +8,8 @@
 import SwiftUI
 import SwiftData
 import Sentry
+import FirebaseCore
+import FirebaseAnalytics
 
 private let tutorialPopupEnabled = true
 
@@ -40,6 +42,12 @@ struct WeightAppApp: App {
             #endif
             options.environment = APIConfig.environment
         }
+
+        // Initialize Firebase for Google Ads conversion tracking.
+        // Every event automatically carries `environment` so Google Ads
+        // conversion actions can filter staging vs production cleanly.
+        FirebaseApp.configure()
+        Analytics.setDefaultEventParameters(["environment": APIConfig.environment])
 
         // Clear stale keychain tokens on fresh install.
         // UserDefaults is wiped on uninstall but Keychain persists,
@@ -82,6 +90,7 @@ struct WeightAppApp: App {
                                 if showOnboarding {
                                     OnboardingView {
                                         authViewModel.markOnboardingComplete()
+                                        AnalyticsService.logOnboardingComplete()
                                         withAnimation(.easeInOut(duration: 0.4)) {
                                             showOnboarding = false
                                         }

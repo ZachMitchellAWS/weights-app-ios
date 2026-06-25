@@ -20,7 +20,22 @@ class PurchaseService: ObservableObject {
     @Published var purchaseInProgress = false
     @Published var purchaseError: String?
 
+    /// Transaction IDs already reported to Firebase Analytics this session.
+    /// Prevents double-logging when both the foreground purchase() path and
+    /// the Transaction.updates listener observe the same transaction.
+    /// In-memory only — resets on app launch, which is fine because Firebase
+    /// also dedupes by parameter set on its side.
+    private var loggedTransactionIds = Set<UInt64>()
+
     private init() {}
+
+    /// Log a purchase to Analytics if we haven't already logged this transaction
+    /// this session. Looks up the matching Product for price/currency.
+    private func logPurchaseIfNew(transaction: Transaction) {
+        guard loggedTransactionIds.insert(transaction.id).inserted else { return }
+        let product = products.first(where: { $0.id == transaction.productID })
+        AnalyticsService.logPurchase(transaction: transaction, product: product)
+    }
 
     // MARK: - Product Loading
 
@@ -77,6 +92,7 @@ class PurchaseService: ObservableObject {
             switch result {
             case .success(let verification):
                 let transaction = try checkVerified(verification)
+                logPurchaseIfNew(transaction: transaction)
                 await transaction.finish()
                 return transaction
 
@@ -132,6 +148,11 @@ class PurchaseService: ObservableObject {
                     let transaction = try self.checkVerified(result)
                     let originalId = String(transaction.originalID)
                     let environment: String? = transaction.environment == .sandbox ? "Sandbox" : nil
+
+                    // Log to Firebase Analytics (deduped against the foreground
+                    // purchase() path via the in-session set). Hop to MainActor
+                    // since the dedupe set + products array live there.
+                    await self.logPurchaseIfNew(transaction: transaction)
 
                     // Sync with backend
                     do {

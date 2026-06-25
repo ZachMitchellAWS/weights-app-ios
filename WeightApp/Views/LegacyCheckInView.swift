@@ -738,6 +738,7 @@ struct LegacyCheckInView: View {
                     Button("Moderate") { applyCalibration(effort: .moderate) }
                     Button("Hard") { applyCalibration(effort: .hard) }
                     Button("Redline") { applyCalibration(effort: .progress) }
+                    Button("Max Effort") { applyCalibration(effortFraction: 1.0) }
                 } message: {
                     Text("This helps estimate your 1RM for better suggestions.")
                 }
@@ -3936,9 +3937,17 @@ struct LegacyCheckInView: View {
     }
 
     private func applyCalibration(effort: EffortMode) {
+        guard let fraction = effort.calibrationMidpoint else {
+            pendingCalibrationSet = nil
+            pendingCalibrationEstimated = nil
+            return
+        }
+        applyCalibration(effortFraction: fraction, effort: effort)
+    }
+
+    private func applyCalibration(effortFraction fraction: Double, effort: EffortMode? = nil) {
         guard let set = pendingCalibrationSet,
-              let estimated = pendingCalibrationEstimated,
-              let fraction = effort.calibrationMidpoint else {
+              let estimated = pendingCalibrationEstimated else {
             pendingCalibrationSet = nil
             pendingCalibrationEstimated = nil
             return
@@ -3966,7 +3975,12 @@ struct LegacyCheckInView: View {
         overlayDidIncrease = false
         overlayDelta = 0
         overlayNew1RM = calibratedValue
-        overlayIntensityColor = effort == .progress ? .setNearMax : effort.tileColor
+        if let effort {
+            overlayIntensityColor = effort == .progress ? .setNearMax : effort.tileColor
+        } else {
+            // Max Effort path — sits above Redline in intensity, reuse setNearMax.
+            overlayIntensityColor = .setNearMax
+        }
         overlayIntensityLabel = "Calibrated"
 
         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
