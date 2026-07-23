@@ -43,13 +43,15 @@ struct OnboardingView: View {
                             showControls = true
                         }
                     })
-                    case 4: OnboardingBeyondBasicsConcept(onAnimationComplete: {
-                        withAnimation(.easeOut(duration: 0.4)) {
-                            showControls = true
-                        }
-                    })
+                    // Beyond the Basics screen removed — struct definition kept commented below in case we re-enable.
+                    // case 4: OnboardingBeyondBasicsConcept(onAnimationComplete: {
+                    //     withAnimation(.easeOut(duration: 0.4)) {
+                    //         showControls = true
+                    //     }
+                    // })
+                    case 4: OnboardingBodyProfileStep(currentPage: $currentPage, totalPages: totalPages)
                     case 5: OnboardingChangePlatesStep(currentPage: $currentPage, totalPages: totalPages)
-                    case 6: OnboardingBodyProfileStep(currentPage: $currentPage, totalPages: totalPages, onComplete: onComplete)
+                    case 6: OnboardingStartingTierStep(currentPage: $currentPage, totalPages: totalPages, onComplete: onComplete)
                     default: EmptyView()
                     }
                 }
@@ -57,7 +59,7 @@ struct OnboardingView: View {
                 Spacer()
 
                 // Page indicators + Continue button (not shown on plates/body profile pages — they have their own)
-                if currentPage < totalPages - 2 {
+                if currentPage < totalPages - 3 {
                     VStack(spacing: 20) {
                         // Page dots (hidden on welcome screen)
                         if currentPage > 0 {
@@ -125,7 +127,7 @@ private struct OnboardingWelcome: View {
                 .frame(height: 12)
 
             // Setup message
-            Text("Here's a quick look at the basics.")
+            Text("Your strength journey starts here.")
                 .font(.inter(size: 17))
                 .foregroundStyle(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
@@ -144,7 +146,7 @@ private struct OnboardingFiveLiftsConcept: View {
     private let exercises = TrendsCalculator.fundamentalExercises
 
     // Fake tier scenario: all tier colors represented, overall = advanced (lowest)
-    private let targetProgress: [CGFloat] = [0.90, 0.65, 0.75, 0.70, 0.80]
+    private let targetProgress: [CGFloat] = [0.90, 0.65, 0.80, 0.52, 0.76]
     private let exerciseTiers: [StrengthTier] = [.legend, .advanced, .elite, .intermediate, .advanced]
     private let overallTier: StrengthTier = .advanced
 
@@ -152,6 +154,9 @@ private struct OnboardingFiveLiftsConcept: View {
     @State private var barProgress: [CGFloat] = [0, 0, 0, 0, 0]
     @State private var showOverallTier: Bool = false
     @State private var animationComplete: Bool = false
+    @State private var showHeader: Bool = false
+    @State private var showSubtitle: Bool = false
+    @State private var showExerciseCard: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -161,12 +166,16 @@ private struct OnboardingFiveLiftsConcept: View {
                     .font(.bebasNeue(size: 34))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
+                    .opacity(showHeader ? 1 : 0)
+                    .offset(y: showHeader ? 0 : 16)
 
-                Text("Your strength is measured across\n\(Text("Five").fontWeight(.semibold).foregroundColor(.appAccent)) fundamental lifts.")
+                Text("Your Strength Tier is based on\n\(Text("Five").fontWeight(.semibold).foregroundColor(.appAccent)) fundamental lifts.")
                     .font(.inter(size: 17))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
+                    .opacity(showSubtitle ? 1 : 0)
+                    .offset(y: showSubtitle ? 0 : 16)
             }
 
             Spacer()
@@ -182,10 +191,10 @@ private struct OnboardingFiveLiftsConcept: View {
                             .frame(width: 40, height: 40)
                             .foregroundStyle(barProgress[index] > 0 ? Color.appAccent : .white.opacity(0.3))
 
-                        Text(exercise.name == "Overhead Press" ? "OH Press" : exercise.name)
+                        Text(exercise.name)
                             .font(.inter(size: 15))
                             .foregroundStyle(.white)
-                            .frame(width: 95, alignment: .leading)
+                            .frame(width: 115, alignment: .leading)
 
                         // Progress bar
                         GeometryReader { geo in
@@ -206,6 +215,12 @@ private struct OnboardingFiveLiftsConcept: View {
                     .padding(.horizontal, 16)
                 }
 
+                // FEATURE FLAG: divider + overall-tier reveal hidden so the
+                // onboarding card shows only the five exercise rows. To
+                // re-enable, uncomment the block below. `showOverallTier`
+                // state is still set in runAnimation() so the animation
+                // logic is preserved; only the visual is gated here.
+                /*
                 // Divider before overall tier
                 Rectangle()
                     .fill(Color.white.opacity(0.1))
@@ -236,7 +251,9 @@ private struct OnboardingFiveLiftsConcept: View {
                 .padding(.vertical, 12)
                 .opacity(showOverallTier ? 1 : 0)
                 .animation(.easeOut(duration: 0.4), value: showOverallTier)
+                */
             }
+            .padding(.bottom, 12)
             .background(Color(white: 0.12))
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .padding(.horizontal, 24)
@@ -256,6 +273,7 @@ private struct OnboardingFiveLiftsConcept: View {
                     .transition(.opacity)
                 }
             }
+            .opacity(showExerciseCard ? 1 : 0)
         }
         .onAppear {
             runAnimation()
@@ -264,14 +282,31 @@ private struct OnboardingFiveLiftsConcept: View {
 
     private func runAnimation() {
         Task {
+            // Header → subtitle → exercise card, each fading up in sequence
+            // before any bars start animating. Pauses between steps let each
+            // element land clearly so the sequence reads as deliberate.
+            withAnimation(.easeOut(duration: 0.55)) {
+                showHeader = true
+            }
             try? await Task.sleep(for: .milliseconds(300))
-            for i in 0..<5 {
-                withAnimation(.easeOut(duration: 0.3)) {
+            withAnimation(.easeOut(duration: 0.55)) {
+                showSubtitle = true
+            }
+            try? await Task.sleep(for: .milliseconds(500))
+            withAnimation(.easeOut(duration: 0.45)) {
+                showExerciseCard = true
+            }
+            try? await Task.sleep(for: .milliseconds(450))
+
+            // Original initial delay before the bars kick in
+            try? await Task.sleep(for: .milliseconds(300))
+            // All five bars animate together as a single cohesive block.
+            withAnimation(.easeOut(duration: 0.4)) {
+                for i in 0..<5 {
                     barProgress[i] = targetProgress[i]
                 }
-                try? await Task.sleep(for: .milliseconds(i < 4 ? 300 : 200))
             }
-            try? await Task.sleep(for: .milliseconds(250))
+            try? await Task.sleep(for: .milliseconds(700))
             showOverallTier = true
             withAnimation(.easeOut(duration: 0.3)) {
                 animationComplete = true
@@ -285,6 +320,9 @@ private struct OnboardingFiveLiftsConcept: View {
             barProgress = [0, 0, 0, 0, 0]
             showOverallTier = false
             animationComplete = false
+            showHeader = false
+            showSubtitle = false
+            showExerciseCard = false
         }
         runAnimation()
     }
@@ -435,6 +473,9 @@ private struct OnboardingProgressConcept: View {
     @State private var displayedE1RM: Int = 185
     @State private var showDelta: Bool = false
     @State private var animationComplete: Bool = false
+    @State private var showHeader: Bool = false
+    @State private var showSubtitle: Bool = false
+    @State private var showCard: Bool = false
 
     private let bars: [(height: CGFloat, color: Color)] = [
         (0.30, .setEasy),
@@ -465,12 +506,16 @@ private struct OnboardingProgressConcept: View {
                     .font(.bebasNeue(size: 34))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
+                    .opacity(showHeader ? 1 : 0)
+                    .offset(y: showHeader ? 0 : 16)
 
-                Text("Follow set options that increase your\n\(Text("estimated one-rep maxes").foregroundColor(.appAccent))")
+                Text("Choose \(Text("Progress Sets").foregroundColor(.appAccent)) designed to\nmove your strength forward.")
                     .font(.inter(size: 17))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
+                    .opacity(showSubtitle ? 1 : 0)
+                    .offset(y: showSubtitle ? 0 : 16)
             }
 
             Spacer()
@@ -562,6 +607,7 @@ private struct OnboardingProgressConcept: View {
                 }
                 .frame(height: 16)
                 .padding(.top, 16)
+                .padding(.bottom, 12)
             }
             .frame(maxWidth: .infinity)
             .padding(20)
@@ -584,6 +630,7 @@ private struct OnboardingProgressConcept: View {
                     .transition(.opacity)
                 }
             }
+            .opacity(showCard ? 1 : 0)
             .onAppear {
                 startAnimation()
             }
@@ -592,15 +639,34 @@ private struct OnboardingProgressConcept: View {
 
     private func startAnimation() {
         Task {
-            // Initial beat, then show e1RM number + first bar simultaneously
-            try await Task.sleep(for: .milliseconds(300))
+            // Header → subtitle → card fade-up before the existing visualization
+            // animation starts. Pacing mirrors OnboardingFiveLiftsConcept.
+            withAnimation(.easeOut(duration: 0.55)) {
+                showHeader = true
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            withAnimation(.easeOut(duration: 0.55)) {
+                showSubtitle = true
+            }
+            try? await Task.sleep(for: .milliseconds(500))
+            withAnimation(.easeOut(duration: 0.45)) {
+                showCard = true
+            }
+            try? await Task.sleep(for: .milliseconds(250))
+
+            // Show e1RM number + first bar simultaneously
             showE1RM = true
             visibleBars = 1
 
             for i in 2...bars.count {
-                try await Task.sleep(for: .milliseconds(100))
+                try await Task.sleep(for: .milliseconds(200))
                 visibleBars = i
             }
+
+            // Enable the parent's Continue button the moment the last bar
+            // lands — the PR indicator + e1RM roll-up that follow are
+            // flourish and shouldn't hold the user up.
+            onAnimationComplete?()
 
             try await Task.sleep(for: .milliseconds(300))
             showPRIndicator = true
@@ -608,7 +674,7 @@ private struct OnboardingProgressConcept: View {
             // Animate e1RM number rolling up from 185 → 195
             try await Task.sleep(for: .milliseconds(250))
             for value in 186...195 {
-                try await Task.sleep(for: .milliseconds(60))
+                try await Task.sleep(for: .milliseconds(110))
                 withAnimation(.easeOut(duration: 0.2)) {
                     displayedE1RM = value
                 }
@@ -621,7 +687,6 @@ private struct OnboardingProgressConcept: View {
             withAnimation(.easeOut(duration: 0.3)) {
                 animationComplete = true
             }
-            onAnimationComplete?()
         }
     }
 
@@ -633,6 +698,9 @@ private struct OnboardingProgressConcept: View {
             displayedE1RM = 185
             showDelta = false
             animationComplete = false
+            showHeader = false
+            showSubtitle = false
+            showCard = false
         }
         startAnimation()
     }
@@ -1183,6 +1251,9 @@ private struct OnboardingMilestonesConcept: View {
     @State private var overallTierIndex: Int = 0
     @State private var animationComplete = false
     @State private var animationTask: Task<Void, Never>?
+    @State private var showHeader: Bool = false
+    @State private var showSubtitle: Bool = false
+    @State private var showCard: Bool = false
 
     private let badgeSize: CGFloat = 48
 
@@ -1190,15 +1261,19 @@ private struct OnboardingMilestonesConcept: View {
         VStack(spacing: 0) {
             // Title
             VStack(spacing: 12) {
-                Text("Milestones That Matter")
+                Text("FROM NOVICE TO LEGEND")
                     .font(.bebasNeue(size: 34))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
+                    .opacity(showHeader ? 1 : 0)
+                    .offset(y: showHeader ? 0 : 16)
 
-                Text("\(Text("Earn ").foregroundColor(.white.opacity(0.7)))\(Text("Milestones").foregroundColor(.appAccent))\(Text(" as you get stronger.").foregroundColor(.white.opacity(0.7)))")
+                Text("\(Text("Go from ").foregroundColor(.white.opacity(0.7)))\(Text("Novice").foregroundColor(.white))\(Text(" to ").foregroundColor(.white.opacity(0.7)))\(Text("Legend").foregroundColor(StrengthTier.legend.color))\(Text(" by\ngetting stronger over time.").foregroundColor(.white.opacity(0.7)))")
                     .font(.inter(size: 17))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
+                    .opacity(showSubtitle ? 1 : 0)
+                    .offset(y: showSubtitle ? 0 : 16)
             }
 
             Spacer()
@@ -1206,22 +1281,6 @@ private struct OnboardingMilestonesConcept: View {
 
             // Card
             VStack(spacing: 0) {
-                HStack(alignment: .top, spacing: 0) {
-                    ForEach(0..<5, id: \.self) { i in
-                        milestoneColumn(index: i)
-                            .frame(maxWidth: .infinity)
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 40)
-
-                // Divider
-                Rectangle()
-                    .fill(Color.white.opacity(0.1))
-                    .frame(height: 1)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 4)
-
                 // Overall tier
                 VStack(spacing: 8) {
                     Text("STRENGTH TIER")
@@ -1242,7 +1301,23 @@ private struct OnboardingMilestonesConcept: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+                .padding(.vertical, 16)
+
+                // Divider
+                Rectangle()
+                    .fill(Color.white.opacity(0.1))
+                    .frame(height: 1)
+                    .padding(.horizontal, 16)
+
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach(0..<5, id: \.self) { i in
+                        milestoneColumn(index: i)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 40)
+                .padding(.bottom, 56)
             }
             .background(Color(white: 0.12))
             .clipShape(RoundedRectangle(cornerRadius: 16))
@@ -1263,6 +1338,7 @@ private struct OnboardingMilestonesConcept: View {
                     .transition(.opacity)
                 }
             }
+            .opacity(showCard ? 1 : 0)
             .onAppear { startAnimation() }
         }
     }
@@ -1275,12 +1351,6 @@ private struct OnboardingMilestonesConcept: View {
         let displayColor = isInProgress ? tiers[min(tierIndex + 1, 5)].color : achievedTier.color
 
         VStack(spacing: 8) {
-            // e1RM number
-            Text("\(exerciseE1RMs[i])")
-                .font(.system(size: 15, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-                .contentTransition(.numericText())
-
             // Milestone circle
             ZStack {
                 if isInProgress {
@@ -1296,11 +1366,6 @@ private struct OnboardingMilestonesConcept: View {
                         .stroke(nextColor.opacity(0.7), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                         .frame(width: badgeSize, height: badgeSize)
                         .rotationEffect(.degrees(-90))
-
-                    Text("\(Int(exerciseProgress[i] * 100))%")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.white)
-                        .contentTransition(.numericText())
                 } else {
                     // Achieved: filled circle + stroke + icon
                     Circle()
@@ -1347,6 +1412,13 @@ private struct OnboardingMilestonesConcept: View {
     private func startAnimation() {
         animationTask?.cancel()
         animationTask = Task {
+            withAnimation(.easeOut(duration: 0.55)) { showHeader = true }
+            try? await Task.sleep(for: .milliseconds(300))
+            withAnimation(.easeOut(duration: 0.55)) { showSubtitle = true }
+            try? await Task.sleep(for: .milliseconds(500))
+            withAnimation(.easeOut(duration: 0.45)) { showCard = true }
+            try? await Task.sleep(for: .milliseconds(450))
+
             // Initial pause
             try? await Task.sleep(for: .milliseconds(300))
 
@@ -1360,7 +1432,7 @@ private struct OnboardingMilestonesConcept: View {
                     let targetE1RM = startE1RMs[exerciseIndex] + e1rmIncrements[exerciseIndex] * (round + 1)
                     let currentE1RMLocalCache = exerciseE1RMs[exerciseIndex]
                     let steps = 8
-                    let stepDuration: UInt64 = 100
+                    let stepDuration: UInt64 = 75
 
                     // Animate progress ring and e1RM simultaneously
                     for step in 1...steps {
@@ -1368,15 +1440,15 @@ private struct OnboardingMilestonesConcept: View {
                         try? await Task.sleep(for: .milliseconds(stepDuration))
                         let fraction = CGFloat(step) / CGFloat(steps)
                         let interpolatedE1RM = currentE1RMLocalCache + Int(Double(targetE1RM - currentE1RMLocalCache) * Double(fraction))
-                        withAnimation(.easeOut(duration: 0.3)) {
+                        withAnimation(.easeOut(duration: 0.15)) {
                             exerciseProgress[exerciseIndex] = fraction
                             exerciseE1RMs[exerciseIndex] = interpolatedE1RM
                         }
                     }
 
                     // Complete: advance tier, reset progress
-                    try? await Task.sleep(for: .milliseconds(100))
-                    withAnimation(.easeOut(duration: 0.4)) {
+                    try? await Task.sleep(for: .milliseconds(50))
+                    withAnimation(.easeOut(duration: 0.2)) {
                         exerciseTiers[exerciseIndex] += 1
                         exerciseProgress[exerciseIndex] = 0
                     }
@@ -1387,16 +1459,16 @@ private struct OnboardingMilestonesConcept: View {
                     }
 
                     // Pause between exercises
-                    try? await Task.sleep(for: .milliseconds(300))
+                    try? await Task.sleep(for: .milliseconds(150))
                 }
 
                 // Advance overall tier after all exercises in this round complete
-                withAnimation(.easeOut(duration: 0.4)) {
+                withAnimation(.easeOut(duration: 0.2)) {
                     overallTierIndex = exerciseTiers.min() ?? 0
                 }
 
                 // Pause between rounds
-                try? await Task.sleep(for: .milliseconds(400))
+                try? await Task.sleep(for: .milliseconds(200))
             }
 
             withAnimation(.easeOut(duration: 0.3)) {
@@ -1412,14 +1484,18 @@ private struct OnboardingMilestonesConcept: View {
             exerciseProgress = [0, 0, 0, 0, 0]
             exerciseE1RMs = startE1RMs
             animationComplete = false
+            showHeader = false
+            showSubtitle = false
+            showCard = false
         }
         startAnimation()
     }
 }
 
 
-// MARK: - Screen 5: Beyond the Basics
+// MARK: - Screen 5: Beyond the Basics (DISABLED — kept commented in case we re-enable)
 
+/*
 private struct OnboardingBeyondBasicsConcept: View {
     var onAnimationComplete: (() -> Void)?
 
@@ -1559,6 +1635,7 @@ private struct OnboardingBeyondBasicsConcept: View {
         runAnimation()
     }
 }
+*/
 
 // MARK: - Screen 6: Change Plates
 
@@ -1600,14 +1677,13 @@ private struct OnboardingChangePlatesStep: View {
         VStack(spacing: 0) {
             // Title
             VStack(spacing: 12) {
-                Text("Select Plate Increments")
+                Text("Select Your Change Plates")
                     .font(.bebasNeue(size: 34))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
-                Text("Select the change plates you have\navailable for more precise suggestions.")
+                Text("\(Text("Choose the change plates you have\nfor realistic ").foregroundColor(.white.opacity(0.7)))\(Text("Progress Sets").foregroundColor(.appAccent))\(Text(".").foregroundColor(.white.opacity(0.7)))")
                     .font(.inter(size: 17))
-                    .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
             }
@@ -1698,7 +1774,6 @@ private struct OnboardingChangePlatesStep: View {
 private struct OnboardingBodyProfileStep: View {
     @Binding var currentPage: Int
     let totalPages: Int
-    let onComplete: () -> Void
 
     @Environment(\.modelContext) private var modelContext
     @Query private var userPropertiesItems: [UserProperties]
@@ -1727,9 +1802,8 @@ private struct OnboardingBodyProfileStep: View {
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
-                Text("Your inputs help to determine\nyour strength tier.")
+                Text("\(Text("Your profile helps calculate\nyour ").foregroundColor(.white.opacity(0.7)))\(Text("Strength Tier").foregroundColor(.appAccent))\(Text(".").foregroundColor(.white.opacity(0.7)))")
                     .font(.inter(size: 17))
-                    .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
             }
@@ -1860,7 +1934,9 @@ private struct OnboardingBodyProfileStep: View {
                     )
                 }
 
-                onComplete()
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    currentPage += 1
+                }
             } label: {
                 Text(hasInteracted ? "Continue" : "Use Defaults")
                     .font(.interSemiBold(size: 16))
@@ -1874,6 +1950,235 @@ private struct OnboardingBodyProfileStep: View {
             .padding(.horizontal, 32)
             .padding(.bottom, 50)
         }
+    }
+}
+
+// MARK: - Screen 8: Find Your Starting Strength Tier
+
+private struct OnboardingStartingTierStep: View {
+    @Binding var currentPage: Int
+    let totalPages: Int
+    let onComplete: () -> Void
+
+    private let lifts: [(icon: String, shortName: String)] = [
+        ("DeadliftIcon", "Deadlifts"),
+        ("SquatIcon", "Squats"),
+        ("BenchPressIcon", "Bench"),
+        ("BarbellRowIcon", "Row"),
+        ("OverheadPressIcon", "OHP"),
+    ]
+
+    @State private var showHeader: Bool = false
+    @State private var showSubtitle: Bool = false
+    @State private var showCard: Bool = false
+    @State private var pulse: Bool = false
+    @State private var filledCount: Int = 0
+    @State private var showLock: Bool = false
+    @State private var showControls: Bool = false
+    @State private var animationComplete: Bool = false
+    @State private var animationTask: Task<Void, Never>?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Title
+            VStack(spacing: 12) {
+                Text("Find Your Starting Strength Tier")
+                    .font(.bebasNeue(size: 34))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+                    .opacity(showHeader ? 1 : 0)
+                    .offset(y: showHeader ? 0 : 16)
+
+                Text("\(Text("Perform one set of each lift\nto unlock your ").foregroundColor(.white.opacity(0.7)))\(Text("Strength Tier").foregroundColor(.appAccent))\(Text(".").foregroundColor(.white.opacity(0.7)))")
+                    .font(.inter(size: 17))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+                    .opacity(showSubtitle ? 1 : 0)
+                    .offset(y: showSubtitle ? 0 : 16)
+            }
+
+            Spacer().frame(height: 40)
+
+            // Card — five fundamental lifts that fill in left-to-right; once all
+            // five are locked, an open-lock icon appears beneath the caption.
+            VStack(spacing: 24) {
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach(Array(lifts.enumerated()), id: \.offset) { index, lift in
+                        let isFilled = index < filledCount
+                        VStack(spacing: 10) {
+                            ZStack {
+                                if isFilled {
+                                    Circle()
+                                        .fill(Color.appAccent.opacity(0.18))
+                                        .frame(width: 52, height: 52)
+                                    Circle()
+                                        .stroke(Color.appAccent, lineWidth: 2.5)
+                                        .frame(width: 52, height: 52)
+                                } else {
+                                    Circle()
+                                        .stroke(Color.appAccent.opacity(0.35), style: StrokeStyle(lineWidth: 2, dash: [3, 4]))
+                                        .frame(width: 52, height: 52)
+                                }
+
+                                Image(lift.icon)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 28, height: 28)
+                                    .foregroundStyle(isFilled ? Color.appAccent : Color.appAccent.opacity(pulse ? 0.85 : 0.5))
+                            }
+                            .frame(width: 52, height: 52)
+                            .scaleEffect(isFilled ? 1.10 : (pulse ? 1.06 : 1.0))
+
+                            Text(lift.shortName)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(isFilled ? .white.opacity(0.85) : .white.opacity(0.5))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+
+                            if isFilled {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundStyle(Color.appAccent)
+                                    .frame(width: 8, height: 8)
+                                    .transition(.scale.combined(with: .opacity))
+                            } else {
+                                Circle()
+                                    .stroke(.white.opacity(0.25), lineWidth: 1)
+                                    .frame(width: 8, height: 8)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+
+                VStack(spacing: 18) {
+                    Text("ONE SET EACH TO UNLOCK")
+                        .font(.system(size: 10, weight: .semibold))
+                        .tracking(2)
+                        .foregroundStyle(.white.opacity(0.4))
+
+                    if showLock {
+                        Image(systemName: "lock.open.fill")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(Color.appAccent)
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 32)
+            .frame(maxWidth: .infinity)
+            .background(Color(white: 0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, 24)
+            .overlay(alignment: .bottomTrailing) {
+                if animationComplete {
+                    Button {
+                        replayAnimation()
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.3))
+                            .padding(8)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 28)
+                    .padding(.bottom, 4)
+                    .transition(.opacity)
+                }
+            }
+            .opacity(showCard ? 1 : 0)
+
+            Spacer()
+
+            // Page dots + CTA — gated on the fill-in animation completing so the
+            // user can't skip ahead while the visualization is still playing.
+            VStack(spacing: 20) {
+                HStack(spacing: 8) {
+                    ForEach(0..<totalPages, id: \.self) { index in
+                        Circle()
+                            .fill(index == currentPage ? Color.appAccent : Color.white.opacity(0.3))
+                            .frame(width: 8, height: 8)
+                    }
+                }
+
+                Button {
+                    onComplete()
+                } label: {
+                    Text("Let's Begin")
+                        .font(.interSemiBold(size: 16))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(Color.appAccent)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 32)
+            }
+            .padding(.bottom, 50)
+            .opacity(showControls ? 1 : 0)
+            .animation(.easeOut(duration: 0.4), value: showControls)
+            .allowsHitTesting(showControls)
+        }
+        .onAppear { runAnimation() }
+    }
+
+    private func runAnimation() {
+        animationTask?.cancel()
+        animationTask = Task {
+            withAnimation(.easeOut(duration: 0.55)) { showHeader = true }
+            try? await Task.sleep(for: .milliseconds(300))
+            withAnimation(.easeOut(duration: 0.55)) { showSubtitle = true }
+            try? await Task.sleep(for: .milliseconds(500))
+            withAnimation(.easeOut(duration: 0.45)) { showCard = true }
+            try? await Task.sleep(for: .milliseconds(100))
+
+            // Gentle pulse on the awaiting lifts. Filled lifts ignore `pulse`
+            // (they read the `isFilled` branch instead) so they hold their
+            // brighter, larger state once they lock in.
+            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
+                pulse = true
+            }
+
+            // Fill in one by one, left to right. ~25% faster cadence than the
+            // original 350ms beat.
+            for _ in 0..<5 {
+                guard !Task.isCancelled else { return }
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) {
+                    filledCount += 1
+                }
+                try? await Task.sleep(for: .milliseconds(260))
+            }
+
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.55)) {
+                showLock = true
+            }
+            // Page dots + Let's Begin become available alongside the unlock
+            // icon — slightly ahead of the replay button.
+            withAnimation(.easeOut(duration: 0.4)) {
+                showControls = true
+            }
+
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.3)) {
+                animationComplete = true
+            }
+        }
+    }
+
+    private func replayAnimation() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            filledCount = 0
+            showLock = false
+            showControls = false
+            animationComplete = false
+        }
+        runAnimation()
     }
 }
 

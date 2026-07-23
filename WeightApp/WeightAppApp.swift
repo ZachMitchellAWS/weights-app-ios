@@ -11,7 +11,11 @@ import Sentry
 import FirebaseCore
 import FirebaseAnalytics
 
-private let tutorialPopupEnabled = true
+// Tutorial popup temporarily disabled — we plan to reintroduce something
+// analogous in a different surface later. The popup mechanics (state var,
+// AppStorage flag, OnboardingTutorialPopup view) are intentionally kept;
+// flip this back to `true` to re-enable the post-upsell trigger.
+private let tutorialPopupEnabled = false
 
 @main
 struct WeightAppApp: App {
@@ -87,6 +91,20 @@ struct WeightAppApp: App {
                     if authViewModel.isAuthenticated {
                         if authViewModel.showPostAuthFlow {
                             if authViewModel.isNewUser {
+                                // Post-onboarding upsell temporarily disabled — new users
+                                // flow straight from onboarding into the tab view. The
+                                // original `if showOnboarding ... else UpsellView` branch
+                                // is preserved in the block comment below so we can
+                                // reinstate the upsell + tutorial-popup chain later.
+                                OnboardingView {
+                                    authViewModel.markOnboardingComplete()
+                                    AnalyticsService.logOnboardingComplete()
+                                    withAnimation(.easeInOut(duration: 0.4)) {
+                                        authViewModel.completePostAuthFlow()
+                                    }
+                                }
+                                .transition(.opacity)
+                                /*
                                 if showOnboarding {
                                     OnboardingView {
                                         authViewModel.markOnboardingComplete()
@@ -114,6 +132,7 @@ struct WeightAppApp: App {
                                     }
                                     .transition(.opacity)
                                 }
+                                */
                             } else {
                                 WelcomeBackView {
                                     withAnimation(.easeInOut(duration: 0.4)) {

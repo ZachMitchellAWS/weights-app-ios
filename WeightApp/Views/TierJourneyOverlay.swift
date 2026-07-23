@@ -67,11 +67,11 @@ struct TierJourneyOverlay: View {
 
     private var introContent: some View {
         VStack(spacing: 8) {
-            Text("Your Strength Tier Journey")
+            Text("Unlock Your Starting Tier")
                 .font(.bebasNeue(size: 22))
                 .foregroundStyle(Color.appAccent)
 
-            Text("Log your first set of each exercise to unlock your starting Strength Tier")
+            Text("Log one set for each lift to unlock\nyour starting Strength Tier")
                 .font(.system(size: 13))
                 .foregroundStyle(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
