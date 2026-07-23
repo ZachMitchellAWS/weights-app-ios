@@ -13,7 +13,7 @@ struct WelcomeView: View {
 
     @State private var logoScale: CGFloat = 0.5
     @State private var logoOpacity: Double = 0
-    @State private var featureOpacity: [Double] = [0, 0, 0]
+    @State private var featureOpacity: [Double] = [0, 0, 0, 0]
 
     var body: some View {
         ZStack {
@@ -57,21 +57,27 @@ struct WelcomeView: View {
                 VStack(spacing: 24) {
                     FeatureRow(
                         icon: "dumbbell.fill",
-                        text: "Track every set with intensity-based logging"
+                        text: "Master the Five fundamental lifts"
                     )
                     .opacity(featureOpacity[0])
 
                     FeatureRow(
                         icon: "chart.line.uptrend.xyaxis",
-                        text: "Watch your estimated one-rep max grow over time"
+                        text: "Unlock your Strength Tier"
                     )
                     .opacity(featureOpacity[1])
 
                     FeatureRow(
                         icon: "flame.fill",
-                        text: "Follow smart suggestions to get stronger"
+                        text: "Push higher with Progress Sets"
                     )
                     .opacity(featureOpacity[2])
+
+                    FeatureRow(
+                        icon: "crown.fill",
+                        text: "Rise from Novice to Legend"
+                    )
+                    .opacity(featureOpacity[3])
                 }
                 .padding(.horizontal, 40)
 
@@ -91,7 +97,7 @@ struct WelcomeView: View {
                 }
                 .padding(.horizontal, 32)
                 .padding(.bottom, 60)
-                .opacity(featureOpacity[2])
+                .opacity(featureOpacity[3])
             }
         }
         .onAppear {
@@ -111,7 +117,7 @@ struct WelcomeView: View {
             logoOpacity = 1.0
         }
 
-        for index in 0..<3 {
+        for index in 0..<4 {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3 + Double(index) * 0.15) {
                 withAnimation(.easeOut(duration: 0.4)) {
                     featureOpacity[index] = 1.0

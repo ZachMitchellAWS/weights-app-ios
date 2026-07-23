@@ -362,12 +362,12 @@ struct StrengthTierWidget: View {
                     .clipShape(Capsule())
             }
 
-            // Expand/collapse indicator
+            // Expand/collapse indicator — right when collapsed, down when expanded.
             if !checklistMode {
-                Image(systemName: "chevron.down")
+                Image(systemName: "chevron.right")
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.white.opacity(0.3))
-                    .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
             }
         }
         .padding(.vertical, 8)

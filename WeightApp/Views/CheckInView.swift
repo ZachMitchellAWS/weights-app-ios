@@ -94,6 +94,19 @@ struct CheckInView: View {
     @State private var pendingCalibrationEstimated: Estimated1RM? = nil
     @State private var showCalibrationAlert = false
 
+    // Info sheet for the unlocked-state Sets widget
+    @State private var showSetsInfoSheet = false
+
+    // Inline "effort ranges" expansion below the bars. Persisted to
+    // UserDefaults (per install) so a user who prefers it open stays open
+    // across launches; new installs start collapsed.
+    @AppStorage("setsWidgetRangesExpanded") private var isSetsRangesExpanded: Bool = false
+    @State private var setsRangesChevronBob = false
+    // Guards the bob animation from restarting if the view re-renders —
+    // a one-shot per view-instance, not persisted (the user gets the
+    // attention nudge once per session, not every cell update).
+    @State private var hasBobbedChevron: Bool = false
+
     // Effort preset hint alert — fires when the user taps an empty effort tile
     // (easy/moderate/hard/redline) in the Sets widget but no preset can be
     // computed for the current exercise/state.
@@ -318,6 +331,11 @@ struct CheckInView: View {
                     setsWidget
                         .id("setsWidget")
                     progressOptionsWidget
+                        // Opt out of the Sets widget's expansion animation so
+                        // the ViewfinderPulse inside doesn't snapshot-ghost
+                        // while SwiftUI animates this sibling's position
+                        // shift.
+                        .animation(nil, value: isSetsRangesExpanded)
                     // accessorySection // TODO: Re-enable when splits functionality is wired up
 
                     HStack(spacing: 8) {
@@ -781,12 +799,24 @@ struct CheckInView: View {
             Button("Hard") { applyCalibration(effort: .hard) }
             Button("Redline") { applyCalibration(effort: .progress) }
             Button("Max Effort") { applyCalibration(effortFraction: 1.0) }
+            // .cancel role claims the cancel slot so iOS doesn't inject a
+            // phantom Cancel button. Labeled "Cancel" so the system styling
+            // matches what users expect from that label.
+            Button("Cancel", role: .cancel) { discardPendingCalibration() }
         } message: {
             Text("This helps estimate your 1RM for better suggestions.")
         }
         .fullScreenCover(isPresented: $showE1RMUpsell) {
             UpsellView(initialPage: 3) { _ in showE1RMUpsell = false }
         }
+        .overlay {
+            if showSetsInfoSheet {
+                SetsInfoOverlay(isPresented: $showSetsInfoSheet)
+                    .transition(.opacity)
+                    .zIndex(50)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: showSetsInfoSheet)
     }
 
     // MARK: - Phase 1: Strength Header
@@ -1737,19 +1767,95 @@ struct CheckInView: View {
             }
             .frame(minHeight: 44, alignment: .center)
 
-            // Intensity legend
-            Divider()
-                .background(.white.opacity(0.1))
+            // Chevron toggle for the inline effort-ranges expansion. No
+            // divider above it — the bars are visually distinct enough on
+            // their own and the chevron's own top padding handles the
+            // separation. Sized up a touch and given a generous tap target.
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isSetsRangesExpanded.toggle()
+                }
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.appAccent.opacity(0.8))
+                    .rotationEffect(.degrees(isSetsRangesExpanded ? 180 : 0))
+                    .offset(y: setsRangesChevronBob ? 3 : 0)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 0)
+                    .padding(.bottom, 2)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
 
-            HStack(spacing: 10) {
-                LegendItem(color: .setEasy, label: "Easy")
-                LegendItem(color: .setModerate, label: "Moderate")
-                LegendItem(color: .setHard, label: "Hard")
-                LegendItem(color: .setNearMax, label: "Redline")
-                LegendItem(color: .appAccent, label: "Progress")
+            if isSetsRangesExpanded {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Follow the set plan above. Adjust weight and reps as needed. Tap an empty tile to pre-populate the inputs from your last set at that effort level. The categories below show what percent of your e1RM each effort represents.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.75))
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    SetsEffortRangesCard()
+
+                    // Gateway to the full Sets Guide — centered pill at the
+                    // foot of the expansion. Replaces the top-right info icon
+                    // we removed.
+                    HStack {
+                        Spacer(minLength: 0)
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            showSetsInfoSheet = true
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "info.circle")
+                                    .font(.system(size: 11, weight: .semibold))
+                                Text("Open the full Sets Guide")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .foregroundStyle(Color.appAccent)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(Color.appAccent.opacity(0.12), in: Capsule())
+                            .overlay(
+                                Capsule()
+                                    .strokeBorder(Color.appAccent.opacity(0.32), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.top, 4)
+                }
+                .padding(.top, 6)
+                .transition(.opacity)
             }
         }
-        .padding(14)
+        .padding(.horizontal, 14)
+        .padding(.top, 14)
+        .padding(.bottom, 14)
+        .onAppear {
+            guard !hasBobbedChevron else { return }
+            hasBobbedChevron = true
+            // Five down-and-back bobs to draw initial attention, then settle
+            // at rest (offset 0). Explicit toggle loop instead of
+            // repeatCount(autoreverses:) so the final visual state is
+            // guaranteed to match the underlying state value (no SwiftUI
+            // snap-back when the animation completes).
+            Task { @MainActor in
+                for _ in 0..<5 {
+                    withAnimation(.easeInOut(duration: 0.45)) {
+                        setsRangesChevronBob = true
+                    }
+                    try? await Task.sleep(for: .milliseconds(450))
+                    withAnimation(.easeInOut(duration: 0.45)) {
+                        setsRangesChevronBob = false
+                    }
+                    try? await Task.sleep(for: .milliseconds(450))
+                }
+            }
+        }
         .background(Color(white: 0.12), in: RoundedRectangle(cornerRadius: 14))
         .overlay(
             RoundedRectangle(cornerRadius: 14)
@@ -3546,6 +3652,29 @@ struct CheckInView: View {
         }
     }
 
+    /// Roll the pending first-set calibration back to the pre-submit state.
+    /// `logSet` inserts the LiftSet before the alert appears, so we soft-delete
+    /// it here (matching the codebase's `deleteSet` convention so `@Query` and
+    /// the in-memory `setsForExercise`/`estimated1RMsForExercise` caches all
+    /// drop it). The Estimated1RM is held in memory only (never inserted) so
+    /// it just needs to be nil'd. No backend sync is needed: the set has not
+    /// been pushed to the API yet (sync only fires from the post-alert path).
+    private func discardPendingCalibration() {
+        if let set = pendingCalibrationSet {
+            let setId = set.id
+            set.deleted = true
+            setsForExercise.removeAll { $0.id == setId }
+            estimated1RMsForExercise.removeAll { $0.setId == setId }
+            try? modelContext.save()
+            if let exId = set.exercise?.id {
+                loadDataForExercise(exId, preserveInputs: true)
+            }
+        }
+        pendingCalibrationSet = nil
+        pendingCalibrationEstimated = nil
+        suppressTierDisplay = false
+    }
+
     private func applyCalibration(effort: EffortMode) {
         guard let fraction = effort.calibrationMidpoint else {
             pendingCalibrationSet = nil
@@ -3972,6 +4101,215 @@ private struct ViewfinderPulse: View {
                 guard isActive else { return }
                 animate()
             }
+        }
+    }
+}
+
+// MARK: - Sets Info Overlay
+
+/// Centered modal-style explainer for the unlocked-state Sets widget. Built
+/// as an `.overlay` on the parent view (not a `.sheet`/`.fullScreenCover`)
+/// so it floats at a fixed size, no detent dragging, no slide-from-bottom
+/// takeover. Covers e1RM, the five effort categories with left-aligned
+/// percent-of-e1RM ranges, how to change the active plan, and what each
+/// control on the widget does.
+private struct SetsInfoOverlay: View {
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.72)
+                .ignoresSafeArea()
+                .onTapGesture { isPresented = false }
+
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Sets Guide")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Spacer()
+                    Button { isPresented = false } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.6))
+                            .frame(width: 26, height: 26)
+                            .background(Circle().fill(Color.white.opacity(0.08)))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 10)
+
+                Divider().background(.white.opacity(0.08))
+
+                ScrollView {
+                    SetsGuideContent()
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                }
+            }
+            .frame(maxWidth: 340)
+            .frame(maxHeight: 560)
+            .background(Color(white: 0.12), in: RoundedRectangle(cornerRadius: 18))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.55), radius: 22, x: 0, y: 10)
+            .padding(.horizontal, 24)
+        }
+    }
+}
+
+/// Reusable guide body. Used both inside the modal `SetsInfoOverlay` and
+/// inline when the Sets widget itself is expanded via its bottom chevron.
+/// No header, no scroll wrapper — the caller provides whatever chrome it
+/// wants.
+private struct SetsGuideContent: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            // e1RM
+            VStack(alignment: .leading, spacing: 6) {
+                sectionLabel("ESTIMATED 1RM (e1RM)")
+                paragraph("Your e1RM is an estimate of the heaviest weight you could lift for a single rep. It updates each time you log a set.")
+            }
+
+            // Effort categories
+            VStack(alignment: .leading, spacing: 10) {
+                sectionLabel("EFFORT CATEGORIES")
+                paragraph("Every set falls into one of five categories based on what percent of your e1RM you're lifting. Easier sets build volume; harder sets push your ceiling.")
+
+                SetsEffortRangesCard()
+                    .padding(.top, 2)
+            }
+
+            // Logging a Progress set
+            VStack(alignment: .leading, spacing: 6) {
+                sectionLabel("LOGGING A PROGRESS SET")
+                paragraph("A Progress set raises your e1RM. The Progress Options widget directly below suggests weight + rep combinations that will do exactly that. Pick a smaller gain to inch forward, or a larger one when you're ready to push.")
+            }
+
+            // Set plan
+            VStack(alignment: .leading, spacing: 6) {
+                sectionLabel("YOUR SET PLAN")
+                (
+                    Text("The sequence shown on the Sets widget comes from your active plan. To switch plans, tap the plan name (with the ")
+                    + Text(Image(systemName: "chevron.right"))
+                    + Text(" next to it) at the top of the widget. That opens the plan hub where you can pick a different one.")
+                )
+                .font(.system(size: 13))
+                .foregroundStyle(.white.opacity(0.8))
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // Widget controls
+            VStack(alignment: .leading, spacing: 10) {
+                sectionLabel("WIDGET CONTROLS")
+                VStack(alignment: .leading, spacing: 8) {
+                    controlRow(icon: "chevron.left.chevron.right", text: "Tap the left chevron to view a previous session. The right chevron only activates while you're already in the past, to step forward toward today.")
+                    controlRow(icon: "list.bullet.rectangle", text: "Tap the plan name to change your active plan.")
+                    controlRow(icon: "hand.tap", text: "Tap a set tile to load values into the inputs. A populated tile copies its own weight and reps; an empty tile pulls from your last set at that effort level.")
+                    controlRow(icon: "trash", text: "Long-press a logged set tile to delete it.")
+                }
+            }
+
+            // Tip card
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "lightbulb.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color.appAccent)
+                    .padding(.top, 1)
+                Text("Match the target effort for each set by choosing weights and reps that hit your target percent of e1RM.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.appAccent.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(Color.appAccent.opacity(0.22), lineWidth: 1)
+            )
+        }
+    }
+
+    private func sectionLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 10, weight: .bold))
+            .tracking(1.4)
+            .foregroundStyle(Color.appAccent.opacity(0.85))
+    }
+
+    private func paragraph(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 13))
+            .foregroundStyle(.white.opacity(0.8))
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func controlRow(icon: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.appAccent.opacity(0.85))
+                .frame(width: 22, alignment: .center)
+                .padding(.top, 1)
+            Text(text)
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.82))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// Centered rounded-rect card listing the 5 effort categories with their
+/// percent-of-e1RM ranges. Used by both the full `SetsGuideContent` and the
+/// inline expansion on the Sets widget itself.
+private struct SetsEffortRangesCard: View {
+    var body: some View {
+        HStack {
+            Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 8) {
+                SetsEffortRow(color: .setEasy, label: "Easy", range: "< 70% e1RM")
+                SetsEffortRow(color: .setModerate, label: "Moderate", range: "70–82% e1RM")
+                SetsEffortRow(color: .setHard, label: "Hard", range: "82–92% e1RM")
+                SetsEffortRow(color: .setNearMax, label: "Redline", range: "92–100% e1RM")
+                SetsEffortRow(color: .appAccent, label: "Progress", range: "> 100% e1RM")
+            }
+            .padding(.vertical, 14)
+            .padding(.horizontal, 18)
+            .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+            )
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+/// Effort row inside the info overlay. Label gets a fixed-width column so
+/// every range starts at the same X. No trailing Spacer — the row stays
+/// intrinsic-width so the parent can center the whole group.
+private struct SetsEffortRow: View {
+    let color: Color
+    let label: String
+    let range: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(color)
+                .frame(width: 9, height: 9)
+            Text(label)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 80, alignment: .leading)
+            Text(range)
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.7))
         }
     }
 }

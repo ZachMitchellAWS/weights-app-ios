@@ -47,14 +47,30 @@ final class UserSamples {
 
     // MARK: - Initialization
 
-    /// Call on first app launch to assign cohorts
+    /// Call on first app launch to assign cohorts. `sample50` / `sample20` /
+    /// `sample10` are independent Bernoulli draws — a user can land in any
+    /// combination of those. `sample5` and `control5` are mutually exclusive
+    /// and share a single roll, so a user is in at most one of them (and
+    /// usually neither — combined membership is ~10%).
     func initializeIfNeeded() {
         guard !UserDefaults.standard.bool(forKey: initializedKey) else { return }
 
-        for cohort in Cohort.allCases {
+        // Independent sample cohorts — overlap is fine.
+        for cohort in [Cohort.sample50, .sample20, .sample10] {
             let assigned = Double.random(in: 0..<1) < cohort.probability
             UserDefaults.standard.set(assigned, forKey: prefix + cohort.rawValue)
         }
+
+        // Mutually-exclusive 5% sample / 5% control. A single roll partitions
+        // the 0..<1 line: [0, 0.05) → sample5, [0.05, 0.10) → control5,
+        // [0.10, 1.0) → neither.
+        let roll = Double.random(in: 0..<1)
+        let sample5Cutoff = Cohort.sample5.probability
+        let control5Cutoff = sample5Cutoff + Cohort.control5.probability
+        let inSample5 = roll < sample5Cutoff
+        let inControl5 = !inSample5 && roll < control5Cutoff
+        UserDefaults.standard.set(inSample5, forKey: prefix + Cohort.sample5.rawValue)
+        UserDefaults.standard.set(inControl5, forKey: prefix + Cohort.control5.rawValue)
 
         UserDefaults.standard.set(true, forKey: initializedKey)
     }
@@ -89,5 +105,18 @@ final class UserSamples {
 
     func setCohort(_ cohort: Cohort, enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: prefix + cohort.rawValue)
+        // Preserve the sample5 ⊥ control5 invariant from `initializeIfNeeded`
+        // so the dev-override UI in MoreView can't put a user in both buckets
+        // simultaneously.
+        if enabled {
+            switch cohort {
+            case .sample5:
+                UserDefaults.standard.set(false, forKey: prefix + Cohort.control5.rawValue)
+            case .control5:
+                UserDefaults.standard.set(false, forKey: prefix + Cohort.sample5.rawValue)
+            default:
+                break
+            }
+        }
     }
 }

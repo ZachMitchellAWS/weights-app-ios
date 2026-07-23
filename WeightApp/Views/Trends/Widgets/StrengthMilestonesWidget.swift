@@ -241,9 +241,11 @@ private struct TierBatchSection: View {
                             .foregroundStyle(.white.opacity(0.5))
                     }
 
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    // Right when collapsed, down when expanded.
+                    Image(systemName: "chevron.right")
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(.white.opacity(0.3))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
             }
             .buttonStyle(.plain)
