@@ -11,12 +11,6 @@ import Sentry
 import FirebaseCore
 import FirebaseAnalytics
 
-// Tutorial popup temporarily disabled — we plan to reintroduce something
-// analogous in a different surface later. The popup mechanics (state var,
-// AppStorage flag, OnboardingTutorialPopup view) are intentionally kept;
-// flip this back to `true` to re-enable the post-upsell trigger.
-private let tutorialPopupEnabled = false
-
 @main
 struct WeightAppApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -30,6 +24,8 @@ struct WeightAppApp: App {
     @State private var showUpsell = false
     @State private var showOnboardingTutorial = false
     @AppStorage("hasSeenOnboardingTutorial") private var hasSeenOnboardingTutorial = false
+    @AppStorage("hasSeenLiftTutorialAfterTierUnlock") private var hasSeenLiftTutorialAfterTierUnlock = false
+    @ObservedObject private var tutorialPresenter = TutorialPresenter.shared
     @State private var transactionListenerTask: Task<Void, Error>?
 
     let modelContainer: ModelContainer
@@ -145,24 +141,7 @@ struct WeightAppApp: App {
                             ContentView(authViewModel: authViewModel, initialExerciseId: initialExerciseId)
                                 .transition(.opacity)
                                 .onAppear {
-                                    // Clear initial exercise ID after first use
                                     initialExerciseId = nil
-
-                                    // Safety net for the onboarding tutorial popup:
-                                    // catches users who reached the main tab view
-                                    // without the UpsellView's onComplete trigger
-                                    // having fired (e.g. existing user on a fresh
-                                    // install going Welcome → Auth → WelcomeBack →
-                                    // ContentView, or any other path that skips the
-                                    // new-user upsell). For new users, the popup is
-                                    // already queued by the UpsellView's onComplete
-                                    // closure before this runs, so this check is a
-                                    // no-op for them — the fast path is preserved.
-                                    if tutorialPopupEnabled && !hasSeenOnboardingTutorial && !showOnboardingTutorial {
-                                        withAnimation(.easeInOut(duration: 0.28)) {
-                                            showOnboardingTutorial = true
-                                        }
-                                    }
                                 }
                         }
                     } else {
@@ -202,12 +181,11 @@ struct WeightAppApp: App {
                         .zIndex(1)
                 }
 
-                if showOnboardingTutorial,
+                if tutorialPresenter.showLiftTutorial,
                    let resource = ResourceCatalog.all.first {
                     OnboardingTutorialPopup(resource: resource) {
-                        hasSeenOnboardingTutorial = true
                         withAnimation(.easeInOut(duration: 0.25)) {
-                            showOnboardingTutorial = false
+                            tutorialPresenter.showLiftTutorial = false
                         }
                     }
                     .transition(.opacity)

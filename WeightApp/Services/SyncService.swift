@@ -1557,6 +1557,7 @@ class SyncService: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "insights_last_fetched_at")
         UserDefaults.standard.removeObject(forKey: "insights_last_viewed_week")
         UserDefaults.standard.removeObject(forKey: "hasSeenTierIntro")
+        UserDefaults.standard.removeObject(forKey: "hasSeenLiftTutorialAfterTierUnlock")
         UserDefaults.standard.removeObject(forKey: "contiguousAccessoryCharts")
         UserDefaults.standard.removeObject(forKey: "starterInsightViewed")
         UserDefaults.standard.removeObject(forKey: "starterInsightCachedResponse")

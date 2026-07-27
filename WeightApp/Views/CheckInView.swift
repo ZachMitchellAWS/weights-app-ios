@@ -89,6 +89,11 @@ struct CheckInView: View {
     @State private var tierJourneyMode: TierJourneyMode = .intro
     @State private var suppressTierDisplay = false
 
+    // One-shot tutorial popup shown the first time the Lift tab appears
+    // after the strength tier is unlocked. Cleared on logout so a re-login
+    // on the same install can show it again.
+    @AppStorage("hasSeenLiftTutorialAfterTierUnlock") private var hasSeenLiftTutorialAfterTierUnlock = false
+
     // Baseline calibration state
     @State private var pendingCalibrationSet: LiftSet? = nil
     @State private var pendingCalibrationEstimated: Estimated1RM? = nil
@@ -579,6 +584,7 @@ struct CheckInView: View {
                 }
                 // Now safe to evaluate tier journey (user properties are synced)
                 evaluateTierJourney()
+                evaluateLiftTutorialTrigger()
             }
         }
         .onChange(of: syncService.syncFailed) { _, failed in
@@ -651,6 +657,14 @@ struct CheckInView: View {
             recentSetCounts = counts
         }
         .onAppear {
+            // Evaluate the tutorial-popup trigger on every tab appearance
+            // (not just first-appearance) so returning to Lift after unlocking
+            // the tier on this same launch still fires the popup. The
+            // AppStorage flag guarantees one-shot semantics.
+            if syncService.initialSyncComplete {
+                evaluateLiftTutorialTrigger()
+            }
+
             if hasAppeared {
                 // Re-fetch exercise data on tab return (e.g., after deleting from History)
                 loadDataForSelectedLift()
@@ -1383,6 +1397,16 @@ struct CheckInView: View {
     // MARK: - Sets Widget
 
     // MARK: - Tier Journey Evaluation
+
+    // One-shot tutorial popup: fires the first time this tab is evaluated
+    // with sync complete and the strength tier unlocked. Flag is flipped
+    // before presentation so an app kill mid-video still counts as "seen".
+    private func evaluateLiftTutorialTrigger() {
+        guard !hasSeenLiftTutorialAfterTierUnlock,
+              userProperties.hasMetStrengthTierConditions else { return }
+        hasSeenLiftTutorialAfterTierUnlock = true
+        TutorialPresenter.shared.showLiftTutorial = true
+    }
 
     private func evaluateTierJourney() {
         if userProperties.hasMetStrengthTierConditions { return }
