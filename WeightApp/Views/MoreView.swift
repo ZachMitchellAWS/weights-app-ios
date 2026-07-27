@@ -1032,6 +1032,19 @@ struct MoreView: View {
                             TokenExpiryView()
                         }
 
+                        Button {
+                            UserDefaults.standard.removeObject(forKey: "hasSeenLiftTutorialAfterTierUnlock")
+                            TutorialPresenter.shared.showLiftTutorial = false
+                        } label: {
+                            HStack {
+                                Text("Reset Lift Tutorial Popup")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "arrow.counterclockwise")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
                         Text("User Samples")
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.5))
