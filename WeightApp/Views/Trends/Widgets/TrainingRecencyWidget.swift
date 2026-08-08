@@ -60,6 +60,7 @@ struct TrainingRecencyWidget: View {
             title: "Unlock Exercise Activity",
             subtitle: "Track how recently you trained each exercise",
             blurRadius: 2,
+            feature: "exercise_activity",
             showUpsell: $showUpsell
         )
         .background(Color(white: 0.14))

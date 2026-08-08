@@ -85,6 +85,11 @@ struct UserPropertiesRequest: Codable {
     var clearProteinGoal: Bool = false
     var clearBodyweightTarget: Bool = false
     var hasMetStrengthTierConditions: Bool?
+    // Push-only device metadata (never pulled back into local state)
+    var locale: String?
+    var language: String?
+    var hasCompletedOnboarding: Bool?
+    var latestAppVersion: String?
 
     private enum CodingKeys: String, CodingKey {
         case bodyweight, availableChangePlates, minReps, maxReps
@@ -94,6 +99,8 @@ struct UserPropertiesRequest: Codable {
         case stepsGoal, proteinGoal, bodyweightTarget
         case timezone
         case hasMetStrengthTierConditions
+        case locale, language, hasCompletedOnboarding
+        case latestAppVersion
     }
 
     func encode(to encoder: Encoder) throws {
@@ -145,6 +152,18 @@ struct UserPropertiesRequest: Codable {
         }
         if let hasMetStrengthTierConditions = hasMetStrengthTierConditions {
             try container.encode(hasMetStrengthTierConditions, forKey: .hasMetStrengthTierConditions)
+        }
+        if let locale = locale {
+            try container.encode(locale, forKey: .locale)
+        }
+        if let language = language {
+            try container.encode(language, forKey: .language)
+        }
+        if let hasCompletedOnboarding = hasCompletedOnboarding {
+            try container.encode(hasCompletedOnboarding, forKey: .hasCompletedOnboarding)
+        }
+        if let latestAppVersion = latestAppVersion {
+            try container.encode(latestAppVersion, forKey: .latestAppVersion)
         }
     }
 }

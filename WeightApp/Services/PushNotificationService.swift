@@ -17,7 +17,8 @@ class PushNotificationService {
     private init() {}
 
     /// Request notification permission if we haven't already prompted.
-    /// Call from InsightsView on first appearance — guarded by UserDefaults flag.
+    /// Call when the Progress tab first appears — guarded by a UserDefaults flag so the system
+    /// notification prompt is only ever requested once.
     func requestPermissionIfNeeded() {
         guard !UserDefaults.standard.bool(forKey: hasRequestedKey) else { return }
         UserDefaults.standard.set(true, forKey: hasRequestedKey)

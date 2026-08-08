@@ -35,6 +35,18 @@ class PurchaseService: ObservableObject {
         guard loggedTransactionIds.insert(transaction.id).inserted else { return }
         let product = products.first(where: { $0.id == transaction.productID })
         AnalyticsService.logPurchase(transaction: transaction, product: product)
+
+        // Mirror to Amplitude (single deduped choke point → covers foreground + renewal listener).
+        let price = product.map { NSDecimalNumber(decimal: $0.price).doubleValue }
+        let currency = product?.priceFormatStyle.currencyCode ?? "USD"
+        AmplitudeService.shared.track(.purchaseCompleted(
+            productId: transaction.productID,
+            transactionId: String(transaction.id),
+            isRenewal: transaction.originalID != transaction.id,
+            isFreeTrial: transaction.offer?.paymentMode == .freeTrial,
+            price: price,
+            currency: currency
+        ))
     }
 
     // MARK: - Product Loading

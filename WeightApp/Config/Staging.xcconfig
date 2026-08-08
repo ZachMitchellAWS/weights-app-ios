@@ -1,5 +1,6 @@
 APP_ENVIRONMENT = staging
 API_BASE_URL = https:$(/)$(/)api-staging.liftthebull.io
 API_KEY = ZeaxeFqe6dkU5mNU8lMv5zs1RhvJ7pg5nEXsmdHf
+AMPLITUDE_API_KEY = 9988af92fdd8a3649613cfe6a9a4472a
 APP_BUNDLE_ID_SUFFIX =
 APP_DISPLAY_NAME = Lift the Bull

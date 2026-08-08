@@ -27,13 +27,17 @@ struct OnboardingTutorialPopup: View {
     /// button) so the begin-event always fires.
     private func startWatching() {
         playerOpenedAt = Date()
+        // Stop any Strength Insight audio so it doesn't overlap the tutorial video.
+        AudioPlayerManager.shared.stop()
         AnalyticsService.logTutorialBegin(resourceId: resource.id)
+        AmplitudeService.shared.track(.tutorialWatchTapped(resourceId: resource.id))
         showPlayer = true
     }
 
     private func dismissWithoutWatching() {
         if playerOpenedAt == nil {
             AnalyticsService.logTutorialSkipped(resourceId: resource.id)
+            AmplitudeService.shared.track(.tutorialSkipped(resourceId: resource.id))
         }
         onDismiss()
     }
@@ -65,6 +69,7 @@ struct OnboardingTutorialPopup: View {
             .padding(.horizontal, 24)
         }
         .onAppear {
+            AmplitudeService.shared.track(.tutorialShown(resourceId: resource.id))
             withAnimation(.easeOut(duration: 0.28)) {
                 cardScale = 1.0
                 cardOpacity = 1.0
@@ -87,6 +92,7 @@ struct OnboardingTutorialPopup: View {
                         durationSeconds: duration,
                         watchedToEnd: watchedToEnd,
                     )
+                    AmplitudeService.shared.track(.tutorialClosed(resourceId: resource.id, durationSeconds: duration, watchedToEnd: watchedToEnd))
                 }
                 onDismiss()
             }

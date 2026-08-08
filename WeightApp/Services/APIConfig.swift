@@ -11,6 +11,7 @@ struct APIConfig {
     static let environment: String = Bundle.main.infoDictionary?["AppEnvironment"] as? String ?? "staging"
     static let baseURL: String = Bundle.main.infoDictionary?["APIBaseURL"] as? String ?? ""
     static let apiKey: String = Bundle.main.infoDictionary?["APIKey"] as? String ?? ""
+    static let amplitudeAPIKey: String = Bundle.main.infoDictionary?["AmplitudeAPIKey"] as? String ?? ""
 
     static var commonHeaders: [String: String] {
         [

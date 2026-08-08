@@ -68,6 +68,7 @@ struct SetPlanCatalogView: View {
                             newPlanName = ""
                             showNewPlanAlert = true
                         } else {
+                            AmplitudeService.shared.track(.lockedWidgetTapped(feature: "premium_set_plans"))
                             showUpsell = true
                         }
                     } label: {
@@ -137,6 +138,7 @@ struct SetPlanCatalogView: View {
                                         title: "Unlock Premium Set Plans",
                                         subtitle: "Access premium set plans and create your own",
                                         blurRadius: 6,
+                                        feature: "premium_set_plans",
                                         showUpsell: $showUpsell
                                     )
                                     .clipShape(RoundedRectangle(cornerRadius: 12))

@@ -12,6 +12,8 @@ struct PremiumLockedOverlay: ViewModifier {
     let subtitle: String
     let ctaText: String
     let blurRadius: CGFloat
+    /// Stable analytics label for which locked widget this overlay gates.
+    let feature: String
     @Binding var showUpsell: Bool
 
     func body(content: Content) -> some View {
@@ -48,7 +50,10 @@ struct PremiumLockedOverlay: ViewModifier {
             .padding(.horizontal, 16)
         }
         .contentShape(Rectangle())
-        .onTapGesture { showUpsell = true }
+        .onTapGesture {
+            AmplitudeService.shared.track(.lockedWidgetTapped(feature: feature))
+            showUpsell = true
+        }
     }
 }
 
@@ -58,6 +63,7 @@ extension View {
         subtitle: String,
         ctaText: String = "Go Premium",
         blurRadius: CGFloat = 6,
+        feature: String,
         showUpsell: Binding<Bool>
     ) -> some View {
         modifier(PremiumLockedOverlay(
@@ -65,6 +71,7 @@ extension View {
             subtitle: subtitle,
             ctaText: ctaText,
             blurRadius: blurRadius,
+            feature: feature,
             showUpsell: showUpsell
         ))
     }

@@ -479,6 +479,7 @@ struct BalanceView: View {
         .premiumLocked(
             title: "Unlock Strength Balance",
             subtitle: "See how your lifts compare to ideal proportions",
+            feature: "strength_balance",
             showUpsell: $showUpsell
         )
         .background(Color(white: 0.14))

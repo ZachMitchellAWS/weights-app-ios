@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import StoreKit
 
 enum MoreDestination: Hashable {
     case settings
@@ -18,6 +19,7 @@ struct MoreView: View {
     @ObservedObject var selectedSetData: SelectedSetData
     @State private var navigationPath = NavigationPath()
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.requestReview) private var requestReview
     @Query private var userPropertiesItems: [UserProperties]
     @Query private var entitlementRecords: [EntitlementGrant]
     @Query(filter: #Predicate<Exercise> { !$0.deleted }) private var exercises: [Exercise]
@@ -401,6 +403,24 @@ struct MoreView: View {
                         .buttonStyle(.plain)
                         .disabled(isRestoringPurchases || isSyncingPurchases)
 
+                        // Delete Account Button
+                        Button {
+                            showDeleteAccountSheet = true
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "trash")
+                                    .foregroundStyle(.secondary.opacity(0.5))
+                                    .font(.system(size: 12))
+                                    .frame(width: 20)
+                                    .padding(.leading, 24)
+                                Text("Delete Account")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                            }
+                        }
+                        .buttonStyle(.plain)
+
                         // Logout Button
                         Button(role: .destructive) {
                             showLogoutConfirmation = true
@@ -419,24 +439,6 @@ struct MoreView: View {
                             }
                         }
                         .disabled(authViewModel.isLoading)
-
-                        // Delete Account Button
-                        Button {
-                            showDeleteAccountSheet = true
-                        } label: {
-                            HStack(spacing: 10) {
-                                Image(systemName: "trash")
-                                    .foregroundStyle(.secondary.opacity(0.5))
-                                    .font(.system(size: 12))
-                                    .frame(width: 20)
-                                    .padding(.leading, 24)
-                                Text("Delete Account")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                            }
-                        }
-                        .buttonStyle(.plain)
                     }
                 }
 
@@ -772,11 +774,27 @@ struct MoreView: View {
 
                         Button {
                             UserDefaults.standard.set(false, forKey: "hasSeenOnboardingTutorial")
+                            authViewModel.isOnboardingDebugPreview = true
                             authViewModel.isNewUser = true
                             authViewModel.showPostAuthFlow = true
                         } label: {
                             HStack {
-                                Text("Replay Onboarding")
+                                Text("Replay Onboarding (Nav)")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "arrow.counterclockwise")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        Button {
+                            UserDefaults.standard.set(false, forKey: "hasSeenOnboardingTutorial")
+                            authViewModel.isOnboardingDebugPreview = false
+                            authViewModel.isNewUser = true
+                            authViewModel.showPostAuthFlow = true
+                        } label: {
+                            HStack {
+                                Text("Replay Onboarding (Real)")
                                     .foregroundStyle(.primary)
                                 Spacer()
                                 Image(systemName: "arrow.counterclockwise")
@@ -1041,6 +1059,30 @@ struct MoreView: View {
                                     .foregroundStyle(.primary)
                                 Spacer()
                                 Image(systemName: "arrow.counterclockwise")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        Button {
+                            UserDefaults.standard.removeObject(forKey: "hasRequestedAppStoreReview")
+                        } label: {
+                            HStack {
+                                Text("Reset App Store Review Prompt")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "arrow.counterclockwise")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        Button {
+                            requestReview()
+                        } label: {
+                            HStack {
+                                Text("Show Rating Prompt Now")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "star")
                                     .foregroundStyle(Color.appAccent)
                             }
                         }

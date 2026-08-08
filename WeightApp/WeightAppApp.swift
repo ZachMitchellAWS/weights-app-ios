@@ -49,6 +49,11 @@ struct WeightAppApp: App {
         FirebaseApp.configure()
         Analytics.setDefaultEventParameters(["environment": APIConfig.environment])
 
+        // Initialize Amplitude product analytics. Key is injected per build config
+        // (AMPLITUDE_API_KEY → Info.plist), so staging/production hit separate
+        // Amplitude projects; no-ops if the key is unset.
+        AmplitudeService.shared.configure()
+
         // Clear stale keychain tokens on fresh install.
         // UserDefaults is wiped on uninstall but Keychain persists,
         // so if the flag is missing we know this is a new install.
@@ -77,6 +82,7 @@ struct WeightAppApp: App {
         if let userId = KeychainService.shared.getUserId() {
             let sentryUser = Sentry.User(userId: userId)
             SentrySDK.setUser(sentryUser)
+            AmplitudeService.shared.identify(userId: userId)
         }
     }
 
@@ -92,9 +98,10 @@ struct WeightAppApp: App {
                                 // original `if showOnboarding ... else UpsellView` branch
                                 // is preserved in the block comment below so we can
                                 // reinstate the upsell + tutorial-popup chain later.
-                                OnboardingView {
+                                OnboardingView(debugNavigation: authViewModel.isOnboardingDebugPreview) {
                                     authViewModel.markOnboardingComplete()
                                     AnalyticsService.logOnboardingComplete()
+                                    AmplitudeService.shared.track(.onboardingCompleted)
                                     withAnimation(.easeInOut(duration: 0.4)) {
                                         authViewModel.completePostAuthFlow()
                                     }
@@ -196,6 +203,9 @@ struct WeightAppApp: App {
                 // Initialize user samples on first launch
                 UserSamples.shared.initializeIfNeeded()
 
+                // Sync per-user Amplitude properties (cohorts, app version/build, language/locale/timezone)
+                AmplitudeService.shared.syncUserProperties()
+
                 // Wire up ModelContainer/Context for SyncService, AuthViewModel, and EntitlementsService
                 SyncService.shared.setModelContainer(modelContainer)
                 let context = modelContainer.mainContext
@@ -240,8 +250,11 @@ struct WeightAppApp: App {
                         await SyncService.shared.processGroupRetryQueue()
                         await SyncService.shared.processAccessoryGoalCheckinRetryQueue()
 
-                        // Sync timezone to backend if changed
-                        await SyncService.shared.syncTimezoneIfNeeded()
+                        // Sync device metadata (timezone/locale/language) to backend if changed
+                        await SyncService.shared.syncDeviceMetadataIfNeeded()
+
+                        // Retry the onboarding-complete push if it failed offline at completion time
+                        await SyncService.shared.syncOnboardingCompleteIfNeeded()
 
                         // Sync entitlement status from backend
                         await EntitlementsService.shared.syncEntitlementStatus()
@@ -285,6 +298,9 @@ struct WeightAppApp: App {
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active && authViewModel.isAuthenticated {
                     Task { await NarrativeBadgeService.shared.refreshOnAppOpen() }
+                    // Periodic re-push of device metadata; change-detected, so it's a no-op network-wise
+                    // unless the timezone/locale/language actually changed since last sync.
+                    Task { await SyncService.shared.syncDeviceMetadataIfNeeded() }
                 }
             }
             .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in

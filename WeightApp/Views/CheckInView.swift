@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import Sentry
+import StoreKit
 
 struct CheckInView: View {
     @Environment(\.modelContext) private var modelContext
@@ -87,12 +88,20 @@ struct CheckInView: View {
     @AppStorage("hasSeenTierIntro") private var hasSeenTierIntro = false
     @State private var showTierJourneyOverlay = false
     @State private var tierJourneyMode: TierJourneyMode = .intro
+    // Hide the tier name on the completion overlay only for the first (starting-tier) unlock.
+    @State private var tierJourneyHideTierName = false
     @State private var suppressTierDisplay = false
 
     // One-shot tutorial popup shown the first time the Lift tab appears
     // after the strength tier is unlocked. Cleared on logout so a re-login
     // on the same install can show it again.
     @AppStorage("hasSeenLiftTutorialAfterTierUnlock") private var hasSeenLiftTutorialAfterTierUnlock = false
+
+    // App Store review prompt: requested once, ever, after the user's first e1RM progress on a
+    // fundamental lift once their starting tier is already unlocked. Survives logout (device-lifetime).
+    @AppStorage("hasRequestedAppStoreReview") private var hasRequestedAppStoreReview = false
+    @Environment(\.requestReview) private var requestReview
+    @State private var pendingReviewAfterProgress = false
 
     // Baseline calibration state
     @State private var pendingCalibrationSet: LiftSet? = nil
@@ -406,6 +415,7 @@ struct CheckInView: View {
                 TierJourneyOverlay(
                     mode: tierJourneyMode,
                     exerciseTiers: strengthTierResult.exerciseTiers,
+                    hideTierName: tierJourneyHideTierName,
                     onDismiss: {
                         let wasIntro = { if case .intro = tierJourneyMode { return true }; return false }()
                         if wasIntro {
@@ -518,6 +528,7 @@ struct CheckInView: View {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                 showE1RMPopup = false
                             }
+                            AmplitudeService.shared.track(.lockedWidgetTapped(feature: "e1rm_estimate"))
                             showE1RMUpsell = true
                         } label: {
                             HStack(spacing: 6) {
@@ -589,6 +600,17 @@ struct CheckInView: View {
         }
         .onChange(of: syncService.syncFailed) { _, failed in
             if failed { showSyncFailedAlert = true }
+        }
+        .onChange(of: showSubmitOverlay) { _, isShowing in
+            // After the "Increased 1RM" dialog dismisses (auto-dismiss or tap), request an App Store
+            // review — once ever — for the queued first post-unlock fundamental progress set.
+            guard !isShowing, pendingReviewAfterProgress else { return }
+            pendingReviewAfterProgress = false
+            hasRequestedAppStoreReview = true
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(500))
+                requestReview()
+            }
         }
         .alert("Sync Failed", isPresented: $showSyncFailedAlert) {
             Button("Retry") {
@@ -713,8 +735,12 @@ struct CheckInView: View {
                 }
             }
 
-            // In none state, default to first unlogged exercise
-            if strengthTierResult.overallTier == .none,
+            // In none state, default to first unlogged exercise — but NOT while the user is viewing
+            // an accessory. A non-fundamental first set bumps this e1RM count too, and without this
+            // guard it would yank the user onto a fundamental (selectedLiftIndex change → exits
+            // accessory mode).
+            if !isAccessoryMode,
+               strengthTierResult.overallTier == .none,
                activeGroupId == ExerciseGroup.tierExercisesId {
                 let unloggedExerciseIds = Set(
                     strengthTierResult.exerciseTiers
@@ -836,7 +862,11 @@ struct CheckInView: View {
     // MARK: - Phase 1: Strength Header
 
     private var strengthHeader: some View {
-        let tier: StrengthTier = (suppressTierDisplay || showCalibrationAlert) ? .none : strengthTierResult.overallTier
+        // Blank the tier only for the genuine unlock-spoiler case (`suppressTierDisplay`, set on a
+        // fundamental's first tier log). Previously this also keyed off `showCalibrationAlert`, which
+        // forced the locked "Unlock Your Strength Tier" state for an already-unlocked user logging an
+        // accessory's first set — flashing the checklist as the alert dismissed.
+        let tier: StrengthTier = suppressTierDisplay ? .none : strengthTierResult.overallTier
         let isChecklistMode = tier == .none
         let loggedCount = strengthTierResult.exerciseTiers.filter { $0.e1rm != nil }.count
         let limitingTier = strengthTierResult.exerciseTiers
@@ -2145,6 +2175,7 @@ struct CheckInView: View {
         guard !trimmed.isEmpty else { return }
         let ex = Exercise(name: trimmed, isCustom: true, loadType: loadType, movementType: movementType, icon: icon)
         modelContext.insert(ex)
+        AmplitudeService.shared.track(.exerciseCreated(loadType: ex.loadType, movementType: ex.movementType, isCustom: ex.isCustom))
         hubSelectedExerciseId = ex.id
         Task { await SyncService.shared.syncExercise(ex) }
     }
@@ -2509,6 +2540,9 @@ struct CheckInView: View {
             let estimated = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
             let percent = estimated / currentE1RM * 100.0
             if bounds.contains(percent) {
+                // Most recent set at this effort band. If it's high-rep (>12), skip the historical
+                // override and let the caller use the calculated recommendation instead.
+                if set.reps > UserProperties.repRangeMax { return nil }
                 return (set.weight, set.reps)
             }
         }
@@ -3431,6 +3465,9 @@ struct CheckInView: View {
 
     private func logSet() {
         guard let ex = selectedExercise else { return }
+        // Snapshot BEFORE any mutation: the unlock flag is flipped mid-function on the
+        // unlocking set, and this gates the post-start milestone/tier-achievement events.
+        let startingTierWasUnlocked = userPropertiesItems.first?.hasMetStrengthTierConditions ?? false
         if !isViewingToday { viewingDate = actualToday }
 
         let isFirstWeightedSet = !allEstimated1RM.contains(where: { $0.exercise?.id == ex.id }) && ex.currentE1RMLocalCache == nil && weight > 0
@@ -3478,6 +3515,25 @@ struct CheckInView: View {
             }
         }
 
+        // Amplitude: fire "Set Logged" now for regular sets. Baseline (first-weighted)
+        // sets are deferred to applyCalibration() so the event can include the effort
+        // the user selects in the "How did that feel?" prompt — and so a cancelled
+        // calibration doesn't leave a phantom Set Logged behind.
+        if !isFirstWeightedSet {
+            AmplitudeService.shared.track(.setLogged(SetLogProperties(
+                exerciseName: ex.name,
+                exerciseId: ex.id.uuidString,
+                loadType: ex.loadType,
+                reps: set.reps,
+                weight: set.weight,
+                isBaselineSet: set.isBaselineSet,
+                estimated1RM: newEstimate,
+                e1rmIncreased: increased,
+                isMilestone: isMilestone,
+                isFirstTierLog: isFirstTierLog
+            )))
+        }
+
         // Create Estimated1RM (running max)
         let estimated = Estimated1RM(exercise: ex, value: after, setId: set.id)
 
@@ -3504,6 +3560,13 @@ struct CheckInView: View {
             pendingCalibrationEstimated = estimated
             showCalibrationAlert = true
             return
+        }
+
+        // Post-start per-exercise milestone: fires for every fundamental tier crossing after
+        // the starting tier is unlocked (never on the unlocking set or its constituent tiers).
+        if isMilestone && startingTierWasUnlocked {
+            AmplitudeService.shared.track(.strengthMilestoneAchieved(
+                exercise: milestoneName, tier: milestoneTier.title, estimated1RM: after))
         }
 
         // Non-first-weighted-set: save model and sync now
@@ -3553,10 +3616,12 @@ struct CheckInView: View {
             let loggedAfterThis = tierResult.exerciseTiers.filter { $0.e1rm != nil }.count
             if loggedAfterThis >= 5 {
                 tierJourneyMode = .completion(tier: tierResult.overallTier)
+                tierJourneyHideTierName = !(userPropertiesItems.first?.hasMetStrengthTierConditions ?? false)
                 tierToUnlock = tierResult.overallTier
                 if let props = userPropertiesItems.first, !props.hasMetStrengthTierConditions {
                     props.hasMetStrengthTierConditions = true
                     try? modelContext.save()
+                    AmplitudeService.shared.track(.startingStrengthTierUnlocked(tier: tierResult.overallTier.title))
                     Task {
                         let request = UserPropertiesRequest(hasMetStrengthTierConditions: true)
                         _ = try? await APIService.shared.updateUserProperties(request)
@@ -3592,7 +3657,12 @@ struct CheckInView: View {
             let newOverallTier = allTiersAfter.min() ?? .none
             if newOverallTier > previousOverallTier && newOverallTier > .none {
                 tierJourneyMode = .completion(tier: newOverallTier)
+                tierJourneyHideTierName = !(userPropertiesItems.first?.hasMetStrengthTierConditions ?? false)
                 tierToUnlock = newOverallTier
+                if startingTierWasUnlocked {
+                    AmplitudeService.shared.track(.strengthTierAchieved(
+                        tier: newOverallTier.title, previousTier: previousOverallTier.title, drivingExercise: milestoneName))
+                }
                 if let props = userPropertiesItems.first, !props.hasMetStrengthTierConditions {
                     props.hasMetStrengthTierConditions = true
                     try? modelContext.save()
@@ -3661,6 +3731,13 @@ struct CheckInView: View {
 
         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
             showSubmitOverlay = true
+        }
+
+        // Queue a one-time App Store review request: fires after this increase dialog dismisses,
+        // on the user's first e1RM progress on a fundamental lift once the starting tier is unlocked.
+        let isFundamentalLift = TrendsCalculator.fundamentalExercises.contains { $0.id == ex.id }
+        if startingTierWasUnlocked, increased, !isMilestone, isFundamentalLift, !hasRequestedAppStoreReview {
+            pendingReviewAfterProgress = true
         }
 
         // Auto-dismiss after 2s if not milestone
@@ -3769,6 +3846,38 @@ struct CheckInView: View {
 
         try? modelContext.save()
 
+        // Amplitude: the baseline (first-weighted) set is now committed with the user's
+        // effort selection. Baseline sets fire ONLY "Baseline Set Logged" (named per-lift for
+        // the five strength-tier exercises) — not "Set Logged", to avoid a duplicate event.
+        let effortLabel: String
+        if let effort {
+            switch effort {
+            case .easy: effortLabel = "easy"
+            case .moderate: effortLabel = "moderate"
+            case .hard: effortLabel = "hard"
+            case .progress: effortLabel = "redline"
+            }
+        } else {
+            effortLabel = "max_effort"
+        }
+        let baselineProps = SetLogProperties(
+            exerciseName: set.exercise?.name ?? "",
+            exerciseId: set.exercise?.id.uuidString ?? "",
+            loadType: set.exercise?.loadType ?? "",
+            reps: set.reps,
+            weight: set.weight,
+            isBaselineSet: set.isBaselineSet,
+            estimated1RM: calibratedValue,
+            e1rmIncreased: true,
+            isMilestone: isMilestone,
+            isFirstTierLog: isMilestone,
+            effort: effortLabel
+        )
+        let baselineFundamentalName = set.exercise.flatMap { exercise in
+            TrendsCalculator.fundamentalExercises.first(where: { $0.id == exercise.id })?.name
+        }
+        AmplitudeService.shared.track(.baselineSetLogged(fundamentalName: baselineFundamentalName, properties: baselineProps))
+
         if let exId = set.exercise?.id {
             loadDataForExercise(exId)
         }
@@ -3788,10 +3897,12 @@ struct CheckInView: View {
             let loggedAfterThis = tierResult.exerciseTiers.filter { $0.e1rm != nil }.count
             if loggedAfterThis >= 5 {
                 tierJourneyMode = .completion(tier: tierResult.overallTier)
+                tierJourneyHideTierName = !(userPropertiesItems.first?.hasMetStrengthTierConditions ?? false)
                 calibrationTierToUnlock = tierResult.overallTier
                 if let props = userPropertiesItems.first, !props.hasMetStrengthTierConditions {
                     props.hasMetStrengthTierConditions = true
                     try? modelContext.save()
+                    AmplitudeService.shared.track(.startingStrengthTierUnlocked(tier: tierResult.overallTier.title))
                     Task {
                         let request = UserPropertiesRequest(hasMetStrengthTierConditions: true)
                         _ = try? await APIService.shared.updateUserProperties(request)
@@ -3827,6 +3938,7 @@ struct CheckInView: View {
             let newOverallTier = allTiersAfter.min() ?? .none
             if newOverallTier > previousOverallTier && newOverallTier > .none {
                 tierJourneyMode = .completion(tier: newOverallTier)
+                tierJourneyHideTierName = !(userPropertiesItems.first?.hasMetStrengthTierConditions ?? false)
                 calibrationTierToUnlock = newOverallTier
                 if let props = userPropertiesItems.first, !props.hasMetStrengthTierConditions {
                     props.hasMetStrengthTierConditions = true

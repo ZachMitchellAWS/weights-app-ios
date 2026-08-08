@@ -23,6 +23,13 @@ final class UserProperties {
     var proteinGoal: Int?
     var bodyweightTarget: Double?
     var timezoneIdentifier: String?
+    // Push-only device metadata mirrors — stored locally only to detect changes
+    // and avoid redundant pushes. Never pulled back from the backend.
+    var localeIdentifier: String?
+    var languageCode: String?
+    var syncedAppVersion: String?
+    /// Last successful device-metadata push. Drives a weekly freshness resync even when nothing changed.
+    var lastMetadataSyncAt: Date?
     var biologicalSex: String?
     var weightUnit: String = "lbs"
     var hasMetStrengthTierConditions: Bool = false

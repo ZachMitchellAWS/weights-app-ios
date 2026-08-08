@@ -76,6 +76,7 @@ struct PushPullRatioWidget: View {
         .premiumLocked(
             title: "Unlock Movement Ratios",
             subtitle: "Track your push/pull and upper/lower ratios",
+            feature: "push_pull",
             showUpsell: $showUpsell
         )
     }

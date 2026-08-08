@@ -25,6 +25,9 @@ class AuthViewModel: ObservableObject {
     @Published var isNewUser = false
     @Published var showPostAuthFlow = false
     @Published var sessionExpired = false
+    /// Debug-only: set by the "Replay Onboarding" debug button so the onboarding flow shows
+    /// Back/Next navigation controls. Reset when the flow finishes.
+    @Published var isOnboardingDebugPreview = false
 
     nonisolated(unsafe) private var tokenRefreshTimer: Timer?
     private var modelContext: ModelContext?
@@ -75,10 +78,15 @@ class AuthViewModel: ObservableObject {
 
     func completePostAuthFlow() {
         showPostAuthFlow = false
+        isOnboardingDebugPreview = false
     }
 
     func markOnboardingComplete() {
         isOnboardingPending = false
+        // Record onboarding completion on the backend (push-only). The pending flag persists so an
+        // offline completion re-pushes on next launch. Existing users never hit this path.
+        SyncService.shared.markOnboardingCompletePending()
+        Task { await SyncService.shared.syncOnboardingCompleteIfNeeded() }
     }
 
     func handleSessionExpired() {
@@ -154,6 +162,8 @@ class AuthViewModel: ObservableObject {
             SentrySDK.setUser(sentryUser)
 
             AnalyticsService.logLogin(userId: response.userId)
+            AmplitudeService.shared.identify(userId: response.userId)
+            AmplitudeService.shared.track(.signedIn(method: "email"))
 
             // Perform initial sync for returning user (includes user properties sync)
             await SyncService.shared.performInitialSync(isNewUser: false)
@@ -185,9 +195,14 @@ class AuthViewModel: ObservableObject {
             SentrySDK.setUser(sentryUser)
 
             AnalyticsService.logSignUp(userId: response.userId)
+            AmplitudeService.shared.identify(userId: response.userId)
+            AmplitudeService.shared.track(.signedUp(method: "email"))
 
             // Perform initial sync for new user (includes user properties sync)
             await SyncService.shared.performInitialSync(isNewUser: true)
+            // Capture device metadata immediately at signup (forced) so it lands on the backend row
+            // seconds after account creation rather than waiting for a later app launch.
+            await SyncService.shared.syncDeviceMetadataIfNeeded(force: true)
             await EntitlementsService.shared.syncEntitlementStatus()
 
             isLoading = false
@@ -276,8 +291,13 @@ class AuthViewModel: ObservableObject {
         } else {
             AnalyticsService.logLogin(userId: response.userId, method: "apple")
         }
+        AmplitudeService.shared.identify(userId: response.userId)
+        AmplitudeService.shared.track(isNewUser ? .signedUp(method: "apple") : .signedIn(method: "apple"))
 
         await SyncService.shared.performInitialSync(isNewUser: isNewUser)
+        // Force an immediate metadata push for brand-new Apple accounts; returning users fall back to
+        // change-detected sync (only sends if locale/timezone/language actually changed).
+        await SyncService.shared.syncDeviceMetadataIfNeeded(force: isNewUser)
         await EntitlementsService.shared.syncEntitlementStatus()
         isLoading = false
         return .success
@@ -299,6 +319,7 @@ class AuthViewModel: ObservableObject {
         // user would relaunch into a ghost-auth state — local tokens still
         // present, but the server-side refresh token already invalidated.
         SentrySDK.setUser(nil)
+        AmplitudeService.shared.reset()
         KeychainService.shared.clearTokens()
         stopTokenRefreshTimer()
         isOnboardingPending = false
