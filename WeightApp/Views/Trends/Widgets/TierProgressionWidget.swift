@@ -111,6 +111,7 @@ struct TierProgressionWidget: View {
         .premiumLocked(
             title: "Unlock Tier Progression",
             subtitle: "Track your strength journey through the tiers",
+            feature: "tier_progression",
             showUpsell: $showUpsell
         )
     }

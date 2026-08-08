@@ -286,29 +286,85 @@ class SyncService: ObservableObject {
         }
     }
 
-    func syncTimezoneIfNeeded() async {
+    /// Key for the pending onboarding-complete push flag (see `syncOnboardingCompleteIfNeeded`).
+    private static let onboardingCompletePendingSyncKey = "onboardingCompletePendingSync"
+
+    /// Pushes push-only device metadata (timezone, locale, language) to the backend.
+    /// - `force == false` (launch / foreground): sends only the fields that differ from the local
+    ///   mirrors, and returns early if nothing changed.
+    /// - `force == true` (signup): sends all three regardless, so the metadata lands on the backend
+    ///   row immediately after account creation rather than on a later launch.
+    /// Best-effort — logs and moves on if the push fails (a launch/foreground call will retry later).
+    func syncDeviceMetadataIfNeeded(force: Bool = false) async {
         guard let context = modelContext else {
-            SyncLogger.sync.warning("syncTimezoneIfNeeded: no modelContext")
+            SyncLogger.sync.warning("syncDeviceMetadataIfNeeded: no modelContext")
             return
         }
         let currentTz = TimeZone.current.identifier
+        let currentLocale = Locale.current.identifier
+        let currentLanguage = Locale.current.language.languageCode?.identifier
+        let currentAppVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+
         let userProperties = fetchOrCreateUserProperties(context: context)
 
-        // Only send if different from what we have locally
-        guard userProperties.timezoneIdentifier != currentTz else {
-            SyncLogger.sync.debug("syncTimezoneIfNeeded: already up to date (\(currentTz))")
+        let tzChanged = userProperties.timezoneIdentifier != currentTz
+        let localeChanged = userProperties.localeIdentifier != currentLocale
+        let languageChanged = userProperties.languageCode != currentLanguage
+        let appVersionChanged = userProperties.syncedAppVersion != currentAppVersion
+
+        // Freshness heartbeat: also push everything if it's been more than a week since the last
+        // successful sync, even when nothing changed.
+        let oneWeekAgo = Date().addingTimeInterval(-7 * 24 * 60 * 60)
+        let isStale = userProperties.lastMetadataSyncAt.map { $0 < oneWeekAgo } ?? true
+        let sendAll = force || isStale
+
+        guard sendAll || tzChanged || localeChanged || languageChanged || appVersionChanged else {
+            SyncLogger.sync.debug("syncDeviceMetadataIfNeeded: already up to date")
             return
         }
 
-        SyncLogger.sync.info("syncTimezoneIfNeeded: updating \(userProperties.timezoneIdentifier ?? "nil") → \(currentTz)")
+        var request = UserPropertiesRequest()
+        if sendAll || tzChanged { request.timezone = currentTz }
+        if sendAll || localeChanged { request.locale = currentLocale }
+        if sendAll || languageChanged { request.language = currentLanguage }
+        if sendAll || appVersionChanged { request.latestAppVersion = currentAppVersion }
+
+        SyncLogger.sync.info("syncDeviceMetadataIfNeeded: pushing (force=\(force)) tz=\(currentTz) locale=\(currentLocale) language=\(currentLanguage ?? "nil") appVersion=\(currentAppVersion ?? "nil")")
         do {
-            let request = UserPropertiesRequest(timezone: currentTz)
             _ = try await APIService.shared.updateUserProperties(request)
             userProperties.timezoneIdentifier = currentTz
+            userProperties.localeIdentifier = currentLocale
+            userProperties.languageCode = currentLanguage
+            userProperties.syncedAppVersion = currentAppVersion
+            userProperties.lastMetadataSyncAt = Date()
             try? context.save()
-            SyncLogger.sync.info("syncTimezoneIfNeeded: success")
+            SyncLogger.sync.info("syncDeviceMetadataIfNeeded: success")
         } catch {
-            SyncLogger.sync.error("Failed to sync timezone: \(error.localizedDescription)")
+            SyncLogger.sync.error("Failed to sync device metadata: \(error.localizedDescription)")
+        }
+    }
+
+    /// Marks that an onboarding completion needs to be pushed to the backend.
+    /// Called from `AuthViewModel.markOnboardingComplete()`. The flag persists in UserDefaults so an
+    /// offline completion is retried on the next launch. Existing/pre-feature users never set this
+    /// flag, so they are never sent `hasCompletedOnboarding` (no backfill).
+    func markOnboardingCompletePending() {
+        UserDefaults.standard.set(true, forKey: Self.onboardingCompletePendingSyncKey)
+    }
+
+    /// Pushes `hasCompletedOnboarding = true` if a completion is pending, then clears the flag.
+    /// Deliberately does not use the shared user-properties retry queue (which rebuilds the full
+    /// request from the model) so it can never accidentally backfill unrelated users.
+    func syncOnboardingCompleteIfNeeded() async {
+        guard UserDefaults.standard.bool(forKey: Self.onboardingCompletePendingSyncKey) else { return }
+        SyncLogger.sync.info("syncOnboardingCompleteIfNeeded: pushing hasCompletedOnboarding=true")
+        do {
+            let request = UserPropertiesRequest(hasCompletedOnboarding: true)
+            _ = try await APIService.shared.updateUserProperties(request)
+            UserDefaults.standard.set(false, forKey: Self.onboardingCompletePendingSyncKey)
+            SyncLogger.sync.info("syncOnboardingCompleteIfNeeded: success")
+        } catch {
+            SyncLogger.sync.error("Failed to sync onboarding completion: \(error.localizedDescription)")
         }
     }
 

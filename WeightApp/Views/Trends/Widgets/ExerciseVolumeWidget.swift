@@ -110,6 +110,7 @@ struct ExerciseVolumeWidget: View {
         .premiumLocked(
             title: "Unlock Per-Exercise Volume",
             subtitle: "See volume trends for each exercise",
+            feature: "exercise_volume",
             showUpsell: $showUpsell
         )
     }

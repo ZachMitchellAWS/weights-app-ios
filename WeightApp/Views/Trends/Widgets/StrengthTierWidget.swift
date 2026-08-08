@@ -115,6 +115,7 @@ struct StrengthTierWidget: View {
         .premiumLocked(
             title: "Unlock Strength Tiers",
             subtitle: "Discover your strength level across your lifts",
+            feature: "strength_tiers",
             showUpsell: $showUpsell
         )
         .background(Color(white: 0.14))

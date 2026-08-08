@@ -69,7 +69,6 @@ struct InsightsView: View {
         }
         .task {
             await viewModel.onAppear(isPremium: isPremium, hasLocalSetsThisWeek: hasLocalSetsThisWeek, overallTier: overallTier)
-            PushNotificationService.shared.requestPermissionIfNeeded()
         }
         .onAppear {
             // Throttled auto-refresh: re-fetch if 5+ minutes since last tab visit
@@ -180,6 +179,7 @@ struct InsightsView: View {
             .premiumLocked(
                 title: "Unlock Progress Narratives",
                 subtitle: "AI-powered analysis of your training each week",
+                feature: "progress_narratives",
                 showUpsell: $showUpsell
             )
         }

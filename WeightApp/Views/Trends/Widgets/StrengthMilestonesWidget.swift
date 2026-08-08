@@ -122,6 +122,7 @@ struct StrengthMilestonesWidget: View {
             title: "Unlock Strength Milestones",
             subtitle: "Track tier-based milestones for every fundamental lift",
             blurRadius: 6,
+            feature: "strength_milestones",
             showUpsell: $showUpsell
         )
         .background(Color(white: 0.14))

@@ -69,6 +69,7 @@ struct ContentView: View {
             let crumb = Breadcrumb(level: .info, category: "navigation")
             crumb.message = "Tab: \(["Progress", "Lift", "More"][newTab])"
             SentrySDK.addBreadcrumb(crumb)
+            AmplitudeService.shared.track(.tabSwitched(tab: ["Progress", "Lift", "More"][newTab]))
             if newTab == 0 && narrativeBadge.hasNewNarrative {
                 selectedSetData.pendingTrendsTab = .narratives
             }

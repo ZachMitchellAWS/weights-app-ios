@@ -195,6 +195,7 @@ struct FrequencyCalendarWidget: View {
             title: "Unlock Training Activity",
             subtitle: "See your training frequency over time",
             blurRadius: 2,
+            feature: "training_activity",
             showUpsell: $showUpsell
         )
         .background(Color(white: 0.14))

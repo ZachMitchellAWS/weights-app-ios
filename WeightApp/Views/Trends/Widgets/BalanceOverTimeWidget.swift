@@ -72,6 +72,7 @@ struct BalanceOverTimeWidget: View {
         .premiumLocked(
             title: "Unlock Balance Trends",
             subtitle: "See how your exercise balance trends over time",
+            feature: "balance_over_time",
             showUpsell: $showUpsell
         )
     }

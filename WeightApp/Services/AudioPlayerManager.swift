@@ -10,6 +10,8 @@ import Observation
 
 @Observable
 final class AudioPlayerManager {
+    static let shared = AudioPlayerManager()
+
     private(set) var currentlyPlayingSectionTitle: String?
     private(set) var isPlaying: Bool = false
 

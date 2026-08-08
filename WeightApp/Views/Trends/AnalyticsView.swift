@@ -145,6 +145,7 @@ struct AnalyticsView: View {
     private var reportCardButton: some View {
         Button {
             if !isPremium {
+                AmplitudeService.shared.track(.lockedWidgetTapped(feature: "progress_card"))
                 showReportCardUpsell = true
             } else if canGenerate {
                 generateAndShare()

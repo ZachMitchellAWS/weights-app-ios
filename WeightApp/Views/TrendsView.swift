@@ -17,7 +17,7 @@ struct TrendsView: View {
     @State private var trendsTab: TrendsTab = .strength
     @State private var showHistory = false
     @State private var isDeleteModeActive = false
-    @State private var audioPlayer = AudioPlayerManager()
+    @State private var audioPlayer = AudioPlayerManager.shared
 
     var body: some View {
         NavigationStack {
@@ -128,11 +128,17 @@ struct TrendsView: View {
             }
             .onAppear {
                 consumePendingTrendsTab()
+                // Ask for notification permission the first time the Progress tab is opened
+                // (one-shot; guarded inside the service). Moved here from the narratives sub-tab.
+                PushNotificationService.shared.requestPermissionIfNeeded()
             }
             .onChange(of: selectedSetData.pendingTrendsTab) {
                 if selectedTab == 0 {
                     consumePendingTrendsTab()
                 }
+            }
+            .onChange(of: trendsTab) { _, newTab in
+                AmplitudeService.shared.track(.trendsSubtabSwitched(subtab: newTab.title))
             }
         }
     }

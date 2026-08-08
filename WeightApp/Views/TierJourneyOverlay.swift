@@ -9,6 +9,9 @@ enum TierJourneyMode {
 struct TierJourneyOverlay: View {
     let mode: TierJourneyMode
     let exerciseTiers: [(exercise: TrendsCalculator.FundamentalExercise, e1rm: Double?, tier: StrengthTier)]
+    /// Hide the tier name on the completion screen. Used for the FIRST (starting-tier) unlock to keep
+    /// the tier a mystery; subsequent tier unlocks show the name.
+    var hideTierName: Bool = false
     let onDismiss: () -> Void
     let onNavigateToExercise: (UUID) -> Void
     let onNavigateToStrength: () -> Void
@@ -130,11 +133,13 @@ struct TierJourneyOverlay: View {
                     .foregroundStyle(tier.color)
             }
 
-            Spacer().frame(height: 14)
+            if !hideTierName {
+                Spacer().frame(height: 14)
 
-            Text(tier.title)
-                .font(.bebasNeue(size: 28))
-                .foregroundStyle(tier.color)
+                Text(tier.title)
+                    .font(.bebasNeue(size: 28))
+                    .foregroundStyle(tier.color)
+            }
         }
     }
 

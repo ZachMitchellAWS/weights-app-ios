@@ -67,6 +67,7 @@ struct PRTimelineWidget: View {
             title: "Unlock PR Leaderboard",
             subtitle: "See which exercises are progressing fastest",
             blurRadius: 6,
+            feature: "pr_leaderboard",
             showUpsell: $showUpsell
         )
         .background(Color(white: 0.14))

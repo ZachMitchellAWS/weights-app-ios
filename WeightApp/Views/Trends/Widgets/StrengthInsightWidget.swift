@@ -70,6 +70,7 @@ struct StrengthInsightWidget: View {
                     Button {
                         guard let urlString = item.audioUrl,
                               let url = URL(string: urlString) else { return }
+                        AmplitudeService.shared.track(.strengthInsightPlayTapped(action: isPlaying ? "pause" : "play", tier: tier.title))
                         audioPlayer.toggle(url: url, sectionTitle: audioTitle)
                     } label: {
                         Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
@@ -160,6 +161,7 @@ struct StrengthInsightWidget: View {
                             if isPremium {
                                 trendsTab = .narratives
                             } else {
+                                AmplitudeService.shared.track(.lockedWidgetTapped(feature: "strength_insight_upsell"))
                                 showUpsell = true
                             }
                         } label: {

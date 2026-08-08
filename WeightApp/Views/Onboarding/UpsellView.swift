@@ -107,6 +107,7 @@ struct UpsellView: View {
                 .ignoresSafeArea()
         }
         .onAppear {
+            AmplitudeService.shared.track(.premiumUpsellShown(initialPage: initialPage))
             // 0.0s — Badge fades in
             withAnimation(.easeOut(duration: 0.4)) {
                 titleOpacity = 1.0
@@ -374,6 +375,12 @@ struct UpsellView: View {
             errorMessage = "Product not available. Please try again."
             return
         }
+
+        AmplitudeService.shared.track(.purchaseStarted(
+            productId: product.id,
+            plan: selectedPlan == .yearly ? "yearly" : "monthly",
+            isFreeTrial: selectedPlan == .yearly
+        ))
 
         isProcessing = true
         errorMessage = nil

@@ -63,6 +63,7 @@ struct WeeklyVolumeWidget: View {
         .premiumLocked(
             title: "Unlock Weekly Volume",
             subtitle: "Track your total training volume over time",
+            feature: "weekly_volume",
             showUpsell: $showUpsell
         )
     }

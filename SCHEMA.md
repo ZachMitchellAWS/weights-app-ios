@@ -57,8 +57,20 @@
 | id | UUID | `00000000-...0001` | Fixed singleton ID |
 | bodyweight | Double? | nil | Optional |
 | availableChangePlates | [Double] | [] | Weight plate denominations |
-| minReps | Int | 5 | **Local only** -- not synced to backend |
-| maxReps | Int | 12 | **Local only** -- not synced to backend |
+| progressMinReps | Int | 4 | Maps to `minReps` |
+| progressMaxReps | Int | 8 | Maps to `maxReps` |
+| activeSetPlanId | UUID? | nil | |
+| stepsGoal / proteinGoal | Int? | nil | |
+| bodyweightTarget | Double? | nil | |
+| timezoneIdentifier | String? | nil | Mirror of pushed `timezone` (push-only, change-detection) |
+| localeIdentifier | String? | nil | Mirror of pushed `locale` (push-only, change-detection) |
+| languageCode | String? | nil | Mirror of pushed `language` (push-only, change-detection) |
+| biologicalSex | String? | nil | "male" / "female" |
+| weightUnit | String | "lbs" | "lbs" / "kg" |
+| hasMetStrengthTierConditions | Bool | false | |
+
+`hasCompletedOnboarding` is push-only and has **no** local model field — it is driven by the
+UserDefaults flag `onboardingCompletePendingSync` and pushed via `SyncService.syncOnboardingCompleteIfNeeded()`.
 
 ---
 
@@ -118,9 +130,24 @@
 
 ### UserPropertiesRequest
 
-| Field | Type |
-|-------|------|
-| availableChangePlates | [Double]? |
+Partial-update DTO with a custom `encode(to:)` implementing key-presence semantics: a field is emitted
+only when set; `clearX` flags emit an explicit `null` (field removal). All fields optional.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| bodyweight | Double? | + `clearBodyweight` |
+| availableChangePlates | [Double]? | |
+| minReps / maxReps | Int? | |
+| biologicalSex | String? | + `clearBiologicalSex` |
+| weightUnit | String? | |
+| activeSetPlanId | String? | + `clearActiveSetPlan` |
+| stepsGoal / proteinGoal | Int? | + `clearStepsGoal` / `clearProteinGoal` |
+| bodyweightTarget | Double? | + `clearBodyweightTarget` |
+| timezone | String? | Push-only device metadata |
+| locale | String? | Push-only device metadata (e.g. "en_US") |
+| language | String? | Push-only device metadata (e.g. "en") |
+| hasCompletedOnboarding | Bool? | Push-only; sent `true` on onboarding completion |
+| hasMetStrengthTierConditions | Bool? | |
 
 ### UserPropertiesResponse
 

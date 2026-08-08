@@ -132,6 +132,7 @@ struct SetIntensityWidget: View {
         .premiumLocked(
             title: "Unlock Set Intensity",
             subtitle: "See the intensity breakdown of every set",
+            feature: "set_intensity",
             showUpsell: $showUpsell
         )
     }

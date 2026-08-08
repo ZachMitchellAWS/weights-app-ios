@@ -11,10 +11,27 @@ import Charts
 
 struct OnboardingView: View {
     let onComplete: () -> Void
+    /// Debug-only (launched from the debug menu): show Back/Next controls to page through
+    /// every onboarding screen freely, bypassing per-step gating.
+    var debugNavigation: Bool = false
 
     @State private var currentPage = 0
     @State private var showControls = false
     private let totalPages = 7
+
+    /// Stable analytics names for each onboarding page (index → snake_case name).
+    static func onboardingStepName(_ index: Int) -> String {
+        switch index {
+        case 0: return "welcome"
+        case 1: return "five_lifts"
+        case 2: return "progress"
+        case 3: return "milestones"
+        case 4: return "body_profile"
+        case 5: return "change_plates"
+        case 6: return "starting_tier"
+        default: return "unknown_\(index)"
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -55,6 +72,12 @@ struct OnboardingView: View {
                     default: EmptyView()
                     }
                 }
+                .onAppear {
+                    AmplitudeService.shared.track(.onboardingStepViewed(index: currentPage, name: Self.onboardingStepName(currentPage)))
+                }
+                .onChange(of: currentPage) { _, page in
+                    AmplitudeService.shared.track(.onboardingStepViewed(index: page, name: Self.onboardingStepName(page)))
+                }
 
                 Spacer()
 
@@ -79,7 +102,7 @@ struct OnboardingView: View {
                                 currentPage += 1
                             }
                         } label: {
-                            Text(currentPage == 0 ? "Get Started" : "Continue")
+                            Text(currentPage == 0 ? "Begin" : "Continue")
                                 .font(.interSemiBold(size: 16))
                                 .foregroundStyle(.black)
                                 .frame(maxWidth: .infinity)
@@ -96,6 +119,56 @@ struct OnboardingView: View {
                 }
             }
         }
+        .overlay(alignment: .top) {
+            if debugNavigation {
+                debugNavBar
+            }
+        }
+    }
+
+    /// Debug-only Back/Next controls to page through the whole flow (bypasses per-step gating).
+    private var debugNavBar: some View {
+        HStack {
+            Button {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    showControls = false
+                    if currentPage > 0 { currentPage -= 1 }
+                }
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(Color.white.opacity(0.12), in: Circle())
+            }
+            .disabled(currentPage == 0)
+            .opacity(currentPage == 0 ? 0.3 : 1)
+
+            Spacer()
+
+            Text("\(currentPage + 1) / \(totalPages)")
+                .font(.inter(size: 13))
+                .foregroundStyle(.white.opacity(0.5))
+
+            Spacer()
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    showControls = false
+                    if currentPage < totalPages - 1 { currentPage += 1 }
+                }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(Color.white.opacity(0.12), in: Circle())
+            }
+            .disabled(currentPage == totalPages - 1)
+            .opacity(currentPage == totalPages - 1 ? 0.3 : 1)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
     }
 }
 
@@ -118,7 +191,7 @@ private struct OnboardingWelcome: View {
                 .frame(height: 32)
 
             // Welcome
-            Text("Welcome to Lift the Bull")
+            Text("LIFT THE BULL")
                 .font(.bebasNeue(size: 38))
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
@@ -127,7 +200,7 @@ private struct OnboardingWelcome: View {
                 .frame(height: 12)
 
             // Setup message
-            Text("Your strength journey starts here.")
+            Text("Steady progress on the lifts that matter.")
                 .font(.inter(size: 17))
                 .foregroundStyle(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
@@ -150,6 +223,16 @@ private struct OnboardingFiveLiftsConcept: View {
     private let exerciseTiers: [StrengthTier] = [.legend, .advanced, .elite, .intermediate, .advanced]
     private let overallTier: StrengthTier = .advanced
 
+    /// Icons that render visually larger than the others, so we shrink them slightly to match.
+    private let smallIconExercises: Set<String> = ["DeadliftIcon", "SquatIcon", "BenchPressIcon"]
+
+    /// Per-icon display size (visual balancing across the five lift icons).
+    private func iconSize(for icon: String) -> CGFloat {
+        if icon == "OverheadPressIcon" { return 50 }
+        if smallIconExercises.contains(icon) { return 46 }
+        return 48
+    }
+
     @State private var animatedExercise: Int = 0
     @State private var barProgress: [CGFloat] = [0, 0, 0, 0, 0]
     @State private var showOverallTier: Bool = false
@@ -162,16 +245,16 @@ private struct OnboardingFiveLiftsConcept: View {
         VStack(spacing: 0) {
             // Title
             VStack(spacing: 12) {
-                Text("Your Strength Tier")
+                Text("Five Lifts. Total Strength.")
                     .font(.bebasNeue(size: 34))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
                     .opacity(showHeader ? 1 : 0)
                     .offset(y: showHeader ? 0 : 16)
 
-                Text("Your Strength Tier is based on\n\(Text("Five").fontWeight(.semibold).foregroundColor(.appAccent)) fundamental lifts.")
+                (Text("Master these. ").foregroundColor(.white.opacity(0.7))
+                    + Text("Everything else follows.").foregroundColor(.appAccent))
                     .font(.inter(size: 17))
-                    .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
                     .opacity(showSubtitle ? 1 : 0)
@@ -184,35 +267,30 @@ private struct OnboardingFiveLiftsConcept: View {
             // Exercise list card (contains bars + overall tier)
             VStack(spacing: 0) {
                 ForEach(Array(exercises.enumerated()), id: \.element.id) { index, exercise in
-                    HStack(spacing: 22) {
+                    HStack(spacing: 18) {
                         Image(exercise.icon)
                             .resizable()
                             .scaledToFit()
-                            .frame(width: 40, height: 40)
-                            .foregroundStyle(barProgress[index] > 0 ? Color.appAccent : .white.opacity(0.3))
+                            .frame(width: iconSize(for: exercise.icon), height: iconSize(for: exercise.icon))
+                            .frame(width: 50, height: 50)
+                            .foregroundStyle(barProgress[index] > 0 ? Color.appAccent : .white.opacity(0.35))
 
                         Text(exercise.name)
-                            .font(.inter(size: 15))
+                            .font(.inter(size: 16))
                             .foregroundStyle(.white)
-                            .frame(width: 115, alignment: .leading)
 
-                        // Progress bar
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                RoundedRectangle(cornerRadius: 3)
-                                    .fill(Color.white.opacity(0.1))
-                                    .frame(height: 6)
-
-                                RoundedRectangle(cornerRadius: 3)
-                                    .fill(exerciseTiers[index].color)
-                                    .frame(width: barProgress[index] * geo.size.width, height: 6)
-                            }
-                            .frame(maxHeight: .infinity, alignment: .center)
-                        }
-                        .frame(height: 6)
+                        Spacer()
                     }
-                    .padding(.vertical, 14)
-                    .padding(.horizontal, 16)
+                    .padding(.vertical, 16)
+                    .padding(.horizontal, 20)
+
+                    if index < exercises.count - 1 {
+                        Rectangle()
+                            .fill(Color.white.opacity(0.08))
+                            .frame(height: 1)
+                            .padding(.leading, 88)
+                            .padding(.trailing, 20)
+                    }
                 }
 
                 // FEATURE FLAG: divider + overall-tier reveal hidden so the
@@ -257,23 +335,16 @@ private struct OnboardingFiveLiftsConcept: View {
             .background(Color(white: 0.12))
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .padding(.horizontal, 24)
-            .overlay(alignment: .bottomTrailing) {
-                if animationComplete {
-                    Button {
-                        replayAnimation()
-                    } label: {
-                        Image(systemName: "arrow.counterclockwise")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.3))
-                            .padding(8)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, 28)
-                    .padding(.bottom, 4)
-                    .transition(.opacity)
-                }
-            }
             .opacity(showExerciseCard ? 1 : 0)
+
+            Spacer()
+                .frame(height: 18)
+
+            (Text("Short list. ").foregroundColor(.white.opacity(0.55))
+                + Text("Full body.").foregroundColor(.appAccent))
+                .font(.inter(size: 15))
+                .multilineTextAlignment(.center)
+                .opacity(showExerciseCard ? 1 : 0)
         }
         .onAppear {
             runAnimation()
@@ -315,17 +386,6 @@ private struct OnboardingFiveLiftsConcept: View {
         }
     }
 
-    private func replayAnimation() {
-        withAnimation(.easeOut(duration: 0.2)) {
-            barProgress = [0, 0, 0, 0, 0]
-            showOverallTier = false
-            animationComplete = false
-            showHeader = false
-            showSubtitle = false
-            showExerciseCard = false
-        }
-        runAnimation()
-    }
 }
 
 // MARK: - Screen 3: Your Estimated 1RM
@@ -502,14 +562,14 @@ private struct OnboardingProgressConcept: View {
         VStack(spacing: 0) {
             // Title
             VStack(spacing: 12) {
-                Text("Achievable Progress")
+                Text("PROGRESS, BUILT IN")
                     .font(.bebasNeue(size: 34))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
                     .opacity(showHeader ? 1 : 0)
                     .offset(y: showHeader ? 0 : 16)
 
-                Text("Choose \(Text("Progress Sets").foregroundColor(.appAccent)) designed to\nmove your strength forward.")
+                Text("Choose \(Text("Progress Sets").foregroundColor(.appAccent)) built to\nmove your strength forward.")
                     .font(.inter(size: 17))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
@@ -1257,18 +1317,42 @@ private struct OnboardingMilestonesConcept: View {
 
     private let badgeSize: CGFloat = 48
 
+    private var tierLegend: some View {
+        let topRow = Array(tiers.prefix(3))
+        let bottomRow = Array(tiers.suffix(3))
+        return VStack(spacing: 8) {
+            HStack(spacing: 16) {
+                ForEach(topRow, id: \.rawValue) { tierLegendItem($0) }
+            }
+            HStack(spacing: 16) {
+                ForEach(bottomRow, id: \.rawValue) { tierLegendItem($0) }
+            }
+        }
+    }
+
+    private func tierLegendItem(_ tier: StrengthTier) -> some View {
+        HStack(spacing: 5) {
+            Circle().fill(tier.color).frame(width: 7, height: 7)
+            Text(tier.title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(tier.color)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Title
             VStack(spacing: 12) {
-                Text("FROM NOVICE TO LEGEND")
+                Text("NOVICE TO LEGEND")
                     .font(.bebasNeue(size: 34))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
                     .opacity(showHeader ? 1 : 0)
                     .offset(y: showHeader ? 0 : 16)
 
-                Text("\(Text("Go from ").foregroundColor(.white.opacity(0.7)))\(Text("Novice").foregroundColor(.white))\(Text(" to ").foregroundColor(.white.opacity(0.7)))\(Text("Legend").foregroundColor(StrengthTier.legend.color))\(Text(" by\ngetting stronger over time.").foregroundColor(.white.opacity(0.7)))")
+                (Text("Your ").foregroundColor(.white.opacity(0.7))
+                    + Text("Strength Tier").foregroundColor(.appAccent)
+                    + Text(" climbs\nwhen all five lifts do.").foregroundColor(.white.opacity(0.7)))
                     .font(.inter(size: 17))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
@@ -1317,7 +1401,17 @@ private struct OnboardingMilestonesConcept: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 40)
-                .padding(.bottom, 56)
+                .padding(.bottom, 28)
+
+                // Divider
+                Rectangle()
+                    .fill(Color.white.opacity(0.1))
+                    .frame(height: 1)
+                    .padding(.horizontal, 16)
+
+                // Strength tier legend (inside the card)
+                tierLegend
+                    .padding(.vertical, 16)
             }
             .background(Color(white: 0.12))
             .clipShape(RoundedRectangle(cornerRadius: 16))
@@ -1393,7 +1487,7 @@ private struct OnboardingMilestonesConcept: View {
 
             // Exercise name
             Text(shortExerciseName(exercises[i].name))
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(displayColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -2128,12 +2222,12 @@ private struct OnboardingStartingTierStep: View {
     private func runAnimation() {
         animationTask?.cancel()
         animationTask = Task {
-            withAnimation(.easeOut(duration: 0.55)) { showHeader = true }
-            try? await Task.sleep(for: .milliseconds(300))
-            withAnimation(.easeOut(duration: 0.55)) { showSubtitle = true }
-            try? await Task.sleep(for: .milliseconds(500))
-            withAnimation(.easeOut(duration: 0.45)) { showCard = true }
-            try? await Task.sleep(for: .milliseconds(100))
+            withAnimation(.easeOut(duration: 0.45)) { showHeader = true }
+            try? await Task.sleep(for: .milliseconds(220))
+            withAnimation(.easeOut(duration: 0.45)) { showSubtitle = true }
+            try? await Task.sleep(for: .milliseconds(380))
+            withAnimation(.easeOut(duration: 0.4)) { showCard = true }
+            try? await Task.sleep(for: .milliseconds(80))
 
             // Gentle pulse on the awaiting lifts. Filled lifts ignore `pulse`
             // (they read the `isFilled` branch instead) so they hold their
@@ -2142,30 +2236,29 @@ private struct OnboardingStartingTierStep: View {
                 pulse = true
             }
 
-            // Fill in one by one, left to right. ~25% faster cadence than the
-            // original 350ms beat.
+            // Fill in one by one, left to right.
             for _ in 0..<5 {
                 guard !Task.isCancelled else { return }
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.65)) {
                     filledCount += 1
                 }
-                try? await Task.sleep(for: .milliseconds(260))
+                try? await Task.sleep(for: .milliseconds(200))
             }
 
-            try? await Task.sleep(for: .milliseconds(400))
+            try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
-            withAnimation(.spring(response: 0.45, dampingFraction: 0.55)) {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.55)) {
                 showLock = true
             }
             // Page dots + Let's Begin become available alongside the unlock
             // icon — slightly ahead of the replay button.
-            withAnimation(.easeOut(duration: 0.4)) {
+            withAnimation(.easeOut(duration: 0.35)) {
                 showControls = true
             }
 
-            try? await Task.sleep(for: .milliseconds(500))
+            try? await Task.sleep(for: .milliseconds(380))
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.3)) {
+            withAnimation(.easeOut(duration: 0.25)) {
                 animationComplete = true
             }
         }
