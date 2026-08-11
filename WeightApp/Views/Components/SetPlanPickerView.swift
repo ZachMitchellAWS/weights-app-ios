@@ -18,6 +18,11 @@ struct SetPlanCatalogView: View {
     @State private var shouldScrollToBottom = false
 
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
+    // PERSISTED KEYS — these strings are written to SetPlan.effortSequence and
+    // synced to the backend, which hard-validates them against this exact list and
+    // rejects the ENTIRE batch with a 400 on any unknown value. "redline" is the
+    // legacy key for what the UI now calls "Near Max"; renaming it here silently
+    // breaks set-plan sync. Change display labels in `effortLabel(for:)` instead.
     private static let effortLevels = ["easy", "moderate", "hard", "redline", "pr"]
 
     private var isPremium: Bool {
@@ -97,7 +102,7 @@ struct SetPlanCatalogView: View {
                             Circle()
                                 .fill(SequenceSquareView.color(for: level))
                                 .frame(width: 8, height: 8)
-                            Text(level == "pr" ? "Progress" : level.capitalized)
+                            Text(SetPlan.effortLabel(for: level))
                                 .font(.caption2)
                                 .foregroundStyle(.white.opacity(0.5))
                         }

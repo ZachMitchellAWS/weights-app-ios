@@ -27,6 +27,8 @@ struct MoreView: View {
     @State private var showAccount = false
     @State private var showDeveloper = false
     @State private var showAbout = false
+    // FEATURE FLAG: SETS-widget style variant (see SetsWidgetStyle / CheckInView).
+    @AppStorage("setsWidgetStyle") private var setsWidgetStyleRaw = SetsWidgetStyle.verticalRows.rawValue
 
     @State private var showDataPopulatedAlert = false
     @State private var showTodayDataPopulatedAlert = false
@@ -58,6 +60,7 @@ struct MoreView: View {
     @State private var showExerciseIcons = false
     @State private var showAlertPreviews = false
     @State private var showTierJourneyIntro = false
+    @State private var strengthReportLayout: ReportLayout? = nil
     @State private var showEntitlementDetails = false
     @State private var showLogExportSheet = false
     @State private var exportedLogText = ""
@@ -1087,6 +1090,18 @@ struct MoreView: View {
                             }
                         }
 
+                        Button {
+                            TutorialPresenter.shared.showResourcesHint = true
+                        } label: {
+                            HStack {
+                                Text("Show Resources Hint Popup")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "play.rectangle.on.rectangle")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
                         Text("User Samples")
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.5))
@@ -1217,6 +1232,16 @@ struct MoreView: View {
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(0.5))
 
+                        Picker(selection: $setsWidgetStyleRaw) {
+                            ForEach(SetsWidgetStyle.allCases) { style in
+                                Text(style.title).tag(style.rawValue)
+                            }
+                        } label: {
+                            Text("Sets Widget Style")
+                                .foregroundStyle(.primary)
+                        }
+                        .tint(Color.appAccent)
+
                         Button {
                             withAnimation {
                                 showPlateCalculator.toggle()
@@ -1257,6 +1282,25 @@ struct MoreView: View {
                                                 .foregroundStyle(.white.opacity(0.8))
                                         }
                                     }
+                                }
+                            }
+                        }
+
+                        // MARK: Strength Report Mockups
+                        Text("Strength Report Mockups")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.5))
+
+                        ForEach(ReportLayout.allCases) { layout in
+                            Button {
+                                strengthReportLayout = layout
+                            } label: {
+                                HStack {
+                                    Text("Strength Report — \(layout.rawValue.capitalized)")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "chart.bar.doc.horizontal")
+                                        .foregroundStyle(Color.appAccent)
                                 }
                             }
                         }
@@ -1410,6 +1454,9 @@ struct MoreView: View {
             }
             .sheet(isPresented: $showAlertPreviews) {
                 AlertPreviewsSheet()
+            }
+            .sheet(item: $strengthReportLayout) { layout in
+                StrengthReportPreviewSheet(layout: layout)
             }
             .sheet(isPresented: $showAPIValidation) {
                 APIValidationView()
@@ -1864,7 +1911,7 @@ struct MoreView: View {
             let existingSets = allLiftSet.filter { $0.exercise?.id == exercise.id }
             var runningBest = OneRMCalculator.current1RM(from: existingSets)
 
-            // Pattern: 2 Easy, 2 Moderate, 2 Hard, 1 Redline, 1 PR
+            // Pattern: 2 Easy, 2 Moderate, 2 Hard, 1 Near Max, 1 PR
             let intensities: [Double] = [0.52, 0.58, 0.65, 0.70, 0.76, 0.82, 0.90, 1.02]
 
             for setNum in 0..<intensities.count {
@@ -1877,7 +1924,7 @@ struct MoreView: View {
                 case 0, 1: reps = 10 // Easy warmup sets
                 case 2, 3: reps = 8  // Moderate sets
                 case 4, 5: reps = 6  // Hard sets
-                case 6: reps = 4     // Redline set
+                case 6: reps = 4     // Near Max set
                 case 7: reps = 2     // PR set
                 default: reps = 6
                 }
@@ -2189,7 +2236,7 @@ struct MoreView: View {
             milestonesAchieved: 8,
             milestonesTotal: 30,
             balanceCategory: nil,
-            intensity: IntensityBreakdown(easyPct: 0.22, moderatePct: 0.35, hardPct: 0.25, redlinePct: 0.12, prPct: 0.06),
+            intensity: IntensityBreakdown(easyPct: 0.22, moderatePct: 0.35, hardPct: 0.25, nearMaxPct: 0.12, prPct: 0.06),
             avgWeeklyVolume: 98_808,
             bodyweight: 180
         )
@@ -2599,7 +2646,7 @@ struct AlertPreviewsSheet: View {
     enum AlertPreviewType: String, CaseIterable, Identifiable {
         // Set logged overlays
         case submitPR = "Set Logged (PR)"
-        case submitNearMax = "Set Logged (Redline)"
+        case submitNearMax = "Set Logged (Near Max)"
         case submitHard = "Set Logged (Hard)"
         case submitModerate = "Set Logged (Moderate)"
         case submitEasy = "Set Logged (Easy)"
@@ -2713,7 +2760,7 @@ struct AlertPreviewsSheet: View {
         case .submitPR:
             SubmitOverlayPreview(didIncrease: true, delta: 12.5, intensityLabel: "PR", intensityColor: .setPR)
         case .submitNearMax:
-            SubmitOverlayPreview(didIncrease: false, delta: 0, intensityLabel: "Redline", intensityColor: .setNearMax)
+            SubmitOverlayPreview(didIncrease: false, delta: 0, intensityLabel: "Near Max", intensityColor: .setNearMax)
         case .submitHard:
             SubmitOverlayPreview(didIncrease: false, delta: 0, intensityLabel: "Hard", intensityColor: .setHard)
         case .submitModerate:

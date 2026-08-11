@@ -194,9 +194,27 @@ struct WeightAppApp: App {
                         withAnimation(.easeInOut(duration: 0.25)) {
                             tutorialPresenter.showLiftTutorial = false
                         }
+                        // Once the tour card closes (watched or skipped), point the
+                        // user at where they can find it again. Slight delay so it
+                        // sequences after the tutorial's exit animation.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                tutorialPresenter.showResourcesHint = true
+                            }
+                        }
                     }
                     .transition(.opacity)
                     .zIndex(2)
+                }
+
+                if tutorialPresenter.showResourcesHint {
+                    ResourcesHintPopup(resource: ResourceCatalog.all.first) {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            tutorialPresenter.showResourcesHint = false
+                        }
+                    }
+                    .transition(.opacity)
+                    .zIndex(3)
                 }
             }
             .onAppear {

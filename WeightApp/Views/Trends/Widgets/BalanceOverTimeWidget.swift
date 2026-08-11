@@ -127,7 +127,7 @@ struct BalanceOverTimeWidget: View {
                     (4.5, 3.5, Color.setEasy, "Symmetrical"),
                     (3.5, 2.5, Color.setModerate, "Balanced"),
                     (2.5, 1.5, Color.appAccent, "Uneven"),
-                    (1.5, 0.5, Color.setNearMax, "Skewed"),
+                    (1.5, 0.5, Color.semanticNegative, "Skewed"),
                 ]
                 ForEach(bands.indices, id: \.self) { i in
                     let band = bands[i]
@@ -211,8 +211,8 @@ struct BalanceOverTimeWidget: View {
         case 0: return .setEasy           // Symmetrical — green
         case 1: return .setModerate       // Balanced — cyan
         case 2: return .appAccent         // Uneven — amber
-        case 3: return .setNearMax        // Skewed — red
-        default: return .setNearMax       // Lopsided — red
+        case 3: return .semanticNegative  // Skewed — red
+        default: return .semanticNegative // Lopsided — red
         }
     }
 

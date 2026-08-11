@@ -80,8 +80,6 @@ struct AnalyticsView: View {
 
                         FrequencyCalendarWidget(allSets: allSets, isPremium: isPremium, showUpsell: $showUpsell)
 
-                        TrainingRecencyWidget(allSets: allSets, isPremium: isPremium, showUpsell: $showUpsell)
-
                         TierProgressionWidget(
                             allEstimated1RM: allEstimated1RM,
                             bodyweight: userProperties?.bodyweight ?? 200.0,
@@ -100,6 +98,10 @@ struct AnalyticsView: View {
                         SetIntensityWidget(allSets: allSets, allEstimated1RM: allEstimated1RM, weightUnit: userProperties?.preferredWeightUnit ?? .lbs, isPremium: isPremium, showUpsell: $showUpsell)
 
                         PRTimelineWidget(allEstimated1RM: allEstimated1RM, isPremium: isPremium, showUpsell: $showUpsell, weightUnit: userProperties?.preferredWeightUnit ?? .lbs)
+
+                        // Last on purpose: its height grows with every exercise the
+                        // user has ever logged, so it's the most verbose widget here.
+                        TrainingRecencyWidget(allSets: allSets, isPremium: isPremium, showUpsell: $showUpsell)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)

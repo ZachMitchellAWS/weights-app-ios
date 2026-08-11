@@ -282,7 +282,7 @@ struct StrengthBalanceCardView: View {
                         (4.5, 3.5, .setEasy, "Symmetrical"),
                         (3.5, 2.5, .setModerate, "Balanced"),
                         (2.5, 1.5, .appAccent, "Uneven"),
-                        (1.5, 0.5, .setNearMax, "Skewed"),
+                        (1.5, 0.5, .semanticNegative, "Skewed"),
                     ]
                     ForEach(bands.indices, id: \.self) { i in
                         let band = bands[i]
@@ -314,7 +314,7 @@ struct StrengthBalanceCardView: View {
         case 0: return .setEasy
         case 1: return .setModerate
         case 2: return .appAccent
-        default: return .setNearMax
+        default: return .semanticNegative
         }
     }
 }

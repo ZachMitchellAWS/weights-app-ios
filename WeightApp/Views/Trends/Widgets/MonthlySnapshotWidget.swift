@@ -20,7 +20,7 @@ struct MonthlySnapshotWidget: View {
             (.easy, dist.easy, dist.percentage(for: .easy)),
             (.moderate, dist.moderate, dist.percentage(for: .moderate)),
             (.hard, dist.hard, dist.percentage(for: .hard)),
-            (.redline, dist.redline, dist.percentage(for: .redline)),
+            (.nearMax, dist.nearMax, dist.percentage(for: .nearMax)),
             (.pr, dist.pr, dist.percentage(for: .pr))
         ].filter { $0.count > 0 }
     }
@@ -136,7 +136,7 @@ struct MonthlySnapshotWidget: View {
         case .easy: return .setEasy
         case .moderate: return .setModerate
         case .hard: return .setHard
-        case .redline: return .setNearMax
+        case .nearMax: return .setNearMax
         case .pr: return .setPR
         }
     }

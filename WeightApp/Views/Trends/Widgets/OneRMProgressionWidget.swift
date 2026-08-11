@@ -119,11 +119,15 @@ struct OneRMProgressionWidget: View {
         }
         .onAppear {
             if selectedExercise == nil {
-                selectedExercise = allExerciseNames.first
+                selectedExercise = TrendsCalculator.prioritizedExerciseNames(allExerciseNames).first
             }
         }
         .task(id: "\(allEstimated1RM.count)-\(selectedExercise ?? "")") {
-            guard let exercise = selectedExercise ?? allExerciseNames.first else {
+            // Prioritized here too: `allExerciseNames` arrives in createdAt order,
+            // so an unprioritized fallback would plot a different exercise than the
+            // chip names.
+            guard let exercise = selectedExercise
+                    ?? TrendsCalculator.prioritizedExerciseNames(allExerciseNames).first else {
                 dataPoints = []
                 return
             }
@@ -133,9 +137,19 @@ struct OneRMProgressionWidget: View {
 
     private var exercisePicker: some View {
         Menu {
-            ForEach(allExerciseNames, id: \.self) { name in
-                Button(name) {
-                    selectedExercise = name
+            let parts = TrendsCalculator.partitionedExerciseNames(allExerciseNames)
+            if !parts.tier.isEmpty {
+                Section("Strength Tier") {
+                    ForEach(parts.tier, id: \.self) { name in
+                        Button(name) { selectedExercise = name }
+                    }
+                }
+            }
+            if !parts.other.isEmpty {
+                Section("Other Exercises") {
+                    ForEach(parts.other, id: \.self) { name in
+                        Button(name) { selectedExercise = name }
+                    }
                 }
             }
         } label: {

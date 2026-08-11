@@ -338,7 +338,7 @@ struct ExerciseGroupRow: View {
         if set.isBaselineSet {
             let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: percent1RM ?? 0)
             switch bucket {
-            case .pr, .redline: return .setNearMax
+            case .pr, .nearMax: return .setNearMax
             case .hard: return .setHard
             case .moderate: return .setModerate
             case .easy: return .setEasy
@@ -358,7 +358,7 @@ struct ExerciseGroupRow: View {
         let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: percent1RM ?? 0)
         switch bucket {
         case .pr: return .setPR
-        case .redline: return .setNearMax
+        case .nearMax: return .setNearMax
         case .hard: return .setHard
         case .moderate: return .setModerate
         case .easy: return .setEasy

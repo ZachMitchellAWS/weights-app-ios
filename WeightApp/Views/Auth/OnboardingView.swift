@@ -824,7 +824,7 @@ private struct OnboardingE1RMConcept_ChartVersion: View {
                             .frame(width: CGFloat(sampleData.count) * barWidth, height: 140).offset(x: -scrollOffset)
                     }.frame(height: 140).clipped()
                 }
-                HStack(spacing: 10) { LegendDot(color: .setEasy, label: "Easy"); LegendDot(color: .setModerate, label: "Moderate"); LegendDot(color: .setHard, label: "Hard"); LegendDot(color: .setNearMax, label: "Redline"); LegendDot(color: .appAccent, label: "PR") }.padding(.top, 16)
+                HStack(spacing: 10) { LegendDot(color: .setEasy, label: "Easy"); LegendDot(color: .setModerate, label: "Moderate"); LegendDot(color: .setHard, label: "Hard"); LegendDot(color: .setNearMax, label: "Near Max"); LegendDot(color: .appAccent, label: "PR") }.padding(.top, 16)
             }.padding(20).background(Color(white: 0.12)).clipShape(RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 24)
                 .onAppear { let totalWidth = CGFloat(sampleData.count) * barWidth; withAnimation(.linear(duration: 20).repeatForever(autoreverses: true)) { scrollOffset = totalWidth - 280 } }
         }
@@ -1165,7 +1165,7 @@ private struct OnboardingEffortTraining_ScrollVersion: View {
                     Text("Previous Day").font(.interSemiBold(size: 12)).foregroundStyle(.white.opacity(0.7))
                     GeometryReader { _ in HStack(spacing: 6) { ForEach(0..<previousSets.count, id: \.self) { index in let set = previousSets[index]; SetSquareOnboarding(reps: set.reps, weight: set.weight, color: set.color) } }.offset(x: -scrollOffset) }.frame(height: 42).clipped()
                 }
-                HStack(spacing: 10) { LegendDot(color: .setEasy, label: "Easy"); LegendDot(color: .setModerate, label: "Moderate"); LegendDot(color: .setHard, label: "Hard"); LegendDot(color: .setNearMax, label: "Redline"); LegendDot(color: .appAccent, label: "PR") }.padding(.top, 12)
+                HStack(spacing: 10) { LegendDot(color: .setEasy, label: "Easy"); LegendDot(color: .setModerate, label: "Moderate"); LegendDot(color: .setHard, label: "Hard"); LegendDot(color: .setNearMax, label: "Near Max"); LegendDot(color: .appAccent, label: "PR") }.padding(.top, 12)
             }.padding(20).background(Color(white: 0.12)).clipShape(RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 24)
                 .onAppear { withAnimation(.linear(duration: 40).repeatForever(autoreverses: true)) { scrollOffset = 450 } }
         }

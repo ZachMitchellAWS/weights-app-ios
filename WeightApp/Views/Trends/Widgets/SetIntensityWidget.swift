@@ -27,7 +27,9 @@ struct SetIntensityWidget: View {
     }
 
     private var selectedExercise: Exercise? {
-        let name = selectedExerciseName ?? exerciseNames.first
+        // Fallback must be prioritized too, or the chip and the plotted series
+        // could disagree before a selection is made.
+        let name = selectedExerciseName ?? TrendsCalculator.prioritizedExerciseNames(exerciseNames).first
         guard let name else { return nil }
         return exercises.first(where: { $0.name == name })
     }
@@ -97,7 +99,7 @@ struct SetIntensityWidget: View {
         }
         .onAppear {
             if selectedExerciseName == nil {
-                selectedExerciseName = exerciseNames.first
+                selectedExerciseName = TrendsCalculator.prioritizedExerciseNames(exerciseNames).first
             }
         }
     }
@@ -184,10 +186,25 @@ struct SetIntensityWidget: View {
 
     private var exercisePicker: some View {
         Menu {
-            ForEach(exerciseNames, id: \.self) { name in
-                Button(name) {
-                    selectedExerciseName = name
-                    selectedChartBarIndex = nil
+            let parts = TrendsCalculator.partitionedExerciseNames(exerciseNames)
+            if !parts.tier.isEmpty {
+                Section("Strength Tier") {
+                    ForEach(parts.tier, id: \.self) { name in
+                        Button(name) {
+                            selectedExerciseName = name
+                            selectedChartBarIndex = nil
+                        }
+                    }
+                }
+            }
+            if !parts.other.isEmpty {
+                Section("Other Exercises") {
+                    ForEach(parts.other, id: \.self) { name in
+                        Button(name) {
+                            selectedExerciseName = name
+                            selectedChartBarIndex = nil
+                        }
+                    }
                 }
             }
         } label: {
@@ -294,7 +311,7 @@ struct SetIntensityWidget: View {
             LegendItem(color: .setEasy, label: "Easy")
             LegendItem(color: .setModerate, label: "Moderate")
             LegendItem(color: .setHard, label: "Hard")
-            LegendItem(color: .setNearMax, label: "Redline")
+            LegendItem(color: .setNearMax, label: "Near Max")
             LegendItem(color: .setPR, label: "Progress")
         }
     }
