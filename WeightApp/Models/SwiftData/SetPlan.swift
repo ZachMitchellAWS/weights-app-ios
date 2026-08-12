@@ -35,6 +35,26 @@ final class SetPlan {
         self.deleted = deleted
     }
 
+    // MARK: - Effort Key Display
+
+    /// Display label for a persisted `effortSequence` key.
+    ///
+    /// These keys are storage/wire values and deliberately do NOT match what the UI
+    /// calls them: "redline" is the legacy key for what the app now displays as
+    /// "Near Max". Deriving a label with `key.capitalized` therefore resurrects
+    /// retired naming, which is exactly how "Redline" survived the rename in the
+    /// set-plan catalog legend. Always route key → label through here.
+    static func effortLabel(for key: String) -> String {
+        switch key {
+        case "easy": return "Easy"
+        case "moderate": return "Moderate"
+        case "hard": return "Hard"
+        case "redline": return "Near Max"
+        case "pr": return "Progress"
+        default: return key.capitalized
+        }
+    }
+
     // MARK: - Built-in Plan IDs (deterministic)
 
     static let standardId        = UUID(uuidString: "00000000-0000-0000-0000-000000000101")!
@@ -66,7 +86,7 @@ final class SetPlan {
     // MARK: - Built-in Definitions
 
     static let builtInPlans: [(id: UUID, name: String, sequence: [String], description: String)] = [
-        (standardId,       "Standard",            ["easy", "easy", "moderate", "moderate", "hard", "pr"],                      "Progressive warmup to PR attempt"),
+        (standardId,       "Standard",            ["easy", "easy", "moderate", "moderate", "hard", "pr"],                      "Warm-up sets followed by a progress set"),
         (maintenanceId,    "Maintenance",         ["moderate", "moderate", "hard"],                                            "Moderate volume, hold strength"),
         (deloadId,         "Deload",              ["easy", "easy", "easy"],                                                    "Recovery phase"),
         (greaseId,         "Grease the Groove",   ["easy", "easy", "easy", "easy", "moderate", "moderate", "moderate", "hard"],"High volume, low intensity"),

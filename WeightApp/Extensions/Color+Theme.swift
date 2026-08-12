@@ -45,8 +45,14 @@ extension Color {
     /// Hard set (RIR 1–2 or 9-11 reps for bodyweight)
     static let setHard = Color(red: 0x5B/255, green: 0x3B/255, blue: 0xE8/255) // #5B3BE8
 
-    /// Near max / redline set (RIR ≤0 or 12+ reps for bodyweight)
-    static let setNearMax = Color(red: 0xEF/255, green: 0x44/255, blue: 0x44/255) // #EF4444
+    /// Near Max set (RIR ≤0 or 12+ reps for bodyweight) — 92–100% e1RM
+    static let setNearMax = Color(red: 0xFF/255, green: 0x6B/255, blue: 0x35/255) // #FF6B35
+
+    /// Semantic negative — a regression or imbalance, i.e. "something is wrong".
+    /// Split out from `setNearMax`, which used to serve both roles: once Near Max
+    /// became orange, a strength regression would have stopped reading as bad.
+    /// Not a set-intensity colour; don't use it for one.
+    static let semanticNegative = Color(red: 0xEF/255, green: 0x44/255, blue: 0x44/255) // #EF4444
 
     /// Personal record set
     static let setPR = Color(red: 0xFF/255, green: 0xB0/255, blue: 0x00/255) // #FFB000

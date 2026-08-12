@@ -50,16 +50,18 @@ struct ExerciseVolumeWidget: View {
                 exercisePicker
             }
         }
-        .onAppear {
-            if selectedExercise == nil {
-                selectedExercise = exerciseNames.first
-            }
-        }
         .task(id: allSets.count) {
             exerciseNames = TrendsCalculator.exerciseNames(from: allSets)
+            // Seed the default HERE, not in .onAppear: `exerciseNames` is @State
+            // filled by this task, and .onAppear runs first — against an empty
+            // array — which left the selection nil and the chip reading
+            // "Select Exercise" on every cold launch.
+            if selectedExercise == nil {
+                selectedExercise = TrendsCalculator.prioritizedExerciseNames(exerciseNames).first
+            }
         }
         .task(id: "\(allSets.count)-\(selectedExercise ?? "")") {
-            let exercise = selectedExercise ?? exerciseNames.first
+            let exercise = selectedExercise ?? TrendsCalculator.prioritizedExerciseNames(exerciseNames).first
             if let exercise {
                 dataPoints = TrendsCalculator.exerciseWeeklyVolume(from: allSets, exerciseName: exercise)
                 volumeBandInfo = TrendsCalculator.volumeBands(from: allSets, exerciseName: exercise)
@@ -172,9 +174,19 @@ struct ExerciseVolumeWidget: View {
 
     private var exercisePicker: some View {
         Menu {
-            ForEach(exerciseNames, id: \.self) { name in
-                Button(name) {
-                    selectedExercise = name
+            let parts = TrendsCalculator.partitionedExerciseNames(exerciseNames)
+            if !parts.tier.isEmpty {
+                Section("Strength Tier") {
+                    ForEach(parts.tier, id: \.self) { name in
+                        Button(name) { selectedExercise = name }
+                    }
+                }
+            }
+            if !parts.other.isEmpty {
+                Section("Other Exercises") {
+                    ForEach(parts.other, id: \.self) { name in
+                        Button(name) { selectedExercise = name }
+                    }
                 }
             }
         } label: {

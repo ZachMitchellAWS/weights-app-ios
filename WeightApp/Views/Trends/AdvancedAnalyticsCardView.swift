@@ -38,8 +38,8 @@ struct AdvancedAnalyticsCardView: View {
                     .foregroundStyle(.white.opacity(0.4))
             }
 
-            // Intensity bar — standard plan proportions with a touch of redline
-            // Easy 18%, Moderate 30%, Hard 25%, Redline 10%, Progress 17%
+            // Intensity bar — standard plan proportions with a touch of Near Max
+            // Easy 18%, Moderate 30%, Hard 25%, Near Max 10%, Progress 17%
             GeometryReader { geo in
                 HStack(spacing: 2) {
                     RoundedRectangle(cornerRadius: 4).fill(Color.setEasy)
@@ -62,7 +62,7 @@ struct AdvancedAnalyticsCardView: View {
                 legendDot(color: .setEasy, label: "Easy 18%")
                 legendDot(color: .setModerate, label: "Mod 30%")
                 legendDot(color: .setHard, label: "Hard 25%")
-                legendDot(color: .setNearMax, label: "Red 10%")
+                legendDot(color: .setNearMax, label: "Near Max 10%")
                 legendDot(color: .appAccent, label: "Progress 17%")
                 Spacer(minLength: 0)
             }
@@ -237,7 +237,7 @@ struct AdvancedAnalyticsCardView: View {
                 legendItem(color: .setEasy, label: "Easy")
                 legendItem(color: .setModerate, label: "Moderate")
                 legendItem(color: .setHard, label: "Hard")
-                legendItem(color: .setNearMax, label: "Redline")
+                legendItem(color: .setNearMax, label: "Near Max")
                 legendItem(color: .appAccent, label: "Progress")
                 Spacer()
             }

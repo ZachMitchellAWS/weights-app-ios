@@ -111,10 +111,24 @@ struct CheckInView: View {
     // Info sheet for the unlocked-state Sets widget
     @State private var showSetsInfoSheet = false
 
-    // Inline "effort ranges" expansion below the bars. Persisted to
-    // UserDefaults (per install) so a user who prefers it open stays open
-    // across launches; new installs start collapsed.
-    @AppStorage("setsWidgetRangesExpanded") private var isSetsRangesExpanded: Bool = false
+    // The NEXT badge rasterized so it can sit INSIDE a Text run in the "How this
+    // works" explainer. An image inside Text flows as a single unbreakable glyph,
+    // which is what lets the sentence wrap underneath it as a normal paragraph —
+    // a real SwiftUI view in an HStack can't do that, and an AttributedString
+    // background can't be corner-rounded. Rendered once, on first expansion.
+    @State private var nextBadgeRendered: Image? = nil
+    @Environment(\.displayScale) private var displayScale
+
+    // Inline "How this works" expansion below the rows. Deliberately @State, not
+    // @AppStorage: it always starts collapsed on launch so the widget opens compact,
+    // and only stays open for as long as the user keeps it open this session.
+    // (The old "setsWidgetRangesExpanded" UserDefaults key is now unused.)
+    @State private var isSetsRangesExpanded: Bool = false
+    // FEATURE FLAG: selectable SETS-widget style variant (see SetsWidgetStyle).
+    // Isolated + reversible — pick "Original" (or change in More → Developer →
+    // Experimental) to restore the shipping compact tile row exactly.
+    @AppStorage("setsWidgetStyle") private var setsWidgetStyleRaw: String = SetsWidgetStyle.verticalRows.rawValue
+    private var setsWidgetStyle: SetsWidgetStyle { SetsWidgetStyle(rawValue: setsWidgetStyleRaw) ?? .verticalRows }
     @State private var setsRangesChevronBob = false
     // Guards the bob animation from restarting if the view re-renders —
     // a one-shot per view-instance, not persisted (the user gets the
@@ -129,6 +143,11 @@ struct CheckInView: View {
     @State private var showPresetHintAlert: Bool = false
 
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
+    // Retained like `hapticFeedback` above. The next-focus chip and the "LET'S GO"
+    // CTA previously built a generator inline and let it deallocate immediately,
+    // which leaves the Taptic Engine cold and frequently drops the first tap —
+    // `prepare()` + a persistent instance is what makes these land reliably.
+    private let mediumHaptic = UIImpactFeedbackGenerator(style: .medium)
     @State private var tappedTileIndex: Int? = nil
     @State private var scrollProxy: ScrollViewProxy?
     @State private var progressOptionsHighlighted = false
@@ -141,6 +160,11 @@ struct CheckInView: View {
     @State private var focusedPanelVisible: Bool = true
     @State private var showE1RMPopup: Bool = false
     @State private var showE1RMUpsell: Bool = false
+    @State private var showReadyToLift: Bool = false
+    // Auto-trigger for the "Ready to lift?" popup. Observes the tutorial coordinator
+    // so we can fire it once the intro flow (tutorial + resources hint) completes.
+    @ObservedObject private var tutorialPresenter = TutorialPresenter.shared
+    @AppStorage("hasSeenResourcesHint") private var hasSeenResourcesHint = false
     @State private var safeAreaTopInset: CGFloat = 59
 
     // MARK: - Computed
@@ -327,6 +351,7 @@ struct CheckInView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     strengthHeader
+                        .id("checkInTop")
                     groupSelector
                     focusedLiftPanel
                         .background(
@@ -345,6 +370,16 @@ struct CheckInView: View {
                     setsWidget
                         .id("setsWidget")
                     progressOptionsWidget
+                        .id("progressOptions")
+                        // Zero-height anchor pinned to the TOP of the progress-options
+                        // widget (== bottom of the sets widget). Scrolling to this
+                        // lands the boundary at a predictable fraction of the screen,
+                        // independent of the (tall) progress-options widget's height.
+                        .overlay(alignment: .top) {
+                            Color.clear
+                                .frame(height: 1)
+                                .id("progressTop")
+                        }
                         // Opt out of the Sets widget's expansion animation so
                         // the ViewfinderPulse inside doesn't snapshot-ghost
                         // while SwiftUI animates this sibling's position
@@ -571,6 +606,22 @@ struct CheckInView: View {
                     .transition(.opacity)
                     .zIndex(25)
             }
+            // "Ready to lift?" next-focus popup
+            if showReadyToLift, let focus = nextFocus {
+                Color.black.opacity(0.62)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        AmplitudeService.shared.track(.readyToLiftDismissed(focusExercise: focus.name))
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            showReadyToLift = false
+                        }
+                    }
+                    .zIndex(26)
+
+                readyToLiftCard(focus: focus)
+                    .transition(.opacity.combined(with: .scale(scale: 0.94)))
+                    .zIndex(27)
+            }
         }
     }
 
@@ -602,6 +653,10 @@ struct CheckInView: View {
             if failed { showSyncFailedAlert = true }
         }
         .onChange(of: showSubmitOverlay) { _, isShowing in
+            // When the e1RM-increase dialog appears, snap to the top of the Lift tab.
+            if isShowing, overlayDidIncrease {
+                scrollProxy?.scrollTo("checkInTop", anchor: .top)
+            }
             // After the "Increased 1RM" dialog dismisses (auto-dismiss or tap), request an App Store
             // review — once ever — for the queued first post-unlock fundamental progress set.
             guard !isShowing, pendingReviewAfterProgress else { return }
@@ -611,6 +666,22 @@ struct CheckInView: View {
                 try? await Task.sleep(for: .milliseconds(500))
                 requestReview()
             }
+        }
+        // First-time trigger: the resources-hint alert (which follows the tutorial
+        // popup) was just dismissed — mark the intro complete and show Ready to Lift.
+        .onChange(of: tutorialPresenter.showResourcesHint) { wasShowing, isShowing in
+            guard wasShowing, !isShowing else { return }
+            hasSeenResourcesHint = true
+            maybeShowReadyToLift()
+        }
+        // Late-data recovery ONLY: if next-focus wasn't computed yet when the tab
+        // appeared (first launch, sync still landing), fire once it first becomes
+        // available. Restricted to the nil → non-nil transition on purpose — when
+        // logging sets shifts the recommendation from one exercise to another
+        // mid-session, the popup must NOT reappear.
+        .onChange(of: nextFocus?.id) { oldValue, newValue in
+            guard oldValue == nil, newValue != nil else { return }
+            maybeShowReadyToLift()
         }
         .alert("Sync Failed", isPresented: $showSyncFailedAlert) {
             Button("Retry") {
@@ -650,7 +721,19 @@ struct CheckInView: View {
 
             var e1rms: [UUID: Double] = [:]
             var trainedDates: [UUID: Date] = [:]
-            for ex in activeGroupExercises {
+            // Scan the active group's exercises (for the carousel) PLUS every
+            // fundamental, so the next-focus inputs (lastTrainedDates / latestE1RMs)
+            // are complete regardless of which group is selected. Otherwise next-focus
+            // flips depending on the active group, since the loop would only see the
+            // fundamentals that happen to be in the current group.
+            var exercisesToScan = activeGroupExercises
+            let scannedIds = Set(activeGroupExercises.map(\.id))
+            for fe in TrendsCalculator.fundamentalExercises where !scannedIds.contains(fe.id) {
+                if let ex = exercises.first(where: { $0.id == fe.id }) {
+                    exercisesToScan.append(ex)
+                }
+            }
+            for ex in exercisesToScan {
                 // Check allEstimated1RM for latest value for this exercise
                 if let fromQuery = allEstimated1RM.filter({ $0.exercise?.id == ex.id }).max(by: { $0.createdAt < $1.createdAt }) {
                     e1rms[ex.id] = fromQuery.value
@@ -686,6 +769,14 @@ struct CheckInView: View {
             if syncService.initialSyncComplete {
                 evaluateLiftTutorialTrigger()
             }
+
+            // Per-launch auto-show of "Ready to lift?", evaluated on every Lift-tab
+            // appearance (including returning from another tab).
+            // `readyToLiftShownThisLaunch` keeps it to once per launch. Deliberately
+            // NOT gated on initialSyncComplete: a returning user already has local
+            // next-focus data, and gating would skip the show without the nil →
+            // non-nil onChange below ever firing to recover it.
+            maybeShowReadyToLift()
 
             if hasAppeared {
                 // Re-fetch exercise data on tab return (e.g., after deleting from History)
@@ -837,7 +928,7 @@ struct CheckInView: View {
             Button("Easy") { applyCalibration(effort: .easy) }
             Button("Moderate") { applyCalibration(effort: .moderate) }
             Button("Hard") { applyCalibration(effort: .hard) }
-            Button("Redline") { applyCalibration(effort: .progress) }
+            Button("Near Max") { applyCalibration(effort: .progress) }
             Button("Max Effort") { applyCalibration(effortFraction: 1.0) }
             // .cancel role claims the cancel slot so iOS doesn't inject a
             // phantom Cancel button. Labeled "Cancel" so the system styling
@@ -942,9 +1033,41 @@ struct CheckInView: View {
                     Spacer()
 
                     if let focus = nextFocus {
-                        Text(shortDisplayName(for: focus.name))
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.6))
+                        // Chip treatment so the next-focus name reads as tappable
+                        // (the tap itself is handled by the right-hand overlay
+                        // below, which is sized to contain this chip). Same
+                        // vocabulary as `verticalPlanSelector` — radius 7, faint
+                        // fill + hairline border, accent-tinted leading icon.
+                        // Kept at the original caption size, and the icon at 13pt,
+                        // so the content row's height stays driven by the 22pt
+                        // tier title rather than by this chip.
+                        HStack(spacing: 5) {
+                            Image(focus.icon)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 18, height: 18)
+                                .foregroundStyle(Color.appAccent.opacity(0.8))
+                            Text(shortDisplayName(for: focus.name))
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.8))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                        // Asymmetric padding: tight on the leading edge and top/bottom
+                        // so the icon can fill more of the chip, but the original 9pt
+                        // kept on the trailing edge so the text keeps its breathing
+                        // room. 3pt vertical caps the chip at 18 + 6 = 24pt, which
+                        // still fits the row's ~26pt baseline band (see guide below).
+                        .padding(.leading, 5)
+                        .padding(.trailing, 9)
+                        .padding(.vertical, 3)
+                        .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.06)))
+                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.white.opacity(0.16), lineWidth: 1))
+                        // Sit the chip inside the row's existing baseline band
+                        // instead of hanging below it. Same guide the tier icon
+                        // uses above: without it the chip's bottom padding extends
+                        // past the 22pt title's descender and grows the row.
+                        .alignmentGuide(.lastTextBaseline) { d in d[.bottom] - 4 }
                     } else if limitingTier == .legend {
                         Text("All lifts at Legend tier")
                             .font(.caption)
@@ -965,6 +1088,169 @@ struct CheckInView: View {
             selectedSetData.pendingScrollToStrengthTop = true
             selectedTab = 0
         }
+        // Right-hand NEXT FOCUS area opens the "Ready to lift?" popup instead of
+        // navigating to the Strength tab. Taps elsewhere fall through to the
+        // navigation gesture above.
+        //
+        // Sized to contain the whole next-focus chip so the visible button and its
+        // hit target agree. Worst case is "Deadlifts" (the longest fundamental
+        // after `shortDisplayName` shortening) at ~94pt: 18pt padding + 13pt icon
+        // + 5pt spacing + ~58pt of caption text. 0.35 clears that on the narrowest
+        // supported phone (~343pt card → ~120pt) while still starting well right of
+        // the tier title, which ends around 186pt even for "Intermediate".
+        .overlay {
+            GeometryReader { geo in
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    Color.clear
+                        .frame(width: geo.size.width * 0.35)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if let focus = nextFocus {
+                                mediumHaptic.impactOccurred()
+                                // Warm the engine for the popup's "LET'S GO" CTA,
+                                // the likely next tap.
+                                mediumHaptic.prepare()
+                                // A manual open counts as this launch's showing, so the
+                                // automatic one can't fire later in the same session.
+                                // Manual taps themselves are never gated by this flag.
+                                tutorialPresenter.readyToLiftShownThisLaunch = true
+                                AmplitudeService.shared.track(
+                                    .readyToLiftShown(focusExercise: focus.name, trigger: "manual")
+                                )
+                                withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
+                                    showReadyToLift = true
+                                }
+                            } else {
+                                selectedSetData.pendingTrendsTab = .strength
+                                selectedSetData.pendingScrollToStrengthTop = true
+                                selectedTab = 0
+                            }
+                        }
+                }
+            }
+        }
+    }
+
+    // "Ready to lift?" popup — surfaces the same next-focus fundamental and, on
+    // its CTA, selects that exercise on the Lift tab (navigateToTierExercise).
+    /// Auto-show the "Ready to lift?" popup at most once per launch, only after the
+    /// user has unlocked their starting tier AND been through the intro flow
+    /// (tutorial popup + the resources-hint alert). First appearance fires right
+    /// after the resources hint is dismissed; thereafter it fires on the first Lift
+    /// tab view of each new launch.
+    private func maybeShowReadyToLift() {
+        guard !tutorialPresenter.readyToLiftShownThisLaunch,
+              !showReadyToLift,
+              userProperties.hasMetStrengthTierConditions,
+              hasSeenResourcesHint,
+              nextFocus != nil else { return }
+        tutorialPresenter.readyToLiftShownThisLaunch = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            // Re-read nextFocus after the delay rather than capturing it above: the
+            // event should name what was actually put on screen.
+            guard let focus = nextFocus, !showReadyToLift else { return }
+            AmplitudeService.shared.track(
+                .readyToLiftShown(focusExercise: focus.name, trigger: "auto")
+            )
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
+                showReadyToLift = true
+            }
+        }
+    }
+
+    private func readyToLiftCard(focus: TrendsCalculator.FundamentalExercise) -> some View {
+        let accent = Color.appAccent
+        return VStack(spacing: 16) {
+            Text("NEXT FOCUS")
+                .font(.interSemiBold(size: 11))
+                .tracking(3)
+                .foregroundStyle(accent)
+
+            Text("Ready to Lift?")
+                .font(.bebasNeue(size: 46))
+                .tracking(1)
+                .foregroundStyle(.white)
+
+            ZStack {
+                Circle()
+                    .fill(RadialGradient(colors: [accent.opacity(0.35), accent.opacity(0.0)],
+                                         center: .center, startRadius: 4, endRadius: 95))
+                    .frame(width: 180, height: 180)
+                Circle()
+                    .fill(Color.white.opacity(0.04))
+                    .frame(width: 120, height: 120)
+                Circle()
+                    .strokeBorder(accent.opacity(0.6), lineWidth: 2)
+                    .frame(width: 120, height: 120)
+                Image(focus.icon)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 68, height: 68)
+                    .foregroundStyle(accent)
+            }
+            .frame(height: 150)
+
+            VStack(spacing: 3) {
+                Text(focus.name.uppercased())
+                    .font(.bebasNeue(size: 32))
+                    .tracking(1.5)
+                    .foregroundStyle(.white)
+                Text("Your next recommended focus")
+                    .font(.inter(size: 12))
+                    .foregroundStyle(.white.opacity(0.45))
+            }
+
+            Button {
+                mediumHaptic.impactOccurred()
+                AmplitudeService.shared.track(.readyToLiftCTATapped(focusExercise: focus.name))
+                withAnimation(.easeOut(duration: 0.18)) { showReadyToLift = false }
+                navigateToTierExercise(focus.id)
+            } label: {
+                HStack(spacing: 8) {
+                    Text("LET'S GO")
+                        .font(.interSemiBold(size: 17))
+                        .tracking(1)
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 15, weight: .bold))
+                }
+                .foregroundStyle(.black)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 15)
+                .background(accent, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
+        }
+        .padding(.horizontal, 26)
+        .padding(.top, 30)
+        .padding(.bottom, 22)
+        .frame(maxWidth: 330)
+        .background(
+            LinearGradient(colors: [Color(white: 0.14), Color(white: 0.09)],
+                           startPoint: .top, endPoint: .bottom),
+            in: RoundedRectangle(cornerRadius: 22)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22)
+                .strokeBorder(accent.opacity(0.25), lineWidth: 1)
+        )
+        .overlay(alignment: .topTrailing) {
+            Button {
+                AmplitudeService.shared.track(.readyToLiftDismissed(focusExercise: focus.name))
+                withAnimation(.easeOut(duration: 0.18)) { showReadyToLift = false }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .frame(width: 30, height: 30)
+                    .background(Color.white.opacity(0.08), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(12)
+        }
+        .shadow(color: .black.opacity(0.5), radius: 24, y: 10)
+        .padding(.horizontal, 24)
     }
 
     // MARK: - Phase 1: Group Selector
@@ -1494,25 +1780,784 @@ struct CheckInView: View {
         let percent = currentMax > 0 ? estimated / currentMax : 0
         let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: percent)
         switch bucket {
-        case .pr: return .setNearMax // not a true PR — downgrade to redline
-        case .redline: return .setNearMax
+        case .pr: return .setNearMax // not a true PR — downgrade to Near Max
+        case .nearMax: return .setNearMax
         case .hard: return .setHard
         case .moderate: return .setModerate
         case .easy: return .setEasy
         }
     }
 
+    /// The *actual* effort a logged set represents (label + color), mirroring
+    /// `intensityColor(for:)` so a set logged harder/easier than planned reads
+    /// accurately in the vertical-rows variant.
+    private func actualEffort(for set: LiftSet) -> (label: String, color: Color) {
+        let priorE1RM = estimated1RMsForExercise
+            .filter { $0.createdAt < set.createdAt }
+            .sorted { $0.createdAt > $1.createdAt }
+            .first
+        var currentMax = priorE1RM?.value ?? 0
+        let estimated = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
+
+        if set.weight == 0 { return ("Logged", .white) }
+
+        if currentMax == 0 {
+            if let thisSetE1RM = estimated1RMsForExercise.first(where: { $0.setId == set.id }) {
+                currentMax = thisSetE1RM.value
+            }
+        }
+
+        let isPR = (estimated - currentMax) > 0.0001 && currentMax > 0
+        if isPR { return ("Progress", .appAccent) }
+
+        let percent = currentMax > 0 ? estimated / currentMax : 0
+        switch TrendsCalculator.IntensityBucket.from(percent1RM: percent) {
+        case .pr, .nearMax: return ("Near Max", .setNearMax)
+        case .hard: return ("Hard", .setHard)
+        case .moderate: return ("Moderate", .setModerate)
+        case .easy: return ("Easy", .setEasy)
+        }
+    }
+
+    // MARK: - Tall set-plan tiles variant (FEATURE FLAG: setsWidgetStyle == .tallTiles)
+    // Isolated, reversible reimagining of the tile row: taller tiles that hold
+    // the effort label inside a dotted outline when unpopulated, and a colored
+    // weight×reps inside a filled tile when populated. Same behavior/handlers as
+    // the original row — visuals only.
+
+    private let tallTileHeight: CGFloat = 60
+    private let tallTileCorner: CGFloat = 10
+
+    private func tallPopulatedTileVisual(set: LiftSet, showText: Bool) -> some View {
+        let color = intensityColor(for: set)
+        return VStack(spacing: 1) {
+            if showText {
+                Text("\(Int(userProperties.preferredWeightUnit.fromLbs(set.weight)))")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(color)
+                    .minimumScaleFactor(0.7)
+                    .lineLimit(1)
+                Text("× \(set.reps)")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(color.opacity(0.75))
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: tallTileHeight)
+        .background(RoundedRectangle(cornerRadius: tallTileCorner).fill(color.opacity(0.16)))
+        .overlay(
+            RoundedRectangle(cornerRadius: tallTileCorner)
+                .strokeBorder(color.opacity(0.55), lineWidth: 1)
+        )
+    }
+
+    private func tallUnpopulatedTileVisual(effortKey: String, showText: Bool) -> some View {
+        let color = effortColor(for: effortKey)
+        return VStack(spacing: 1) {
+            if showText {
+                Text(effortLabel(for: effortKey))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(color)
+                    .minimumScaleFactor(0.65)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: tallTileHeight)
+        .background(RoundedRectangle(cornerRadius: tallTileCorner).fill(color.opacity(0.06)))
+        .overlay(
+            RoundedRectangle(cornerRadius: tallTileCorner)
+                .strokeBorder(color.opacity(0.6),
+                              style: StrokeStyle(lineWidth: 1.2, dash: [4, 3]))
+        )
+    }
+
+    @ViewBuilder
+    private func tallSetTileRow(sortedSets: [LiftSet]) -> some View {
+        if isViewingToday, let plan = activeSetPlan {
+            let sequence = plan.effortSequence
+            let totalSlots = max(sequence.count, sortedSets.count)
+
+            HStack(spacing: 6) {
+                ForEach(0..<totalSlots, id: \.self) { index in
+                    if index < sortedSets.count {
+                        let set = sortedSets[index]
+                        tallPopulatedTileVisual(set: set, showText: totalSlots <= 8)
+                            .scaleEffect(tappedTileIndex == index ? 0.9 : 1.0)
+                            .animation(.easeOut(duration: 0.15), value: tappedTileIndex)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                weight = set.weight
+                                reps = set.reps
+                                triggerLogSetFlash()
+                                tappedTileIndex = index
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                    tappedTileIndex = nil
+                                }
+                            }
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    deleteSet(set)
+                                } label: {
+                                    Label("Delete Set", systemImage: "trash")
+                                }
+                            }
+                    } else {
+                        let effortKey = index < sequence.count ? sequence[index] : ""
+                        tallUnpopulatedTileVisual(effortKey: effortKey,
+                                                  showText: totalSlots <= 8 && index < sequence.count)
+                            .scaleEffect(tappedTileIndex == index ? 0.9 : 1.0)
+                            .animation(.easeOut(duration: 0.15), value: tappedTileIndex)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                guard index < sequence.count else { return }
+                                let effort = sequence[index]
+                                switch effort {
+                                case "easy":
+                                    if let s = effortShortcuts {
+                                        applyPreset(s.easy, atIndex: index, effort: "easy")
+                                    } else {
+                                        showPresetUnavailableHint(forEffort: "Easy")
+                                    }
+                                case "moderate":
+                                    if let s = effortShortcuts {
+                                        applyPreset(s.moderate, atIndex: index, effort: "moderate")
+                                    } else {
+                                        showPresetUnavailableHint(forEffort: "Moderate")
+                                    }
+                                case "hard":
+                                    if let s = effortShortcuts {
+                                        applyPreset(s.hard, atIndex: index, effort: "hard")
+                                    } else {
+                                        showPresetUnavailableHint(forEffort: "Hard")
+                                    }
+                                case "redline":
+                                    if let pick = nearMaxShortcut {
+                                        applyPreset(pick, atIndex: index, effort: "redline")
+                                    } else {
+                                        showPresetUnavailableHint(forEffort: "Near Max")
+                                    }
+                                case "pr":
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    tappedTileIndex = index
+                                    withAnimation {
+                                        // Land the sets-widget bottom / progress-options top
+                                        // at ~16% down the screen, i.e. just below the compact
+                                        // top bar. y here maps directly to screen position
+                                        // because the anchor view is zero-height.
+                                        scrollProxy?.scrollTo("progressTop", anchor: UnitPoint(x: 0.5, y: 0.26))
+                                    }
+                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                        progressOptionsHighlighted = true
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                        withAnimation(.easeInOut(duration: 0.5)) {
+                                            progressOptionsHighlighted = false
+                                        }
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                        if tappedTileIndex == index {
+                                            tappedTileIndex = nil
+                                        }
+                                    }
+                                default:
+                                    break
+                                }
+                            }
+                    }
+                }
+            }
+        } else if sortedSets.isEmpty {
+            Text("No sets logged")
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.3))
+                .frame(maxWidth: .infinity)
+        } else {
+            HStack(spacing: 6) {
+                ForEach(Array(sortedSets.enumerated()), id: \.element.id) { idx, set in
+                    let tileId = idx + 1000
+                    tallPopulatedTileVisual(set: set, showText: sortedSets.count <= 7)
+                        .scaleEffect(tappedTileIndex == tileId ? 0.9 : 1.0)
+                        .animation(.easeOut(duration: 0.15), value: tappedTileIndex)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            weight = set.weight
+                            reps = set.reps
+                            triggerLogSetFlash()
+                            tappedTileIndex = tileId
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                tappedTileIndex = nil
+                            }
+                        }
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                deleteSet(set)
+                            } label: {
+                                Label("Delete Set", systemImage: "trash")
+                            }
+                        }
+                }
+            }
+        }
+    }
+
+    // MARK: - Vertical set-plan rows variant (FEATURE FLAG: setsWidgetStyle == .verticalRows)
+    // One row per set in the plan: "SET n · <effort>". Unpopulated rows invite a
+    // tap (dotted outline + "Tap to load"); populated rows show the logged weight×
+    // reps with a check. Same tap/preset/delete behavior as the original row.
+
+    // Header: prev/next date chevrons flanking a centered stack of "Sets Today"
+    // over the set-plan chip — one cohesive unit above the set rows.
+    private var verticalDateAndPlanHeader: some View {
+        HStack {
+            Button {
+                if let prev = previousSessionDate { viewingDate = prev }
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(previousSessionDate != nil ? .white.opacity(0.6) : .white.opacity(0.2))
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 8)
+                    .contentShape(Rectangle())
+            }
+            .disabled(previousSessionDate == nil)
+
+            Spacer()
+
+            // "Sets Today" and the plan chip stacked as one cohesive unit, flanked
+            // by the date chevrons.
+            VStack(spacing: 8) {
+                Button {
+                    if !isViewingToday { viewingDate = actualToday }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(isViewingToday ? "Today's Sets" : viewingDate.formatted(.dateTime.month(.abbreviated).day()))
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(isViewingToday ? .white : .white.opacity(0.6))
+                        if !isViewingToday {
+                            Image(systemName: "arrow.uturn.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.5))
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .allowsHitTesting(!isViewingToday)
+
+                verticalPlanSelector
+            }
+
+            Spacer()
+
+            Button {
+                if let next = nextSessionDate { viewingDate = next }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(nextSessionDate != nil ? .white.opacity(0.6) : .white.opacity(0.2))
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 8)
+                    .contentShape(Rectangle())
+            }
+            .disabled(nextSessionDate == nil)
+        }
+    }
+
+    // A small, self-sizing bordered chip (catalog icon + plan name + chevron) that
+    // sits just under the Today row as a group — distinct from the full-width rows.
+    @ViewBuilder
+    private var verticalPlanSelector: some View {
+        if isViewingToday {
+            Button {
+                hubSection = .setPlans
+                showHub = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "list.clipboard.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.appAccent.opacity(0.8))
+                    Text(activeSetPlan?.name ?? "Freestyle")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.appAccent)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.4))
+                }
+                .padding(.horizontal, 11)
+                .padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+        } else {
+            HStack(spacing: 6) {
+                Image(systemName: "list.clipboard.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Color.appAccent.opacity(0.4))
+                Text(activeSetPlan?.name ?? "Freestyle")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.appAccent.opacity(0.5))
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.04)))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
+        }
+    }
+
+    /// Suggested (weight, reps) for a planned effort — the same preset a tap would
+    /// apply — used to preview "Suggested 95 lbs × 8" on unperformed rows.
+    private func suggestedPreset(for effortKey: String) -> (weight: Double, reps: Int)? {
+        switch effortKey {
+        case "easy": return effortShortcuts?.easy
+        case "moderate": return effortShortcuts?.moderate
+        case "hard": return effortShortcuts?.hard
+        case "redline": return nearMaxShortcut
+        default: return nil
+        }
+    }
+
+    /// `isBaseline` renders the calibration set — the first weighted set of an
+    /// exercise (`LiftSet.isBaselineSet`). It sits OUTSIDE the set plan, so it is
+    /// never numbered, offers no preset to load, and before it exists it is the
+    /// only row in the section.
+    private func verticalPlannedRow(setNumber: Int, effortKey: String, set: LiftSet?,
+                                    isNext: Bool = false, isBaseline: Bool = false) -> some View {
+        let unit = userProperties.preferredWeightUnit
+        let plannedColor = effortColor(for: effortKey)
+        // Populated rows reflect what was ACTUALLY logged; empty rows show the plan.
+        let display: (label: String, color: Color) = set != nil
+            ? actualEffort(for: set!)
+            : (effortLabel(for: effortKey), plannedColor)
+        // A pending baseline carries no effort key, so `display.color` would fall
+        // through to the faint default. Use the accent instead — it's the one
+        // actionable row on screen at that moment.
+        let isPendingBaseline = (isBaseline && set == nil)
+        let color = isPendingBaseline ? Color.appAccent : display.color
+        let isProgress = (effortKey == "pr")
+        let suggestion = set == nil ? suggestedPreset(for: effortKey) : nil
+        // Only the NEXT, unperformed set gets the second (suggested) line; every
+        // other row is a single, thinner line. A pending baseline always takes the
+        // two-line form — its instructional subtext is the whole point of the row.
+        let isTwoRow = (set == nil && (isNext || isBaseline))
+        // Derived, not stored: true while the log-set widget holds exactly this
+        // row's suggested preset. Tapping loads the preset (→ "Loaded"); nudging
+        // weight or reps afterwards makes them diverge and flips it back to
+        // "Tap to load" on the next render, with no state to keep in sync.
+        // Weight is compared with a tolerance since it round-trips as a Double.
+        // Scoped to the NEXT row: sibling slots often share an effort (two
+        // "Moderate" sets suggest the same preset), so without this every matching
+        // row would light up at once.
+        let isLoaded: Bool = {
+            // `weight`/`reps` carry real values even while the log-set widget is
+            // showing its empty placeholder — it renders from weightIsSet/repsIsSet,
+            // not from the numbers. Match what's on screen, or a blank widget would
+            // claim "Loaded" on arrival just because the backing state happens to
+            // equal the suggestion.
+            guard weightIsSet, repsIsSet else { return false }
+            guard isNext, let suggestion else { return false }
+            return abs(weight - suggestion.weight) < 0.0001 && reps == suggestion.reps
+        }()
+
+        return HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(color)
+                .frame(width: 4, height: isTwoRow ? 34 : 22)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 5) {
+                    Text(isBaseline ? "BASELINE SET" : "SET \(setNumber)")
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(0.5)
+                        .foregroundStyle(.white.opacity(isBaseline ? 0.75 : 0.5))
+                    // A pending baseline has no effort yet — the user picks it in
+                    // the "How did that feel?" prompt after logging. Once logged it
+                    // shows its effort like any other populated row.
+                    if !isPendingBaseline {
+                        Text("·")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.35))
+                        Text(display.label)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(color)
+                    }
+                }
+
+                if isTwoRow {
+                    if isPendingBaseline {
+                        Text("Log your first set below to get started.")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.4))
+                    } else if let suggestion = suggestion {
+                        Text("Suggested \(Int(unit.fromLbs(suggestion.weight))) \(unit.label) × \(suggestion.reps)")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.4))
+                    } else if isProgress {
+                        Text("Pick a set to grow your e1RM")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.4))
+                    }
+                }
+            }
+
+            Spacer()
+
+            // Right content, vertically centered — centers over both lines in the
+            // two-row NEXT state, and over the single line otherwise.
+            if let set = set {
+                HStack(spacing: 7) {
+                    Text("\(Int(unit.fromLbs(set.weight))) \(unit.label) × \(set.reps)")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.9))
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(color)
+                }
+            } else if isPendingBaseline {
+                // No load affordance: the baseline is user-driven by definition —
+                // there is no e1RM yet, so no preset exists to suggest or load.
+                EmptyView()
+            } else if isProgress {
+                HStack(spacing: 4) {
+                    if isNext {
+                        Text("See options")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.4))
+                    }
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(plannedColor.opacity(0.7))
+                }
+            } else {
+                HStack(spacing: 4) {
+                    if isNext {
+                        Text(isLoaded ? "Loaded" : "Tap to load")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white.opacity(isLoaded ? 0.55 : 0.4))
+                    }
+                    Image(systemName: isLoaded ? "checkmark.circle" : "arrow.down.circle")
+                        .font(.system(size: 14))
+                        .foregroundStyle(plannedColor.opacity(isLoaded ? 0.9 : 0.6))
+                }
+            }
+        }
+        .padding(.vertical, isTwoRow ? 10 : 7)
+        .padding(.horizontal, 12)
+        // Non-NEXT rows are pinned to an EXACT height (min == max) so the populated
+        // and unpopulated states always match. A bare minHeight isn't enough: the
+        // populated row carries taller right-side content (weight×reps text + a 15pt
+        // checkmark) than the unpopulated row's lone arrow glyph, so it would grow
+        // past the floor and read as a taller row. NEXT keeps a floor, not a cap —
+        // it's deliberately taller and its second line must be free to size itself.
+        .frame(maxWidth: .infinity,
+               minHeight: isTwoRow ? 50 : 36,
+               maxHeight: isTwoRow ? nil : 36)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(set != nil ? color.opacity(0.12)
+                      : (isNext ? Color.appAccent.opacity(0.08) : Color.white.opacity(0.03)))
+        )
+        .overlay(
+            Group {
+                if set != nil {
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(color.opacity(0.4), lineWidth: 1)
+                } else if isNext {
+                    // The next set to perform — always amber, solid, to draw the eye.
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(Color.appAccent.opacity(0.85), lineWidth: 1.6)
+                } else {
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(plannedColor.opacity(0.45),
+                                      style: StrokeStyle(lineWidth: 1.2, dash: [4, 3]))
+                }
+            }
+        )
+        // NEXT tab — squared-off, sitting flush on the row's top border.
+        .overlay(alignment: .topLeading) {
+            if isNext {
+                Text("NEXT")
+                    .font(.system(size: 8, weight: .heavy))
+                    .tracking(0.5)
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.appAccent))
+                    .offset(x: 12, y: -9)
+            }
+        }
+    }
+
+    /// Sentinel tap-animation id for the baseline row. Plan slots key on their
+    /// index and past-day rows on `idx + 1000`, so a negative value can't collide
+    /// with either and make two rows animate together.
+    private var baselineTileIndex: Int { -1 }
+
+    /// The un-performed calibration row — the only item shown for an exercise that
+    /// has never been trained. It loads nothing (there is no e1RM yet, so no preset
+    /// exists); tapping just points at the log-set bar, which is exactly what the
+    /// superseded `setsWidgetEmptyState` button did.
+    private var pendingBaselineRow: some View {
+        verticalPlannedRow(setNumber: 0, effortKey: "", set: nil, isNext: true, isBaseline: true)
+            .scaleEffect(tappedTileIndex == baselineTileIndex ? 0.97 : 1.0)
+            .animation(.easeOut(duration: 0.15), value: tappedTileIndex)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                hapticFeedback.impactOccurred()
+                triggerLogSetFlash(markFieldsSet: false)
+                tappedTileIndex = baselineTileIndex
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    tappedTileIndex = nil
+                }
+            }
+    }
+
+    /// A performed calibration set. Identical tap-to-load and delete affordances to
+    /// any other populated row — only the label and its exclusion from the plan's
+    /// numbering differ.
+    private func loggedBaselineRow(_ set: LiftSet) -> some View {
+        verticalPlannedRow(setNumber: 0, effortKey: "", set: set, isBaseline: true)
+            .scaleEffect(tappedTileIndex == baselineTileIndex ? 0.97 : 1.0)
+            .animation(.easeOut(duration: 0.15), value: tappedTileIndex)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                hapticFeedback.impactOccurred()
+                AmplitudeService.shared.track(.setPresetLoaded(
+                    effort: effortToken(label: actualEffort(for: set).label), source: "logged_set"
+                ))
+                weight = set.weight
+                reps = set.reps
+                triggerLogSetFlash()
+                tappedTileIndex = baselineTileIndex
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    tappedTileIndex = nil
+                }
+            }
+            .contextMenu {
+                Button(role: .destructive) {
+                    deleteSet(set)
+                } label: {
+                    Label("Delete Set", systemImage: "trash")
+                }
+            }
+    }
+
+    @ViewBuilder
+    private func verticalSetRows(sortedSets: [LiftSet]) -> some View {
+        // The baseline is calibration, not a planned set, so it never occupies a
+        // plan slot — the plan runs its full sequence alongside it. Everything
+        // below iterates `planSets`, never `sortedSets`, or the baseline would
+        // render twice: once as its own row and again as SET 1.
+        let baselineSet = sortedSets.first(where: { $0.isBaselineSet })
+        let planSets = sortedSets.filter { !$0.isBaselineSet }
+        // Matches the gate the retired `setsWidgetEmptyState` used. Deliberately
+        // keyed on "has this lift ever been trained" rather than "has an e1RM":
+        // an exercise logged only at bodyweight never calibrates (isFirstWeightedSet
+        // requires weight > 0), and would otherwise show a pending baseline forever.
+        let hasE1RM = selectedExercise?.currentE1RMLocalCache != nil
+
+        if isViewingToday && setsForExercise.isEmpty && !hasE1RM {
+            pendingBaselineRow
+        } else if isViewingToday, let plan = activeSetPlan {
+            let sequence = plan.effortSequence
+            let totalSlots = max(sequence.count, planSets.count)
+
+            VStack(spacing: 10) {
+                if let baselineSet {
+                    loggedBaselineRow(baselineSet)
+                }
+                ForEach(0..<totalSlots, id: \.self) { index in
+                    if index < planSets.count {
+                        let set = planSets[index]
+                        let effortKey = index < sequence.count ? sequence[index] : ""
+                        verticalPlannedRow(setNumber: index + 1, effortKey: effortKey, set: set)
+                            .scaleEffect(tappedTileIndex == index ? 0.97 : 1.0)
+                            .animation(.easeOut(duration: 0.15), value: tappedTileIndex)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                AmplitudeService.shared.track(.setPresetLoaded(
+                                    effort: effortToken(label: actualEffort(for: set).label),
+                                    source: "logged_set"
+                                ))
+                                weight = set.weight
+                                reps = set.reps
+                                triggerLogSetFlash()
+                                tappedTileIndex = index
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                    tappedTileIndex = nil
+                                }
+                            }
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    deleteSet(set)
+                                } label: {
+                                    Label("Delete Set", systemImage: "trash")
+                                }
+                            }
+                    } else {
+                        let effortKey = index < sequence.count ? sequence[index] : ""
+                        verticalPlannedRow(setNumber: index + 1, effortKey: effortKey, set: nil,
+                                           isNext: index == planSets.count)
+                            // Extra headroom for the NEXT tab, but only when it's not the
+                            // topmost row — a baseline row above it counts as one.
+                            .padding(.top, (index == planSets.count && (index > 0 || baselineSet != nil)) ? 5 : 0)
+                            .scaleEffect(tappedTileIndex == index ? 0.97 : 1.0)
+                            .animation(.easeOut(duration: 0.15), value: tappedTileIndex)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                guard index < sequence.count else { return }
+                                let effort = sequence[index]
+                                switch effort {
+                                case "easy":
+                                    if let s = effortShortcuts {
+                                        applyPreset(s.easy, atIndex: index, effort: "easy")
+                                    } else {
+                                        showPresetUnavailableHint(forEffort: "Easy")
+                                    }
+                                case "moderate":
+                                    if let s = effortShortcuts {
+                                        applyPreset(s.moderate, atIndex: index, effort: "moderate")
+                                    } else {
+                                        showPresetUnavailableHint(forEffort: "Moderate")
+                                    }
+                                case "hard":
+                                    if let s = effortShortcuts {
+                                        applyPreset(s.hard, atIndex: index, effort: "hard")
+                                    } else {
+                                        showPresetUnavailableHint(forEffort: "Hard")
+                                    }
+                                case "redline":
+                                    if let pick = nearMaxShortcut {
+                                        applyPreset(pick, atIndex: index, effort: "redline")
+                                    } else {
+                                        showPresetUnavailableHint(forEffort: "Near Max")
+                                    }
+                                case "pr":
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    tappedTileIndex = index
+                                    withAnimation {
+                                        // Land the sets-widget bottom / progress-options top
+                                        // at ~16% down the screen, i.e. just below the compact
+                                        // top bar. y here maps directly to screen position
+                                        // because the anchor view is zero-height.
+                                        scrollProxy?.scrollTo("progressTop", anchor: UnitPoint(x: 0.5, y: 0.26))
+                                    }
+                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                        progressOptionsHighlighted = true
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                        withAnimation(.easeInOut(duration: 0.5)) {
+                                            progressOptionsHighlighted = false
+                                        }
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                        if tappedTileIndex == index {
+                                            tappedTileIndex = nil
+                                        }
+                                    }
+                                default:
+                                    break
+                                }
+                            }
+                    }
+                }
+            }
+        } else if sortedSets.isEmpty {
+            Text("No sets logged")
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.3))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+        } else {
+            VStack(spacing: 10) {
+                // Being the baseline is a permanent property of the set, so it keeps
+                // its label on past days too — and stays out of the numbering, which
+                // is why the remaining sets renumber from 1 rather than leaving a gap.
+                if let baselineSet {
+                    loggedBaselineRow(baselineSet)
+                }
+                ForEach(Array(planSets.enumerated()), id: \.element.id) { idx, set in
+                    let tileId = idx + 1000
+                    // Same row builder as today's populated rows, so past days (and
+                    // Freestyle) match the plan view exactly — height, effort label,
+                    // and white weight×reps text. `effortKey: ""` is the same
+                    // convention used above for sets logged beyond the plan sequence:
+                    // a populated row derives its label/color from `actualEffort`, so
+                    // the planned key is unused once `set != nil`.
+                    verticalPlannedRow(setNumber: idx + 1, effortKey: "", set: set)
+                        .scaleEffect(tappedTileIndex == tileId ? 0.97 : 1.0)
+                        .animation(.easeOut(duration: 0.15), value: tappedTileIndex)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            AmplitudeService.shared.track(.setPresetLoaded(
+                                effort: effortToken(label: actualEffort(for: set).label),
+                                source: "logged_set"
+                            ))
+                            weight = set.weight
+                            reps = set.reps
+                            triggerLogSetFlash()
+                            tappedTileIndex = tileId
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                tappedTileIndex = nil
+                            }
+                        }
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                deleteSet(set)
+                            } label: {
+                                Label("Delete Set", systemImage: "trash")
+                            }
+                        }
+                }
+            }
+        }
+    }
+
+    /// Replica of the NEXT badge from `verticalPlannedRow`, so the explainer points
+    /// at something the reader can visually match on the row above. Same metrics as
+    /// the real one.
+    private var nextBadgeInline: some View {
+        Text("NEXT")
+            .font(.system(size: 8, weight: .heavy))
+            .tracking(0.5)
+            .foregroundStyle(.black)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color.appAccent))
+    }
+
+    /// Rasterize the badge so it can be embedded in a `Text` run. Rendered at the
+    /// display scale so it stays crisp; returns nil if rendering fails, in which
+    /// case the explainer degrades to a plain amber "NEXT".
+    @MainActor
+    private func renderNextBadge() -> Image? {
+        let renderer = ImageRenderer(content: nextBadgeInline)
+        renderer.scale = displayScale
+        guard let uiImage = renderer.uiImage else { return nil }
+        return Image(uiImage: uiImage)
+    }
+
+    /// Shared so the rendered and fallback branches can't drift apart.
+    private var nextBadgeSentence: String {
+        " is the set to do now. Tap it to load its suggested weight and reps, then adjust as needed while staying within the desired effort level."
+    }
+
     private var setsWidget: some View {
         VStack(spacing: 8) {
-            // Header — outside the card background
-            HStack {
-                Text("SETS")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.4))
-                    .tracking(1)
-                Spacer()
+            // Header — outside the card background. The vertical-rows variant carries
+            // its own "Sets Today" heading inside the card, so drop the redundant label.
+            if setsWidgetStyle != .verticalRows {
+                HStack {
+                    Text("SETS")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.4))
+                        .tracking(1)
+                    Spacer()
+                }
+                .padding(.leading, 4)
             }
-            .padding(.leading, 4)
 
             setsWidgetCard
         }
@@ -1520,15 +2565,16 @@ struct CheckInView: View {
 
     @ViewBuilder
     private var setsWidgetCard: some View {
-        // Don't show "log first set" if exercise has e1RM data — sets just haven't loaded yet
-        let hasE1RM = selectedExercise?.currentE1RMLocalCache != nil
-        if setsForExercise.isEmpty && isViewingToday && !hasE1RM {
-            setsWidgetEmptyState
-        } else {
-            setsWidgetContent
-        }
+        // The untrained-exercise state is no longer a whole-widget takeover: it now
+        // renders inside the rows section as a single pending BASELINE SET row (see
+        // `verticalSetRows`), which keeps the date header and plan chip on screen.
+        setsWidgetContent
     }
 
+    /// SUPERSEDED by the pending baseline row in `verticalSetRows`, which replaced
+    /// this whole-widget empty state. Retained deliberately in case we want to bring
+    /// it back or reuse its copy; nothing references it. Its tap behaviour (flash the
+    /// log-set bar without marking the fields set) now lives on `pendingBaselineRow`.
     private var setsWidgetEmptyState: some View {
         Button {
             triggerLogSetFlash(markFieldsSet: false)
@@ -1561,6 +2607,9 @@ struct CheckInView: View {
     private var setsWidgetContent: some View {
         VStack(spacing: 8) {
             // Date navigation with "Next: effort" hint
+            if setsWidgetStyle == .verticalRows {
+                verticalDateAndPlanHeader
+            } else {
             HStack {
                 Button {
                     if let prev = previousSessionDate {
@@ -1601,6 +2650,28 @@ struct CheckInView: View {
 
                     // Plan name — tap to open hub (only interactive on today)
                     if isViewingToday {
+                        if setsWidgetStyle != .original {
+                            // Variant: pill-styled selector so it's obviously tappable.
+                            Button {
+                                hubSection = .setPlans
+                                showHub = true
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "slider.horizontal.3")
+                                        .font(.system(size: 9, weight: .semibold))
+                                    Text(activeSetPlan?.name ?? "Freestyle")
+                                        .font(.system(size: 11, weight: .semibold))
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 8, weight: .bold))
+                                }
+                                .foregroundStyle(Color.appAccent)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(Capsule().fill(Color.appAccent.opacity(0.12)))
+                                .overlay(Capsule().strokeBorder(Color.appAccent.opacity(0.35), lineWidth: 1))
+                            }
+                            .buttonStyle(.plain)
+                        } else {
                         Button {
                             hubSection = .setPlans
                             showHub = true
@@ -1615,6 +2686,7 @@ struct CheckInView: View {
                             }
                         }
                         .buttonStyle(.plain)
+                        }
                     } else {
                         Text(activeSetPlan?.name ?? "Freestyle")
                             .font(.system(size: 10, weight: .medium))
@@ -1639,10 +2711,19 @@ struct CheckInView: View {
                 }
                 .disabled(nextSessionDate == nil)
             }
+            }
 
             // Set bars — fixed height region so widget doesn't shift across states
             let sortedSets = todaysSets.sorted(by: { $0.createdAt < $1.createdAt })
 
+            switch setsWidgetStyle {
+            case .verticalRows:
+                verticalSetRows(sortedSets: sortedSets)
+                    .padding(.top, 6)
+            case .tallTiles:
+                tallSetTileRow(sortedSets: sortedSets)
+                    .frame(minHeight: 64, alignment: .center)
+            case .original:
             Group {
                 if isViewingToday, let plan = activeSetPlan {
                     // Today with active plan: slots match plan sequence width
@@ -1717,27 +2798,27 @@ struct CheckInView: View {
                                     switch effort {
                                     case "easy":
                                         if let s = effortShortcuts {
-                                            applyPreset(s.easy, atIndex: index)
+                                            applyPreset(s.easy, atIndex: index, effort: "easy")
                                         } else {
                                             showPresetUnavailableHint(forEffort: "Easy")
                                         }
                                     case "moderate":
                                         if let s = effortShortcuts {
-                                            applyPreset(s.moderate, atIndex: index)
+                                            applyPreset(s.moderate, atIndex: index, effort: "moderate")
                                         } else {
                                             showPresetUnavailableHint(forEffort: "Moderate")
                                         }
                                     case "hard":
                                         if let s = effortShortcuts {
-                                            applyPreset(s.hard, atIndex: index)
+                                            applyPreset(s.hard, atIndex: index, effort: "hard")
                                         } else {
                                             showPresetUnavailableHint(forEffort: "Hard")
                                         }
                                     case "redline":
-                                        if let pick = redlineShortcut {
-                                            applyPreset(pick, atIndex: index)
+                                        if let pick = nearMaxShortcut {
+                                            applyPreset(pick, atIndex: index, effort: "redline")
                                         } else {
-                                            showPresetUnavailableHint(forEffort: "Redline")
+                                            showPresetUnavailableHint(forEffort: "Near Max")
                                         }
                                     case "pr":
                                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -1820,36 +2901,87 @@ struct CheckInView: View {
                 }
             }
             .frame(minHeight: 44, alignment: .center)
+            }
 
-            // Chevron toggle for the inline effort-ranges expansion. No
-            // divider above it — the bars are visually distinct enough on
-            // their own and the chevron's own top padding handles the
-            // separation. Sized up a touch and given a generous tap target.
+            // Faint divider so the sets read as a finite list, distinct from the
+            // ranges-expansion chevron below (vertical-rows variant only).
+            if setsWidgetStyle == .verticalRows {
+                Rectangle()
+                    .fill(Color.white.opacity(0.08))
+                    .frame(height: 1)
+                    .padding(.horizontal, 4)
+                    .padding(.top, 2)
+            }
+
+            // Disclosure toggle for the inline explainer + effort ranges.
+            // Deliberately LABELLED: a bare chevron at the foot of a card reads as
+            // "there's more to scroll", not "tap to learn what this widget is". The
+            // chevron survives only as a small trailing rotation indicator, which is
+            // the standard disclosure idiom — the label is what carries the meaning.
             Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                hapticFeedback.impactOccurred()
+                AmplitudeService.shared.track(
+                    .setsHowItWorksToggled(isExpanded: !isSetsRangesExpanded)
+                )
                 withAnimation(.easeInOut(duration: 0.2)) {
                     isSetsRangesExpanded.toggle()
                 }
             } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.appAccent.opacity(0.8))
-                    .rotationEffect(.degrees(isSetsRangesExpanded ? 180 : 0))
-                    .offset(y: setsRangesChevronBob ? 3 : 0)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 0)
-                    .padding(.bottom, 2)
-                    .contentShape(Rectangle())
+                HStack(spacing: 5) {
+                    Image(systemName: "questionmark.circle")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(isSetsRangesExpanded ? "Hide" : "How this works")
+                        .font(.system(size: 12, weight: .semibold))
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .bold))
+                        .rotationEffect(.degrees(isSetsRangesExpanded ? 180 : 0))
+                        .offset(y: setsRangesChevronBob ? 2 : 0)
+                }
+                .foregroundStyle(Color.appAccent.opacity(0.9))
+                .frame(maxWidth: .infinity)
+                .padding(.top, 2)
+                .padding(.bottom, 2)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
             if isSetsRangesExpanded {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("Follow the set plan above. Adjust weight and reps as needed. Tap an empty tile to pre-populate the inputs from your last set at that effort level. The categories below show what percent of your e1RM each effort represents.")
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("The set sequence above serves as a guide based on your selected set plan.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.75))
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        // The badge is an image inside the Text run, so the sentence
+                        // wraps underneath it as a normal paragraph rather than
+                        // hanging to its right.
+                        Group {
+                            if let badge = nextBadgeRendered {
+                                Text(badge).baselineOffset(-2) + Text(nextBadgeSentence)
+                            } else {
+                                Text("NEXT")
+                                    .font(.system(size: 11, weight: .heavy))
+                                    .foregroundColor(.appAccent)
+                                + Text(nextBadgeSentence)
+                            }
+                        }
                         .font(.system(size: 12))
                         .foregroundStyle(.white.opacity(0.75))
-                        .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
+
+                        Text("The categories below show what percent of your e1RM each effort level covers.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.75))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .multilineTextAlignment(.leading)
+                    .onAppear {
+                        // Rasterize once, the first time the explainer is opened.
+                        if nextBadgeRendered == nil {
+                            nextBadgeRendered = renderNextBadge()
+                        }
+                    }
 
                     SetsEffortRangesCard()
 
@@ -1859,7 +2991,8 @@ struct CheckInView: View {
                     HStack {
                         Spacer(minLength: 0)
                         Button {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            hapticFeedback.impactOccurred()
+                            AmplitudeService.shared.track(.setsGuideOpened)
                             showSetsInfoSheet = true
                         } label: {
                             HStack(spacing: 6) {
@@ -1921,16 +3054,19 @@ struct CheckInView: View {
 
     private var progressOptionsWidget: some View {
         VStack(spacing: 8) {
-            // Header — outside the card
-            HStack {
-                Text("PROGRESS OPTIONS")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.4))
-                    .tracking(1)
+            // Header — outside the card. Hidden in the vertical-rows variant, matching
+            // the hidden "SETS" label above the sets widget.
+            if setsWidgetStyle != .verticalRows {
+                HStack {
+                    Text("PROGRESS OPTIONS")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.4))
+                        .tracking(1)
 
-                Spacer()
+                    Spacer()
+                }
+                .padding(.leading, 4)
             }
-            .padding(.leading, 4)
 
             VStack(spacing: 0) {
                 // e1RM Progress Options header with expand button
@@ -2600,22 +3736,22 @@ struct CheckInView: View {
         return (easy: picks[0], moderate: picks[1], hard: picks[2])
     }
 
-    // Standalone Redline shortcut. Kept separate from `effortShortcuts` so the
-    // existing Easy/Moderate/Hard tuple shape is untouched, and so that Redline
+    // Standalone Near Max shortcut. Kept separate from `effortShortcuts` so the
+    // existing Easy/Moderate/Hard tuple shape is untouched, and so that Near Max
     // failing (e.g. no recent sets and no synthesizable suggestion) doesn't
     // nil-out the other shortcuts. Used only by the Sets widget tile-tap when
     // a plan's effortSequence includes "redline" — there's no Jump-to button
-    // for Redline in the log bar.
-    private var redlineShortcut: (weight: Double, reps: Int)? {
+    // for Near Max in the log bar.
+    private var nearMaxShortcut: (weight: Double, reps: Int)? {
         let e1rm = current1RM
         guard e1rm > 0, let ex = selectedExercise else { return nil }
 
-        // 1. Prefer the most recent set whose current percent still classifies as Redline.
+        // 1. Prefer the most recent set whose current percent still classifies as Near Max.
         if let recent = mostRecentSet(inBounds: 92...100, currentE1RM: e1rm) {
             return recent
         }
 
-        // 2. Fallback: synthesize a Redline suggestion (heavy singles-to-triples).
+        // 2. Fallback: synthesize a Near Max suggestion (heavy singles-to-triples).
         let loadType = ex.exerciseLoadType
         let barWt = ex.effectiveBarbellWeight
         let macroWeights = OneRMCalculator.efficientPlateWeights(loadType: loadType, barWeight: barWt)
@@ -2637,8 +3773,24 @@ struct CheckInView: View {
 
     // Applies a preset (weight, reps) pick to the log bar with the same haptic,
     // flash, and tile-press animation as the inline tile-tap code used previously.
-    private func applyPreset(_ pick: (weight: Double, reps: Int), atIndex index: Int) {
+    /// Normalizes an effort to the snake_case token used in analytics, so a
+    /// suggestion load and a logged-set copy report comparable values. Routing the
+    /// key through `SetPlan.effortLabel` first is what keeps the legacy "redline"
+    /// key out of the event stream: it reports as "near_max", matching the effort
+    /// property on `baselineSetLogged`.
+    private func effortToken(forKey key: String) -> String {
+        effortToken(label: SetPlan.effortLabel(for: key))
+    }
+
+    private func effortToken(label: String) -> String {
+        label.lowercased().replacingOccurrences(of: " ", with: "_")
+    }
+
+    private func applyPreset(_ pick: (weight: Double, reps: Int), atIndex index: Int, effort: String) {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        AmplitudeService.shared.track(
+            .setPresetLoaded(effort: effortToken(forKey: effort), source: "suggestion")
+        )
         weight = pick.weight
         reps = pick.reps
         triggerLogSetFlash()
@@ -2655,6 +3807,10 @@ struct CheckInView: View {
     // failed for this effort despite having a baseline" — the latter usually
     // means the user's available plates can't hit a clean weight in the bucket.
     private func showPresetUnavailableHint(forEffort effort: String) {
+        // Tapping a set cell always confirms itself with haptics, even when no
+        // preset could be synthesized. `applyPreset` fires its own on the success
+        // path, so this is the only branch that would otherwise feel dead.
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
         if current1RM > 0 {
             presetHintTitle = "Preset Unavailable"
             presetHintMessage = "We couldn't generate a \(effort) preset for this exercise. Try entering the weight and reps manually for this set."
@@ -2791,7 +3947,7 @@ struct CheckInView: View {
                     case .easy: return .setEasy
                     case .moderate: return .setModerate
                     case .hard: return .setHard
-                    case .redline: return .setNearMax
+                    case .nearMax: return .setNearMax
                     case .pr: return .appAccent
                     }
                 }()
@@ -3718,7 +4874,7 @@ struct CheckInView: View {
                 let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: percent1RM)
                 overlayIntensityLabel = bucket == .pr ? "Progress" : bucket.rawValue
                 switch bucket {
-                case .pr, .redline: overlayIntensityColor = .setNearMax
+                case .pr, .nearMax: overlayIntensityColor = .setNearMax
                 case .hard: overlayIntensityColor = .setHard
                 case .moderate: overlayIntensityColor = .setModerate
                 case .easy: overlayIntensityColor = .setEasy
@@ -3855,7 +5011,11 @@ struct CheckInView: View {
             case .easy: effortLabel = "easy"
             case .moderate: effortLabel = "moderate"
             case .hard: effortLabel = "hard"
-            case .progress: effortLabel = "redline"
+            // Amplitude wire value. Deliberately NOT the same as the persisted
+            // set-plan effort key, which is still the legacy string "redline" —
+            // don't "unify" these two. Renamed at the Near Max release, so any
+            // query spanning that boundary must union "redline" and "near_max".
+            case .progress: effortLabel = "near_max"
             }
         } else {
             effortLabel = "max_effort"
@@ -3985,7 +5145,7 @@ struct CheckInView: View {
         overlayMilestoneExerciseName = milestoneName
         overlayMilestoneTargetLabel = milestoneTargetLabel
         if !isMilestone {
-            // Max Effort path (effort == nil) sits above Redline in intensity, so reuse the setNearMax color.
+            // Max Effort path (effort == nil) sits above Near Max in intensity, so reuse the setNearMax color.
             if let effort {
                 overlayIntensityColor = effort == .progress ? .setNearMax : effort.tileColor
             } else {
@@ -4076,10 +5236,13 @@ struct CheckInView: View {
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
         )
         let records = (try? modelContext.fetch(descriptor)) ?? []
-        guard let latest = records.first else { return nil }
+        guard let latest = records.first, let earliest = records.last else { return nil }
 
-        let oldRecords = records.filter { $0.createdAt <= cutoff }
-        guard let baseline = oldRecords.first else { return nil }
+        // Baseline = the e1RM entering the 7-day window (newest record at/older than the
+        // cutoff). If the lift has no history older than the window, fall back to the
+        // earliest record so a recent gain (incl. the set just logged) still shows
+        // instead of nothing.
+        let baseline = records.first(where: { $0.createdAt <= cutoff }) ?? earliest
 
         let gain = latest.value - baseline.value
         return gain > 0.1 ? gain : nil
@@ -4126,15 +5289,10 @@ struct CheckInView: View {
         }
     }
 
+    /// Single source of truth lives on `SetPlan` so this and the set-plan catalog
+    /// legend can't drift apart again.
     private func effortLabel(for key: String) -> String {
-        switch key {
-        case "easy": return "Easy"
-        case "moderate": return "Moderate"
-        case "hard": return "Hard"
-        case "redline": return "Redline"
-        case "pr": return "Progress"
-        default: return key.capitalized
-        }
+        SetPlan.effortLabel(for: key)
     }
 
     private func shortEffortLabel(for key: String) -> String {
@@ -4142,7 +5300,7 @@ struct CheckInView: View {
         case "easy": return "easy"
         case "moderate": return "mod"
         case "hard": return "hard"
-        case "redline": return "redline"
+        case "redline": return "near max"
         case "pr": return "progress"
         default: return String(key.prefix(4))
         }
@@ -4308,31 +5466,57 @@ private struct SetsGuideContent: View {
             // e1RM
             VStack(alignment: .leading, spacing: 6) {
                 sectionLabel("ESTIMATED 1RM (e1RM)")
-                paragraph("Your e1RM is an estimate of the heaviest weight you could lift for a single rep. It updates each time you log a set.")
+                (
+                    run("Your ") + term("e1RM")
+                    + run(" is an estimate of the heaviest weight you could lift for a single rep. It increases each time you log a ")
+                    + term("Progress Set") + run(".")
+                )
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // Baseline set
+            VStack(alignment: .leading, spacing: 6) {
+                sectionLabel("YOUR BASELINE SET")
+                (
+                    run("The first set you log for an exercise is its baseline. Right after you log it we ask how hard it felt. That answer is what determines your starting ")
+                    + term("e1RM")
+                    + run(". The suggestions the app makes afterwards build from that starting point.")
+                )
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             // Effort categories
             VStack(alignment: .leading, spacing: 10) {
                 sectionLabel("EFFORT CATEGORIES")
-                paragraph("Every set falls into one of five categories based on what percent of your e1RM you're lifting. Easier sets build volume; harder sets push your ceiling.")
+                (
+                    run("Every set falls into one of five categories based on what percent of your ")
+                    + term("e1RM")
+                    + run(" you're lifting. Easier sets build volume; harder sets push your ceiling.")
+                )
+                .fixedSize(horizontal: false, vertical: true)
 
                 SetsEffortRangesCard()
                     .padding(.top, 2)
             }
 
-            // Logging a Progress set
+            // Logging a Progress Set
             VStack(alignment: .leading, spacing: 6) {
                 sectionLabel("LOGGING A PROGRESS SET")
-                paragraph("A Progress set raises your e1RM. The Progress Options widget directly below suggests weight + rep combinations that will do exactly that. Pick a smaller gain to inch forward, or a larger one when you're ready to push.")
+                (
+                    run("A ") + term("Progress Set") + run(" raises your ") + term("e1RM")
+                    + run(". The ") + term("e1RM Progress Options")
+                    + run(" suggest weight and rep combinations that will do exactly that. Pick an option with a smaller gain to inch forward, or a larger one when you're ready to push.")
+                )
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             // Set plan
             VStack(alignment: .leading, spacing: 6) {
                 sectionLabel("YOUR SET PLAN")
                 (
-                    Text("The sequence shown on the Sets widget comes from your active plan. To switch plans, tap the plan name (with the ")
-                    + Text(Image(systemName: "chevron.right"))
-                    + Text(" next to it) at the top of the widget. That opens the plan hub where you can pick a different one.")
+                    Text("The rows on the Sets widget come from your active plan, one row per set, in order. To switch plans, tap the plan chip under the date heading (the one with the ")
+                    + Text(Image(systemName: "chevron.down"))
+                    + Text("). That opens the plan hub where you can pick a different one.")
                 )
                 .font(.system(size: 13))
                 .foregroundStyle(.white.opacity(0.8))
@@ -4344,9 +5528,10 @@ private struct SetsGuideContent: View {
                 sectionLabel("WIDGET CONTROLS")
                 VStack(alignment: .leading, spacing: 8) {
                     controlRow(icon: "chevron.left.chevron.right", text: "Tap the left chevron to view a previous session. The right chevron only activates while you're already in the past, to step forward toward today.")
-                    controlRow(icon: "list.bullet.rectangle", text: "Tap the plan name to change your active plan.")
-                    controlRow(icon: "hand.tap", text: "Tap a set tile to load values into the inputs. A populated tile copies its own weight and reps; an empty tile pulls from your last set at that effort level.")
-                    controlRow(icon: "trash", text: "Long-press a logged set tile to delete it.")
+                    controlRow(icon: "list.bullet.rectangle", text: "Tap the plan chip to change your active plan.")
+                    controlRow(icon: "arrow.down.circle", text: "Loaded means those suggested values are already in the inputs. Change either one and it goes back to Tap to load.")
+                    controlRow(icon: "hand.tap", text: "Tap a set row to load values into the inputs. A logged row copies the weight and reps you actually lifted; an upcoming row loads the suggestion for its effort level.")
+                    controlRow(icon: "trash", text: "Long-press a logged set row to delete it.")
                 }
             }
 
@@ -4385,6 +5570,23 @@ private struct SetsGuideContent: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
+    /// Plain body run, for paragraphs assembled by concatenation. Colour is set on
+    /// the run itself rather than via an outer `.foregroundStyle`, so a `term` run
+    /// in the same paragraph can't be overridden by it.
+    private func run(_ text: String) -> Text {
+        Text(text)
+            .font(.system(size: 13))
+            .foregroundColor(.white.opacity(0.8))
+    }
+
+    /// Key app vocabulary — e1RM, Progress Set — tinted amber so it reads as a named
+    /// concept rather than prose.
+    private func term(_ text: String) -> Text {
+        Text(text)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(.appAccent)
+    }
+
     private func controlRow(icon: String, text: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon)
@@ -4411,7 +5613,7 @@ private struct SetsEffortRangesCard: View {
                 SetsEffortRow(color: .setEasy, label: "Easy", range: "< 70% e1RM")
                 SetsEffortRow(color: .setModerate, label: "Moderate", range: "70–82% e1RM")
                 SetsEffortRow(color: .setHard, label: "Hard", range: "82–92% e1RM")
-                SetsEffortRow(color: .setNearMax, label: "Redline", range: "92–100% e1RM")
+                SetsEffortRow(color: .setNearMax, label: "Near Max", range: "92–100% e1RM")
                 SetsEffortRow(color: .appAccent, label: "Progress", range: "> 100% e1RM")
             }
             .padding(.vertical, 14)

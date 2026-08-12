@@ -244,10 +244,10 @@ struct TrainingReportCardView: View {
                     .font(.interSemiBold(size: 10))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                    .foregroundColor(delta > 0 ? .setEasy : .setNearMax)
+                    .foregroundColor(delta > 0 ? .setEasy : .semanticNegative)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 3)
-                    .background((delta > 0 ? Color.setEasy : Color.setNearMax).opacity(0.15))
+                    .background((delta > 0 ? Color.setEasy : Color.semanticNegative).opacity(0.15))
                     .clipShape(Capsule())
             } else if exercise.currentE1RMLocalCache != nil {
                 Text("NEW")
@@ -271,7 +271,7 @@ struct TrainingReportCardView: View {
                     intensitySegment(pct: data.intensity.easyPct, color: .setEasy, width: w)
                     intensitySegment(pct: data.intensity.moderatePct, color: .setModerate, width: w)
                     intensitySegment(pct: data.intensity.hardPct, color: .setHard, width: w)
-                    intensitySegment(pct: data.intensity.redlinePct, color: .setNearMax, width: w)
+                    intensitySegment(pct: data.intensity.nearMaxPct, color: .setNearMax, width: w)
                     intensitySegment(pct: data.intensity.prPct, color: .setPR, width: w)
                 }
             }
@@ -287,7 +287,7 @@ struct TrainingReportCardView: View {
                 Spacer()
                 intensityLegendItem(color: .setHard, label: "Hard")
                 Spacer()
-                intensityLegendItem(color: .setNearMax, label: "Redline")
+                intensityLegendItem(color: .setNearMax, label: "Near Max")
                 Spacer()
                 intensityLegendItem(color: .setPR, label: "1RM Progress")
                 Spacer()

@@ -31,7 +31,7 @@ struct IntensityBreakdown {
     let easyPct: Double
     let moderatePct: Double
     let hardPct: Double
-    let redlinePct: Double
+    let nearMaxPct: Double
     let prPct: Double
 }
 
@@ -203,7 +203,7 @@ enum ReportCardGenerator {
             easyPct: Double(dist.easy) / total,
             moderatePct: Double(dist.moderate) / total,
             hardPct: Double(dist.hard) / total,
-            redlinePct: Double(dist.redline) / total,
+            nearMaxPct: Double(dist.nearMax) / total,
             prPct: Double(dist.pr) / total
         )
 

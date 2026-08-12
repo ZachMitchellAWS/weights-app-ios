@@ -737,7 +737,7 @@ struct LegacyCheckInView: View {
                     Button("Easy") { applyCalibration(effort: .easy) }
                     Button("Moderate") { applyCalibration(effort: .moderate) }
                     Button("Hard") { applyCalibration(effort: .hard) }
-                    Button("Redline") { applyCalibration(effort: .progress) }
+                    Button("Near Max") { applyCalibration(effort: .progress) }
                     Button("Max Effort") { applyCalibration(effortFraction: 1.0) }
                 } message: {
                     Text("This helps estimate your 1RM for better suggestions.")
@@ -1757,7 +1757,7 @@ struct LegacyCheckInView: View {
                         LegendItem(color: .setEasy, label: "Easy")
                         LegendItem(color: .setModerate, label: "Moderate")
                         LegendItem(color: .setHard, label: "Hard")
-                        LegendItem(color: .setNearMax, label: "Redline")
+                        LegendItem(color: .setNearMax, label: "Near Max")
                         LegendItem(color: .setPR, label: "e1RM ↑")
                     }
                     .padding(.horizontal, 12)
@@ -2005,7 +2005,7 @@ struct LegacyCheckInView: View {
                 let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: setInfo.percent1RM / 100.0)
                 let c: Color
                 switch bucket {
-                case .pr, .redline: c = .setNearMax
+                case .pr, .nearMax: c = .setNearMax
                 case .hard: c = .setHard
                 case .moderate: c = .setModerate
                 case .easy: c = .setEasy
@@ -2037,7 +2037,7 @@ struct LegacyCheckInView: View {
             let color: Color
             switch bucket {
             case .pr: color = .setPR
-            case .redline: color = .setNearMax
+            case .nearMax: color = .setNearMax
             case .hard: color = .setHard
             case .moderate: color = .setModerate
             case .easy: color = .setEasy
@@ -3894,10 +3894,10 @@ struct LegacyCheckInView: View {
             // Weighted exercise - color by percent1RM
             let percent1RM = before > 0 ? OneRMCalculator.estimate1RM(weight: weight, reps: reps) / before : 0
             let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: percent1RM)
-            overlayIntensityLabel = (bucket == .pr) ? "Redline" : bucket.rawValue
+            overlayIntensityLabel = (bucket == .pr) ? "Near Max" : bucket.rawValue
             switch bucket {
-            case .pr: overlayIntensityColor = .setNearMax // not a true PR — downgrade to redline
-            case .redline: overlayIntensityColor = .setNearMax
+            case .pr: overlayIntensityColor = .setNearMax // not a true PR — downgrade to Near Max
+            case .nearMax: overlayIntensityColor = .setNearMax
             case .hard: overlayIntensityColor = .setHard
             case .moderate: overlayIntensityColor = .setModerate
             case .easy: overlayIntensityColor = .setEasy
@@ -3978,7 +3978,7 @@ struct LegacyCheckInView: View {
         if let effort {
             overlayIntensityColor = effort == .progress ? .setNearMax : effort.tileColor
         } else {
-            // Max Effort path — sits above Redline in intensity, reuse setNearMax.
+            // Max Effort path — sits above Near Max in intensity, reuse setNearMax.
             overlayIntensityColor = .setNearMax
         }
         overlayIntensityLabel = "Calibrated"
@@ -5026,7 +5026,7 @@ struct SetSquareView: View {
             let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: pct)
             let c: Color
             switch bucket {
-            case .pr, .redline: c = .setNearMax
+            case .pr, .nearMax: c = .setNearMax
             case .hard: c = .setHard
             case .moderate: c = .setModerate
             case .easy: c = .setEasy
@@ -5062,8 +5062,8 @@ struct SetSquareView: View {
             let percent1RM = currentMax > 0 ? setEstimated1RM / currentMax : 0
             let bucket = TrendsCalculator.IntensityBucket.from(percent1RM: percent1RM)
             switch bucket {
-            case .pr: color = .setNearMax // not a true PR — downgrade to redline
-            case .redline: color = .setNearMax
+            case .pr: color = .setNearMax // not a true PR — downgrade to Near Max
+            case .nearMax: color = .setNearMax
             case .hard: color = .setHard
             case .moderate: color = .setModerate
             case .easy: color = .setEasy

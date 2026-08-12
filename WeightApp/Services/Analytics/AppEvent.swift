@@ -50,6 +50,27 @@ enum AppEvent {
     case screenViewed(name: String)
     case buttonTapped(name: String, context: String?)
 
+    // "Ready to Lift?" next-focus nudge
+    /// `trigger` distinguishes the once-per-launch automatic appearance ("auto")
+    /// from the user tapping the next-focus chip ("manual") — different intent, so
+    /// they must not be pooled when judging whether the nudge works.
+    case readyToLiftShown(focusExercise: String, trigger: String)
+    /// The CTA that sends the user to that exercise on the Lift tab. Pair with
+    /// `readyToLiftShown` for the conversion rate of the nudge.
+    case readyToLiftCTATapped(focusExercise: String)
+    /// Closed without acting, via the X or the scrim.
+    case readyToLiftDismissed(focusExercise: String)
+
+    // Sets widget engagement
+    /// The "How this works" disclosure under the set rows. `isExpanded` false is a
+    /// collapse, so open/close can be told apart in one event.
+    case setsHowItWorksToggled(isExpanded: Bool)
+    /// The "Open the full Sets Guide" pill inside that disclosure.
+    case setsGuideOpened
+    /// A set row tapped to load its values into the log inputs. `source` is
+    /// "suggestion" for an upcoming planned row or "logged_set" for a completed one.
+    case setPresetLoaded(effort: String, source: String)
+
     // Strength tab engagement
     case strengthInsightPlayTapped(action: String, tier: String)
 
@@ -86,6 +107,12 @@ enum AppEvent {
         case let .trendsSubtabSwitched(subtab): return "Sub-tab Switched - \(subtab)"
         case .screenViewed: return "Screen Viewed"
         case .buttonTapped: return "Button Tapped"
+        case .readyToLiftShown: return "Ready To Lift Shown"
+        case .readyToLiftCTATapped: return "Ready To Lift CTA Tapped"
+        case .readyToLiftDismissed: return "Ready To Lift Dismissed"
+        case .setsHowItWorksToggled: return "Sets How It Works Toggled"
+        case .setsGuideOpened: return "Sets Guide Opened"
+        case .setPresetLoaded: return "Set Preset Loaded"
         case .strengthInsightPlayTapped: return "Strength Insight Play Tapped"
         case .lockedWidgetTapped: return "Locked Widget Tapped"
         case .tutorialShown: return "Tutorial Shown"
@@ -146,6 +173,22 @@ enum AppEvent {
             if let context { props["context"] = context }
             return props
 
+        case let .readyToLiftShown(focusExercise, trigger):
+            return ["focus_exercise": focusExercise, "trigger": trigger]
+
+        case let .readyToLiftCTATapped(focusExercise),
+             let .readyToLiftDismissed(focusExercise):
+            return ["focus_exercise": focusExercise]
+
+        case let .setsHowItWorksToggled(isExpanded):
+            return ["is_expanded": isExpanded]
+
+        case .setsGuideOpened:
+            return [:]
+
+        case let .setPresetLoaded(effort, source):
+            return ["effort": effort, "source": source]
+
         case let .strengthInsightPlayTapped(action, tier):
             return ["action": action, "tier": tier]
 
@@ -197,7 +240,7 @@ struct SetLogProperties {
     let isMilestone: Bool
     let isFirstTierLog: Bool
     /// Effort chosen in the post-baseline "How did that feel?" prompt
-    /// (easy/moderate/hard/redline/max_effort). Only set on baseline sets —
+    /// (easy/moderate/hard/near_max/max_effort). Only set on baseline sets —
     /// regular sets don't show that prompt, so it stays nil (and is omitted).
     var effort: String? = nil
 

@@ -97,24 +97,18 @@ struct TrendsCalculator {
         case easy = "Easy"
         case moderate = "Moderate"
         case hard = "Hard"
-        case redline = "Redline"
+        // NOTE: this rawValue is rendered directly to users (see the `bucket.rawValue`
+        // call sites), so it doubles as the display label. It is not persisted
+        // anywhere — no Codable, no UserDefaults, no DTO — so it is safe to reword.
+        // The persisted set-plan effort key remains the separate string "redline".
+        case nearMax = "Near Max"
         case pr = "Progress"
-
-        var color: String {
-            switch self {
-            case .easy: return "setEasy"
-            case .moderate: return "setModerate"
-            case .hard: return "setHard"
-            case .redline: return "setNearMax"
-            case .pr: return "setPR"
-            }
-        }
 
         /// Classify by percent of estimated 1RM into an intensity bucket.
         /// Does not handle PR detection — caller should check for PRs first.
         static func from(percent1RM p: Double) -> IntensityBucket {
             switch p {
-            case 0.92...:     return .redline  // 92%+ (PR is handled by caller)
+            case 0.92...:     return .nearMax  // 92%+ (PR is handled by caller)
             case 0.82..<0.92: return .hard     // 82-91%
             case 0.70..<0.82: return .moderate // 70-81%
             default:          return .easy     // < 70%
@@ -126,10 +120,10 @@ struct TrendsCalculator {
         var easy: Int = 0
         var moderate: Int = 0
         var hard: Int = 0
-        var redline: Int = 0
+        var nearMax: Int = 0
         var pr: Int = 0
 
-        var total: Int { easy + moderate + hard + redline + pr }
+        var total: Int { easy + moderate + hard + nearMax + pr }
 
         func percentage(for bucket: IntensityBucket) -> Double {
             guard total > 0 else { return 0 }
@@ -138,7 +132,7 @@ struct TrendsCalculator {
             case .easy: count = easy
             case .moderate: count = moderate
             case .hard: count = hard
-            case .redline: count = redline
+            case .nearMax: count = nearMax
             case .pr: count = pr
             }
             return Double(count) / Double(total) * 100
@@ -176,7 +170,7 @@ struct TrendsCalculator {
                         let bucket = IntensityBucket.from(percent1RM: pct)
                         switch bucket {
                         case .pr: distribution.pr += 1
-                        case .redline: distribution.redline += 1
+                        case .nearMax: distribution.nearMax += 1
                         case .hard: distribution.hard += 1
                         case .moderate: distribution.moderate += 1
                         case .easy: distribution.easy += 1
@@ -191,14 +185,14 @@ struct TrendsCalculator {
                     if isInWindow {
                         let bucket: IntensityBucket
                         switch set.reps {
-                        case 12...: bucket = .redline
+                        case 12...: bucket = .nearMax
                         case 9..<12: bucket = .hard
                         case 6..<9: bucket = .moderate
                         default: bucket = .easy
                         }
                         switch bucket {
                         case .pr: distribution.pr += 1
-                        case .redline: distribution.redline += 1
+                        case .nearMax: distribution.nearMax += 1
                         case .hard: distribution.hard += 1
                         case .moderate: distribution.moderate += 1
                         case .easy: distribution.easy += 1
@@ -218,7 +212,7 @@ struct TrendsCalculator {
                         let bucket = IntensityBucket.from(percent1RM: percent1RM)
                         switch bucket {
                         case .pr: distribution.pr += 1
-                        case .redline: distribution.redline += 1
+                        case .nearMax: distribution.nearMax += 1
                         case .hard: distribution.hard += 1
                         case .moderate: distribution.moderate += 1
                         case .easy: distribution.easy += 1
@@ -512,6 +506,37 @@ struct TrendsCalculator {
         return names.sorted()
     }
 
+    // MARK: - Exercise Picker Ordering
+
+    /// Splits exercise names into the five strength-tier lifts (in canonical order)
+    /// and everything else (alphabetical), so the Analytics pickers can render them
+    /// as two sections.
+    ///
+    /// `fundamentalExercises` is the ONLY correct order source. `Exercise.builtInIds`,
+    /// `Exercise.builtInTemplates`, the static exercise UUIDs, and any `@Query` sorted
+    /// by `createdAt` all place Overhead Press *before* Barbell Rows — the opposite of
+    /// the intended sequence — so none of them may be substituted here.
+    static func partitionedExerciseNames(_ names: [String]) -> (tier: [String], other: [String]) {
+        let rank = Dictionary(
+            uniqueKeysWithValues: fundamentalExercises.enumerated().map { ($0.element.name, $0.offset) }
+        )
+        let tier = names
+            .filter { rank[$0] != nil }
+            .sorted { (rank[$0] ?? 0) < (rank[$1] ?? 0) }
+        let other = names
+            .filter { rank[$0] == nil }
+            .sorted()
+        return (tier, other)
+    }
+
+    /// `partitionedExerciseNames` flattened. `.first` is the preferred default
+    /// selection for an exercise picker — it resolves to Deadlifts whenever Deadlifts
+    /// is present, since it leads `fundamentalExercises`, so no name is hardcoded.
+    static func prioritizedExerciseNames(_ names: [String]) -> [String] {
+        let parts = partitionedExerciseNames(names)
+        return parts.tier + parts.other
+    }
+
     // MARK: - Strength Balance
 
     struct FundamentalExercise {
@@ -550,7 +575,7 @@ struct TrendsCalculator {
 
         var color: Color {
             switch self {
-            case .lopsided: return .setNearMax
+            case .lopsided: return .semanticNegative
             case .skewed: return .balanceWeak
             case .uneven: return .balanceMild
             case .balanced: return .balanceCoolMild
