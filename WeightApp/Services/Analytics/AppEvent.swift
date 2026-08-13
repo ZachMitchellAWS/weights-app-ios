@@ -44,6 +44,15 @@ enum AppEvent {
     case strengthMilestoneAchieved(exercise: String, tier: String, estimated1RM: Double?)
     case exerciseCreated(loadType: String, movementType: String?, isCustom: Bool)
 
+    /// Pre-unlock sample card appeared on the Strength tab. `liftsLogged` (0-5) is the
+    /// user's REAL progress, not the sample's, so the funnel can show where people stall.
+    case strengthSampleShown(widget: String, liftsLogged: Int)
+    /// The sample's unlock footer was tapped, sending the user to the Lift tab. Paired
+    /// with the event above this gives the sample's conversion rate — the reason the
+    /// card exists. `tabSwitched` alone can't attribute this, since a footer tap and an
+    /// ordinary Lift-tab tap are identical there.
+    case strengthSampleUnlockTapped(widget: String, liftsLogged: Int)
+
     // Navigation / engagement
     case tabSwitched(tab: String)
     case trendsSubtabSwitched(subtab: String)
@@ -70,6 +79,28 @@ enum AppEvent {
     /// A set row tapped to load its values into the log inputs. `source` is
     /// "suggestion" for an upcoming planned row or "logged_set" for a completed one.
     case setPresetLoaded(effort: String, source: String)
+
+    // Session reminder (onboarding next-session question → local notification)
+    /// Answer to the iOS permission dialog. `source` is where it was asked from:
+    /// "onboarding" / "progress_tab" / "settings".
+    case notificationPermissionAnswered(granted: Bool, source: String)
+    /// "No thanks" in onboarding — declined WITHOUT the system dialog being shown, so
+    /// authorization stays `.notDetermined` and the user is still reachable later.
+    /// Deliberately not folded into `notificationPermissionAnswered(granted: false)`:
+    /// that means a hard, permanent `.denied`, and conflating the two would make the
+    /// recoverable population impossible to size.
+    case notificationPermissionSkipped(source: String, intent: String)
+    /// A one-shot local reminder was scheduled. `hoursAhead` is the lead time, so
+    /// the four intents can be compared without re-deriving dates.
+    case sessionReminderScheduled(intent: String, hoursAhead: Int)
+    /// The delivered reminder was tapped. Pair with Scheduled for the open rate.
+    /// The reminder was delivered while the app was FOREGROUNDED — the only delivery
+    /// signal iOS gives for a local notification. Background delivery is unobservable,
+    /// so this is a partial view: absence does not mean undelivered.
+    case sessionReminderDelivered(intent: String)
+    case sessionReminderOpened(intent: String)
+    /// Withdrawn before firing: "tier_unlocked" / "logout".
+    case sessionReminderCancelled(reason: String)
 
     // Strength tab engagement
     case strengthInsightPlayTapped(action: String, tier: String)
@@ -103,6 +134,8 @@ enum AppEvent {
         case let .strengthTierAchieved(tier, _, _): return "Strength Tier Unlocked - \(tier)"
         case let .strengthMilestoneAchieved(exercise, tier, _): return "Strength Milestone Achieved - \(exercise) \(tier)"
         case .exerciseCreated: return "Exercise Created"
+        case .strengthSampleShown: return "Strength Sample Shown"
+        case .strengthSampleUnlockTapped: return "Strength Sample Unlock Tapped"
         case let .tabSwitched(tab): return "Tab Switched - \(tab)"
         case let .trendsSubtabSwitched(subtab): return "Sub-tab Switched - \(subtab)"
         case .screenViewed: return "Screen Viewed"
@@ -113,6 +146,12 @@ enum AppEvent {
         case .setsHowItWorksToggled: return "Sets How It Works Toggled"
         case .setsGuideOpened: return "Sets Guide Opened"
         case .setPresetLoaded: return "Set Preset Loaded"
+        case .notificationPermissionAnswered: return "Notification Permission Answered"
+        case .notificationPermissionSkipped: return "Notification Permission Skipped"
+        case .sessionReminderScheduled: return "Session Reminder Scheduled"
+        case .sessionReminderDelivered: return "Session Reminder Delivered"
+        case .sessionReminderOpened: return "Session Reminder Opened"
+        case .sessionReminderCancelled: return "Session Reminder Cancelled"
         case .strengthInsightPlayTapped: return "Strength Insight Play Tapped"
         case .lockedWidgetTapped: return "Locked Widget Tapped"
         case .tutorialShown: return "Tutorial Shown"
@@ -188,6 +227,30 @@ enum AppEvent {
 
         case let .setPresetLoaded(effort, source):
             return ["effort": effort, "source": source]
+
+        case let .notificationPermissionAnswered(granted, source):
+            return ["granted": granted, "source": source]
+
+        case let .notificationPermissionSkipped(source, intent):
+            return ["source": source, "intent": intent]
+
+        case let .strengthSampleShown(widget, liftsLogged):
+            return ["widget": widget, "lifts_logged": liftsLogged]
+
+        case let .strengthSampleUnlockTapped(widget, liftsLogged):
+            return ["widget": widget, "lifts_logged": liftsLogged]
+
+        case let .sessionReminderScheduled(intent, hoursAhead):
+            return ["intent": intent, "hours_ahead": hoursAhead]
+
+        case let .sessionReminderDelivered(intent):
+            return ["intent": intent]
+
+        case let .sessionReminderOpened(intent):
+            return ["intent": intent]
+
+        case let .sessionReminderCancelled(reason):
+            return ["reason": reason]
 
         case let .strengthInsightPlayTapped(action, tier):
             return ["action": action, "tier": tier]

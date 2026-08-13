@@ -286,7 +286,7 @@ struct SettingsView: View {
                         UIApplication.shared.open(url)
                     }
                 } else if notificationStatus == .notDetermined {
-                    PushNotificationService.shared.requestPermissionIfNeeded()
+                    PushNotificationService.shared.requestPermissionIfNeeded(source: "settings")
                     Task {
                         try? await Task.sleep(for: .seconds(1))
                         await refreshNotificationStatus()

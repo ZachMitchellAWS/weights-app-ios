@@ -34,6 +34,7 @@ struct ContentView: View {
     @StateObject private var selectedSetData = SelectedSetData()
     private var narrativeBadge: NarrativeBadgeService { NarrativeBadgeService.shared }
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
+    @ObservedObject private var notificationRouter = NotificationRouter.shared
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -62,6 +63,21 @@ struct ContentView: View {
         .onChange(of: selectedSetData.pendingShowSettings) { _, pending in
             if pending {
                 selectedTab = 2
+            }
+        }
+        // A tapped session reminder lands on the Lift tab. Handled here rather than in
+        // the tap handler because AppDelegate has no access to the tab selection.
+        .onChange(of: notificationRouter.pendingDestination) { _, destination in
+            guard destination == .liftTab else { return }
+            selectedTab = 1
+            notificationRouter.pendingDestination = nil
+        }
+        .onAppear {
+            // Covers a cold launch from a notification tap, where the destination is
+            // published before this view exists to observe the change.
+            if notificationRouter.pendingDestination == .liftTab {
+                selectedTab = 1
+                notificationRouter.pendingDestination = nil
             }
         }
         .onChange(of: selectedTab) { _, newTab in

@@ -60,7 +60,8 @@ struct MoreView: View {
     @State private var showExerciseIcons = false
     @State private var showAlertPreviews = false
     @State private var showTierJourneyIntro = false
-    @State private var strengthReportLayout: ReportLayout? = nil
+    @State private var showTrainingSnapshotMock = false
+    @State private var showSessionIntentMock = false
     @State private var showEntitlementDetails = false
     @State private var showLogExportSheet = false
     @State private var exportedLogText = ""
@@ -782,7 +783,7 @@ struct MoreView: View {
                             authViewModel.showPostAuthFlow = true
                         } label: {
                             HStack {
-                                Text("Replay Onboarding (Nav)")
+                                Text("Replay Onboarding (Dev)")
                                     .foregroundStyle(.primary)
                                 Spacer()
                                 Image(systemName: "arrow.counterclockwise")
@@ -801,6 +802,19 @@ struct MoreView: View {
                                     .foregroundStyle(.primary)
                                 Spacer()
                                 Image(systemName: "arrow.counterclockwise")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        // Standalone R&D mock — does NOT touch production onboarding.
+                        Button {
+                            showSessionIntentMock = true
+                        } label: {
+                            HStack {
+                                Text("Session Intent Screens (Mock)")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "bell.badge")
                                     .foregroundStyle(Color.appAccent)
                             }
                         }
@@ -1286,22 +1300,20 @@ struct MoreView: View {
                             }
                         }
 
-                        // MARK: Strength Report Mockups
-                        Text("Strength Report Mockups")
+                        // MARK: Training Snapshot Mockup
+                        Text("Training Snapshot Mockup")
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(0.5))
 
-                        ForEach(ReportLayout.allCases) { layout in
-                            Button {
-                                strengthReportLayout = layout
-                            } label: {
-                                HStack {
-                                    Text("Strength Report — \(layout.rawValue.capitalized)")
-                                        .foregroundStyle(.primary)
-                                    Spacer()
-                                    Image(systemName: "chart.bar.doc.horizontal")
-                                        .foregroundStyle(Color.appAccent)
-                                }
+                        Button {
+                            showTrainingSnapshotMock = true
+                        } label: {
+                            HStack {
+                                Text("Training — This Week")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "chart.bar.doc.horizontal")
+                                    .foregroundStyle(Color.appAccent)
                             }
                         }
 
@@ -1455,8 +1467,12 @@ struct MoreView: View {
             .sheet(isPresented: $showAlertPreviews) {
                 AlertPreviewsSheet()
             }
-            .sheet(item: $strengthReportLayout) { layout in
-                StrengthReportPreviewSheet(layout: layout)
+            .sheet(isPresented: $showTrainingSnapshotMock) {
+                StrengthReportPreviewSheet()
+            }
+            // Full-screen so it reads like real onboarding rather than a sheet.
+            .fullScreenCover(isPresented: $showSessionIntentMock) {
+                SessionIntentMockFlow()
             }
             .sheet(isPresented: $showAPIValidation) {
                 APIValidationView()

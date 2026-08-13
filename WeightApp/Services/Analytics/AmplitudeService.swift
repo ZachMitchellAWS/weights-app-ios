@@ -66,6 +66,13 @@ final class AmplitudeService {
         amplitude?.reset()
     }
 
+    /// The answer to the onboarding "when's your next session?" question, as a user
+    /// property so cohorts can be compared without joining on the event stream. Stored
+    /// only here and in UserDefaults — the backend has no consumer for it.
+    func setNextSessionIntent(_ intent: String) {
+        amplitude?.identify(userProperties: ["next_session_intent": intent])
+    }
+
     /// Sync durable per-user properties to Amplitude for segmentation: randomization cohorts,
     /// app version/build, and device language/locale/timezone. Called on launch; re-running picks
     /// up changes (e.g. an app update or a language/region switch).

@@ -130,7 +130,9 @@ struct TrendsView: View {
                 consumePendingTrendsTab()
                 // Ask for notification permission the first time the Progress tab is opened
                 // (one-shot; guarded inside the service). Moved here from the narratives sub-tab.
-                PushNotificationService.shared.requestPermissionIfNeeded()
+                // Now a no-op unless authorization is still `.notDetermined`, so it reaches
+                // only users who finished onboarding without answering (tapped "No thanks").
+                PushNotificationService.shared.requestPermissionIfNeeded(source: "progress_tab")
             }
             .onChange(of: selectedSetData.pendingTrendsTab) {
                 if selectedTab == 0 {

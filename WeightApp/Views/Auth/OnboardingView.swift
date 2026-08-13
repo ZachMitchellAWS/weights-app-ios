@@ -11,25 +11,90 @@ import Charts
 
 struct OnboardingView: View {
     let onComplete: () -> Void
-    /// Debug-only (launched from the debug menu): show Back/Next controls to page through
-    /// every onboarding screen freely, bypassing per-step gating.
-    var debugNavigation: Bool = false
+    /// Development preview, launched from More → Developer → "Replay Onboarding (Dev)".
+    /// Adds Back/Next controls to page through every screen freely, bypassing per-step
+    /// gating. "Replay Onboarding (Real)" passes `false` and behaves exactly like
+    /// production, which is the point of having both entries.
+    var isDevelopmentPreview: Bool = false
 
     @State private var currentPage = 0
     @State private var showControls = false
-    private let totalPages = 7
 
-    /// Stable analytics names for each onboarding page (index → snake_case name).
-    static func onboardingStepName(_ index: Int) -> String {
-        switch index {
-        case 0: return "welcome"
-        case 1: return "five_lifts"
-        case 2: return "progress"
-        case 3: return "milestones"
-        case 4: return "body_profile"
-        case 5: return "change_plates"
-        case 6: return "starting_tier"
-        default: return "unknown_\(index)"
+    /// The flow as an ordered list rather than a fixed count, so a screen can be added
+    /// or removed without renumbering `case` labels or recomputing indices.
+    /// `currentPage` is an index INTO this array, which means the later steps'
+    /// `currentPage += 1` keeps working untouched.
+    private enum Screen {
+        case welcome, fiveLifts, progress, milestones
+        case bodyProfile, startingTier
+        case sessionIntent, sessionReminder
+
+        /// Stable snake_case analytics name. Keep these fixed once shipped — renaming
+        /// one splits its history in Amplitude.
+        var analyticsName: String {
+            switch self {
+            case .welcome: return "welcome"
+            case .fiveLifts: return "five_lifts"
+            case .progress: return "progress"
+            case .milestones: return "milestones"
+            case .bodyProfile: return "body_profile"
+            case .startingTier: return "starting_tier"
+            case .sessionIntent: return "session_intent"
+            case .sessionReminder: return "session_reminder"
+            }
+        }
+    }
+
+    private let screens: [Screen] = [
+        .welcome, .fiveLifts, .progress, .milestones,
+        .bodyProfile, .startingTier,
+        .sessionIntent, .sessionReminder,
+    ]
+
+    private var totalPages: Int { screens.count }
+
+    /// Clamped so an out-of-range index (debug nav, a stray advance) can't trap.
+    private func screen(at index: Int) -> Screen {
+        screens[max(0, min(index, screens.count - 1))]
+    }
+
+    private var currentScreen: Screen { screen(at: currentPage) }
+
+    /// Last page using the SHARED dots + Continue below; later steps render their own.
+    /// An absolute index on purpose — this was `totalPages - 3`, which silently hands a
+    /// second Continue to the self-managing steps the moment pages are added or removed.
+    /// Indices 0-3 are welcome…milestones in every configuration.
+    private let lastSharedContinuePage = 3
+
+    /// Answer to the session question. Held on-device only: it drives the local
+    /// reminder and an Amplitude user property, and the backend has no consumer.
+    @State private var sessionIntent: NextSessionIntent = .tomorrow
+
+    /// Guards the shared Continue against a double-tap advancing twice. Cleared on
+    /// every page change, so each page gets exactly one advance.
+    @State private var isAdvancing = false
+    @State private var controlsWatchdog: Task<Void, Never>?
+
+    /// How long a concept page may withhold its Continue button before the failsafe
+    /// reveals it. Well clear of the longest animation chain (~2s), so it never fires
+    /// in the happy path.
+    private static let controlsWatchdogSeconds: Double = 6
+
+    /// Guarantees a way forward on the animated concept pages.
+    ///
+    /// `showControls` is otherwise set ONLY by a step's `onAnimationComplete`, and the
+    /// Continue button is both `opacity(0)` and `allowsHitTesting(false)` until then —
+    /// so if that callback never lands, the user has no exit and no visible affordance
+    /// to discover. There is no back button and no skip. This makes the dead end
+    /// unreachable regardless of why the callback was missed.
+    private func armControlsWatchdog(for page: Int) {
+        controlsWatchdog?.cancel()
+        // Page 0 always shows its CTA; pages past the shared button own their own.
+        guard page > 0, page <= lastSharedContinuePage else { return }
+        controlsWatchdog = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(Self.controlsWatchdogSeconds))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.4)) { showControls = true }
         }
     }
 
@@ -43,46 +108,75 @@ struct OnboardingView: View {
 
                 // Page content
                 Group {
-                    switch currentPage {
-                    case 0: OnboardingWelcome()
-                    case 1: OnboardingFiveLiftsConcept(onAnimationComplete: {
+                    switch currentScreen {
+                    case .welcome: OnboardingWelcome()
+                    case .fiveLifts: OnboardingFiveLiftsConcept(onAnimationComplete: {
                         withAnimation(.easeOut(duration: 0.4)) {
                             showControls = true
                         }
                     })
-                    case 2: OnboardingProgressConcept(onAnimationComplete: {
+                    case .progress: OnboardingProgressConcept(onAnimationComplete: {
                         withAnimation(.easeOut(duration: 0.4)) {
                             showControls = true
                         }
                     })
-                    case 3: OnboardingMilestonesConcept(onAnimationComplete: {
+                    case .milestones: OnboardingMilestonesConcept(onAnimationComplete: {
                         withAnimation(.easeOut(duration: 0.4)) {
                             showControls = true
                         }
                     })
                     // Beyond the Basics screen removed — struct definition kept commented below in case we re-enable.
-                    // case 4: OnboardingBeyondBasicsConcept(onAnimationComplete: {
-                    //     withAnimation(.easeOut(duration: 0.4)) {
-                    //         showControls = true
-                    //     }
-                    // })
-                    case 4: OnboardingBodyProfileStep(currentPage: $currentPage, totalPages: totalPages)
-                    case 5: OnboardingChangePlatesStep(currentPage: $currentPage, totalPages: totalPages)
-                    case 6: OnboardingStartingTierStep(currentPage: $currentPage, totalPages: totalPages, onComplete: onComplete)
-                    default: EmptyView()
+                    // Change Plates removed from the flow; users set plates in Settings.
+                    case .bodyProfile: OnboardingBodyProfileStep(currentPage: $currentPage, totalPages: totalPages)
+                    case .startingTier: OnboardingStartingTierStep(
+                        currentPage: $currentPage,
+                        totalPages: totalPages,
+                        // Hands off to whatever follows; completes the flow when it's last.
+                        onComplete: {
+                            if currentPage < screens.count - 1 {
+                                withAnimation(.easeInOut(duration: 0.3)) { currentPage += 1 }
+                            } else {
+                                onComplete()
+                            }
+                        }
+                    )
+                    case .sessionIntent: OnboardingSessionIntentStep(
+                        pageIndex: currentPage,
+                        totalPages: totalPages,
+                        intent: $sessionIntent
+                    ) { _ in
+                        // Set here rather than on the grant path, so the property exists
+                        // for users who go on to deny or skip. Otherwise the intent of
+                        // everyone who said no is invisible, which is the segment most
+                        // worth analysing.
+                        AmplitudeService.shared.setNextSessionIntent(sessionIntent.rawValue)
+                        // Every answer advances now, including "Not sure yet" — the
+                        // reminder screen has its own state for that case.
+                        withAnimation(.easeInOut(duration: 0.3)) { currentPage += 1 }
+                    }
+                    case .sessionReminder: OnboardingReminderStep(
+                        pageIndex: currentPage,
+                        totalPages: totalPages,
+                        intent: sessionIntent
+                    ) { _ in
+                        onComplete()
+                    }
                     }
                 }
                 .onAppear {
-                    AmplitudeService.shared.track(.onboardingStepViewed(index: currentPage, name: Self.onboardingStepName(currentPage)))
+                    AmplitudeService.shared.track(.onboardingStepViewed(index: currentPage, name: currentScreen.analyticsName))
+                    armControlsWatchdog(for: currentPage)
                 }
                 .onChange(of: currentPage) { _, page in
-                    AmplitudeService.shared.track(.onboardingStepViewed(index: page, name: Self.onboardingStepName(page)))
+                    isAdvancing = false
+                    AmplitudeService.shared.track(.onboardingStepViewed(index: page, name: screen(at: page).analyticsName))
+                    armControlsWatchdog(for: page)
                 }
 
                 Spacer()
 
                 // Page indicators + Continue button (not shown on plates/body profile pages — they have their own)
-                if currentPage < totalPages - 3 {
+                if currentPage <= lastSharedContinuePage {
                     VStack(spacing: 20) {
                         // Page dots (hidden on welcome screen)
                         if currentPage > 0 {
@@ -97,12 +191,16 @@ struct OnboardingView: View {
 
                         // Continue button — different CTA on welcome
                         Button {
+                            // Same double-tap latch as the self-managing steps. Reset in
+                            // `.onChange(of: currentPage)` below, so each page re-arms it.
+                            guard !isAdvancing else { return }
+                            isAdvancing = true
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 showControls = false // Reset for E1RM animation fade-in
                                 currentPage += 1
                             }
                         } label: {
-                            Text(currentPage == 0 ? "Begin" : "Continue")
+                            Text(currentPage == 0 ? "Let's Begin" : "Continue")
                                 .font(.interSemiBold(size: 16))
                                 .foregroundStyle(.black)
                                 .frame(maxWidth: .infinity)
@@ -116,11 +214,14 @@ struct OnboardingView: View {
                     .padding(.bottom, 50)
                     // Welcome: always visible. Animated concept pages: fade in after animation completes.
                     .opacity(currentPage == 0 || showControls ? 1 : 0)
+                    // Opacity alone leaves the button hit-testable while invisible, so a
+                    // tap during the fade-out would advance a second time.
+                    .allowsHitTesting(currentPage == 0 || showControls)
                 }
             }
         }
         .overlay(alignment: .top) {
-            if debugNavigation {
+            if isDevelopmentPreview {
                 debugNavBar
             }
         }
@@ -175,6 +276,8 @@ struct OnboardingView: View {
 // MARK: - Screen 1: Welcome
 
 private struct OnboardingWelcome: View {
+    var tagline: String = "Get stronger on the lifts that matter."
+
     var body: some View {
         VStack(spacing: 0) {
             Spacer()
@@ -200,7 +303,7 @@ private struct OnboardingWelcome: View {
                 .frame(height: 12)
 
             // Setup message
-            Text("Steady progress on the lifts that matter.")
+            Text(tagline)
                 .font(.inter(size: 17))
                 .foregroundStyle(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
@@ -508,12 +611,12 @@ private struct OnboardingE1RMConcept: View {
         Task {
             // Stagger bars at 0.2s intervals
             for i in 1...bars.count {
-                try await Task.sleep(for: .milliseconds(200))
+                try? await Task.sleep(for: .milliseconds(200))
                 visibleBars = i
             }
 
             // PR indicator after 0.5s pause
-            try await Task.sleep(for: .milliseconds(500))
+            try? await Task.sleep(for: .milliseconds(500))
             showPRIndicator = true
 
             // Notify parent that animation is done
@@ -719,7 +822,7 @@ private struct OnboardingProgressConcept: View {
             visibleBars = 1
 
             for i in 2...bars.count {
-                try await Task.sleep(for: .milliseconds(200))
+                try? await Task.sleep(for: .milliseconds(200))
                 visibleBars = i
             }
 
@@ -728,20 +831,20 @@ private struct OnboardingProgressConcept: View {
             // flourish and shouldn't hold the user up.
             onAnimationComplete?()
 
-            try await Task.sleep(for: .milliseconds(300))
+            try? await Task.sleep(for: .milliseconds(300))
             showPRIndicator = true
 
             // Animate e1RM number rolling up from 185 → 195
-            try await Task.sleep(for: .milliseconds(250))
+            try? await Task.sleep(for: .milliseconds(250))
             for value in 186...195 {
-                try await Task.sleep(for: .milliseconds(110))
+                try? await Task.sleep(for: .milliseconds(110))
                 withAnimation(.easeOut(duration: 0.2)) {
                     displayedE1RM = value
                 }
             }
 
             // Show green delta indicator
-            try await Task.sleep(for: .milliseconds(200))
+            try? await Task.sleep(for: .milliseconds(200))
             showDelta = true
 
             withAnimation(.easeOut(duration: 0.3)) {
@@ -1078,18 +1181,18 @@ private struct OnboardingEffortTraining: View {
             showPRIndicator = false
 
             // Brief pause before starting fills
-            try await Task.sleep(for: .milliseconds(200))
+            try? await Task.sleep(for: .milliseconds(200))
 
             // Fill tiles one by one
             let tileCount = currentPlan.tiles.count
             for i in 1...tileCount {
-                try await Task.sleep(for: .milliseconds(200))
+                try? await Task.sleep(for: .milliseconds(200))
                 filledTiles = i
             }
 
             // Show PR indicator if plan has a PR tile
             if hasPR {
-                try await Task.sleep(for: .milliseconds(500))
+                try? await Task.sleep(for: .milliseconds(500))
                 showPRIndicator = true
             }
 
@@ -1097,7 +1200,7 @@ private struct OnboardingEffortTraining: View {
             withAnimation(.easeOut(duration: 0.4)) {
                 showNextButton = true
             }
-            try await Task.sleep(for: .milliseconds(300))
+            try? await Task.sleep(for: .milliseconds(300))
             onAnimationComplete?()
 
             isAnimating = false
@@ -1114,14 +1217,14 @@ private struct OnboardingEffortTraining: View {
         }
 
         Task {
-            try await Task.sleep(for: .milliseconds(400))
+            try? await Task.sleep(for: .milliseconds(400))
 
             currentPlanIndex = (currentPlanIndex + 1) % plans.count
 
             // Flash plan name amber briefly
             highlightPlanName = true
             animateCurrentPlan()
-            try await Task.sleep(for: .seconds(1))
+            try? await Task.sleep(for: .seconds(1))
             highlightPlanName = false
         }
     }
@@ -1731,143 +1834,18 @@ private struct OnboardingBeyondBasicsConcept: View {
 }
 */
 
-// MARK: - Screen 6: Change Plates
-
-private struct OnboardingChangePlatesStep: View {
-    @Binding var currentPage: Int
-    let totalPages: Int
-
-    @Environment(\.modelContext) private var modelContext
-    @Query private var userPropertiesItems: [UserProperties]
-    @State private var initialPlates: [Double] = []
-
-    private let hapticFeedback = UIImpactFeedbackGenerator(style: .light)
-    private let allPlateOptions: [Double] = [0.25, 0.5, 0.75, 1.0, 1.25, 2.0]
-
-    private var userProperties: UserProperties {
-        if let props = userPropertiesItems.first { return props }
-        let props = UserProperties()
-        modelContext.insert(props)
-        return props
-    }
-
-    private var plateWeights: [Double] {
-        userProperties.availableChangePlates.filter { $0 < 5 }.sorted()
-    }
-
-    private var hasSelection: Bool {
-        !plateWeights.isEmpty
-    }
-
-    private var hasChanges: Bool {
-        userProperties.availableChangePlates.sorted() != initialPlates
-    }
-
-    private func isPlateActive(_ plate: Double) -> Bool {
-        return plateWeights.contains { abs($0 - plate) < 0.01 }
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // Title
-            VStack(spacing: 12) {
-                Text("Select Your Change Plates")
-                    .font(.bebasNeue(size: 34))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-
-                Text("\(Text("Choose the change plates you have\nfor realistic ").foregroundColor(.white.opacity(0.7)))\(Text("Progress Sets").foregroundColor(.appAccent))\(Text(".").foregroundColor(.white.opacity(0.7)))")
-                    .font(.inter(size: 17))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
-            }
-
-            Spacer()
-                .frame(height: 32)
-
-            // Content card — 2 rows of 3
-            VStack(spacing: 12) {
-                ForEach(0..<2, id: \.self) { row in
-                    HStack(spacing: 10) {
-                        ForEach(0..<3, id: \.self) { col in
-                            let index = row * 3 + col
-                            let plate = allPlateOptions[index]
-                            ChangePlateBubble(
-                                plate: plate,
-                                isActive: isPlateActive(plate),
-                                onToggle: {
-                                    hapticFeedback.impactOccurred()
-                                    togglePlate(plate)
-                                }
-                            )
-                            .fixedSize()
-                        }
-                    }
-                }
-            }
-            .padding(.vertical, 24)
-            .padding(.horizontal, 16)
-            .background(Color(white: 0.12))
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .padding(.horizontal, 24)
-
-            Spacer()
-
-            // Page dots
-            HStack(spacing: 8) {
-                ForEach(0..<totalPages, id: \.self) { index in
-                    Circle()
-                        .fill(index == currentPage ? Color.appAccent : Color.white.opacity(0.3))
-                        .frame(width: 8, height: 8)
-                }
-            }
-
-            Spacer()
-                .frame(height: 20)
-
-            // Bottom button
-            Button {
-                if hasChanges {
-                    Task {
-                        await SyncService.shared.updateChangePlates(userProperties.availableChangePlates)
-                    }
-                }
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    currentPage += 1
-                }
-            } label: {
-                Text(hasSelection ? "Continue" : "Maybe Later")
-                    .font(.interSemiBold(size: 16))
-                    .foregroundStyle(hasSelection ? .black : .white.opacity(0.7))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(hasSelection ? Color.appAccent : Color(white: 0.2))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 32)
-            .padding(.bottom, 50)
-        }
-        .onAppear {
-            initialPlates = userProperties.availableChangePlates.sorted()
-        }
-    }
-
-    private func togglePlate(_ plate: Double) {
-        if isPlateActive(plate) {
-            userProperties.availableChangePlates.removeAll { abs($0 - plate) < 0.01 }
-        } else {
-            userProperties.availableChangePlates.append(plate)
-        }
-        try? modelContext.save()
-    }
-}
-
 // MARK: - Screen 7: Body Profile
 
 private struct OnboardingBodyProfileStep: View {
     @Binding var currentPage: Int
     let totalPages: Int
+
+    /// One-shot latch against a double-tap. The button stays hittable for the 0.3s
+    /// advance animation, so a second tap can run the action again before SwiftUI
+    /// swaps this step out — advancing twice, skipping a screen, and re-firing the
+    /// sync push. Resets for free: @State is discarded when this step leaves the
+    /// switch, so returning here (e.g. via the dev nav bar) re-arms it.
+    @State private var didAdvance = false
 
     @Environment(\.modelContext) private var modelContext
     @Query private var userPropertiesItems: [UserProperties]
@@ -2013,6 +1991,8 @@ private struct OnboardingBodyProfileStep: View {
 
             // Bottom button
             Button {
+                guard !didAdvance else { return }
+                didAdvance = true
                 // Save locally
                 userProperties.biologicalSex = selectedSex
                 userProperties.bodyweight = selectedUnit.toLbs(bodyweightValue)
@@ -2052,6 +2032,9 @@ private struct OnboardingBodyProfileStep: View {
 private struct OnboardingStartingTierStep: View {
     @Binding var currentPage: Int
     let totalPages: Int
+    /// "Got It!" rather than "Let's Begin" because screens follow this one — the flow
+    /// isn't over yet.
+    var ctaTitle: String = "Got It!"
     let onComplete: () -> Void
 
     private let lifts: [(icon: String, shortName: String)] = [
@@ -2200,7 +2183,7 @@ private struct OnboardingStartingTierStep: View {
                 Button {
                     onComplete()
                 } label: {
-                    Text("Let's Begin")
+                    Text(ctaTitle)
                         .font(.interSemiBold(size: 16))
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)

@@ -1143,13 +1143,27 @@ struct CheckInView: View {
         guard !tutorialPresenter.readyToLiftShownThisLaunch,
               !showReadyToLift,
               userProperties.hasMetStrengthTierConditions,
-              hasSeenResourcesHint,
+              // Never stack on the intro flow while it is actually on screen.
+              !tutorialPresenter.showLiftTutorial,
+              !tutorialPresenter.showResourcesHint,
+              // Intro settled. Two flags on purpose: `hasSeenResourcesHint` is new and
+              // install-scoped, and its ONLY writer sits downstream of the older
+              // `hasSeenLiftTutorialAfterTierUnlock` one-shot. On an install that
+              // upgraded from a version that already spent that one-shot, the intro
+              // can never replay, so `hasSeenResourcesHint` could never flip and this
+              // guard blocked the popup forever. Accepting the older flag covers those
+              // installs without a migration.
+              hasSeenResourcesHint || hasSeenLiftTutorialAfterTierUnlock,
               nextFocus != nil else { return }
         tutorialPresenter.readyToLiftShownThisLaunch = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
             // Re-read nextFocus after the delay rather than capturing it above: the
-            // event should name what was actually put on screen.
-            guard let focus = nextFocus, !showReadyToLift else { return }
+            // event should name what was actually put on screen. The intro-popup
+            // checks are repeated because either can be raised during this window.
+            guard let focus = nextFocus,
+                  !showReadyToLift,
+                  !tutorialPresenter.showLiftTutorial,
+                  !tutorialPresenter.showResourcesHint else { return }
             AmplitudeService.shared.track(
                 .readyToLiftShown(focusExercise: focus.name, trigger: "auto")
             )
@@ -4774,15 +4788,7 @@ struct CheckInView: View {
                 tierJourneyMode = .completion(tier: tierResult.overallTier)
                 tierJourneyHideTierName = !(userPropertiesItems.first?.hasMetStrengthTierConditions ?? false)
                 tierToUnlock = tierResult.overallTier
-                if let props = userPropertiesItems.first, !props.hasMetStrengthTierConditions {
-                    props.hasMetStrengthTierConditions = true
-                    try? modelContext.save()
-                    AmplitudeService.shared.track(.startingStrengthTierUnlocked(tier: tierResult.overallTier.title))
-                    Task {
-                        let request = UserPropertiesRequest(hasMetStrengthTierConditions: true)
-                        _ = try? await APIService.shared.updateUserProperties(request)
-                    }
-                }
+                markStartingTierUnlocked(tier: tierResult.overallTier)
             } else {
                 tierJourneyMode = .progress(justLoggedId: ex.id)
             }
@@ -4819,14 +4825,7 @@ struct CheckInView: View {
                     AmplitudeService.shared.track(.strengthTierAchieved(
                         tier: newOverallTier.title, previousTier: previousOverallTier.title, drivingExercise: milestoneName))
                 }
-                if let props = userPropertiesItems.first, !props.hasMetStrengthTierConditions {
-                    props.hasMetStrengthTierConditions = true
-                    try? modelContext.save()
-                    Task {
-                        let request = UserPropertiesRequest(hasMetStrengthTierConditions: true)
-                        _ = try? await APIService.shared.updateUserProperties(request)
-                    }
-                }
+                markStartingTierUnlocked(tier: newOverallTier)
                 suppressTierDisplay = true
                 withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                     showTierJourneyOverlay = true
@@ -5059,15 +5058,7 @@ struct CheckInView: View {
                 tierJourneyMode = .completion(tier: tierResult.overallTier)
                 tierJourneyHideTierName = !(userPropertiesItems.first?.hasMetStrengthTierConditions ?? false)
                 calibrationTierToUnlock = tierResult.overallTier
-                if let props = userPropertiesItems.first, !props.hasMetStrengthTierConditions {
-                    props.hasMetStrengthTierConditions = true
-                    try? modelContext.save()
-                    AmplitudeService.shared.track(.startingStrengthTierUnlocked(tier: tierResult.overallTier.title))
-                    Task {
-                        let request = UserPropertiesRequest(hasMetStrengthTierConditions: true)
-                        _ = try? await APIService.shared.updateUserProperties(request)
-                    }
-                }
+                markStartingTierUnlocked(tier: tierResult.overallTier)
             } else {
                 tierJourneyMode = .progress(justLoggedId: exerciseForJourney.id)
             }
@@ -5100,14 +5091,7 @@ struct CheckInView: View {
                 tierJourneyMode = .completion(tier: newOverallTier)
                 tierJourneyHideTierName = !(userPropertiesItems.first?.hasMetStrengthTierConditions ?? false)
                 calibrationTierToUnlock = newOverallTier
-                if let props = userPropertiesItems.first, !props.hasMetStrengthTierConditions {
-                    props.hasMetStrengthTierConditions = true
-                    try? modelContext.save()
-                    Task {
-                        let request = UserPropertiesRequest(hasMetStrengthTierConditions: true)
-                        _ = try? await APIService.shared.updateUserProperties(request)
-                    }
-                }
+                markStartingTierUnlocked(tier: newOverallTier)
                 suppressTierDisplay = true
                 withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                     showTierJourneyOverlay = true
@@ -5249,6 +5233,29 @@ struct CheckInView: View {
     }
 
     // MARK: - Helpers
+
+    /// Single owner of the starting-tier unlock.
+    ///
+    /// This block was copy-pasted at four call sites (two in `logSet`, two in
+    /// `applyCalibration`) and **two of them omitted the analytics event**, so
+    /// "Strength Tier Unlocked - Starting" under-reported. Consolidating fixes that;
+    /// expect the event's volume to step up.
+    ///
+    /// Also the one place the pending session reminder is withdrawn. Unlocking
+    /// requires logging sets in the app, so the app is guaranteed to be running at
+    /// this moment — which is why a local notification can simply be cancelled rather
+    /// than needing a condition evaluated at fire time.
+    private func markStartingTierUnlocked(tier: StrengthTier) {
+        guard let props = userPropertiesItems.first, !props.hasMetStrengthTierConditions else { return }
+        props.hasMetStrengthTierConditions = true
+        try? modelContext.save()
+        AmplitudeService.shared.track(.startingStrengthTierUnlocked(tier: tier.title))
+        PushNotificationService.shared.cancelSessionReminder(reason: "tier_unlocked")
+        Task {
+            let request = UserPropertiesRequest(hasMetStrengthTierConditions: true)
+            _ = try? await APIService.shared.updateUserProperties(request)
+        }
+    }
 
     private func triggerFieldHighlights() {
         withAnimation(.easeIn(duration: 0.15)) {
