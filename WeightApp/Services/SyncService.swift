@@ -1614,6 +1614,9 @@ class SyncService: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "insights_last_viewed_week")
         UserDefaults.standard.removeObject(forKey: "hasSeenTierIntro")
         UserDefaults.standard.removeObject(forKey: "hasSeenLiftTutorialAfterTierUnlock")
+        // Cleared alongside the tutorial flag above — they are two stages of the same
+        // intro flow, so a re-login replays it from the start rather than half of it.
+        UserDefaults.standard.removeObject(forKey: "hasSeenResourcesHint")
         UserDefaults.standard.removeObject(forKey: "contiguousAccessoryCharts")
         UserDefaults.standard.removeObject(forKey: "starterInsightViewed")
         UserDefaults.standard.removeObject(forKey: "starterInsightCachedResponse")
@@ -1625,5 +1628,16 @@ class SyncService: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "activeExerciseId")
         UserDefaults.standard.removeObject(forKey: "activeExerciseIdTimestamp")
         UserDefaults.standard.removeObject(forKey: "lastSelectedExerciseId")
+
+        // In-memory, so it survives logout unless reset here. A manual tap of the
+        // next-focus chip consumes it for the session by design; without this, that
+        // also suppressed the automatic popup for the next account signed in on the
+        // same app run.
+        TutorialPresenter.shared.readyToLiftShownThisLaunch = false
+
+        // Withdraws any pending session reminder and clears the stored APNs token, so
+        // the next account doesn't inherit them. Account deletion routes through
+        // `logout(onDataCleanup:)`, so this covers deletion too.
+        PushNotificationService.shared.clearOnLogout()
     }
 }

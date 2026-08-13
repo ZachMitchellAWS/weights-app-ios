@@ -159,7 +159,9 @@ struct TierJourneyOverlay: View {
                     if case .completion(let tier) = mode {
                         return tier.color
                     }
-                    return isLogged ? Color.appAccent : .white.opacity(0.2)
+                    // Unlogged lifts are the to-do list this overlay is nudging toward,
+                    // so they sit brighter than a typical disabled state.
+                    return isLogged ? Color.appAccent : .white.opacity(0.42)
                 }()
 
                 VStack(spacing: 4) {
@@ -171,7 +173,7 @@ struct TierJourneyOverlay: View {
 
                     Text(shortName(for: item.exercise.name))
                         .font(.system(size: 10))
-                        .foregroundStyle(isLogged ? .white.opacity(0.7) : .white.opacity(0.3))
+                        .foregroundStyle(isLogged ? .white.opacity(0.7) : .white.opacity(0.5))
 
                     if isLogged {
                         Image(systemName: "checkmark")
@@ -179,7 +181,7 @@ struct TierJourneyOverlay: View {
                             .foregroundStyle(iconColor)
                     } else {
                         Circle()
-                            .stroke(.white.opacity(0.2), lineWidth: 1)
+                            .stroke(.white.opacity(0.4), lineWidth: 1)
                             .frame(width: 8, height: 8)
                     }
                 }

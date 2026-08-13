@@ -31,6 +31,7 @@ struct LiftReportItem: Identifiable {
     let tier: StrengthTier
     let e1rm: Double            // lbs
     let e1rmDelta: Double       // lbs gained this period (0 = no increase)
+    let setsThisWeek: Int       // sets logged Mon–Sun
     let weeklyVolume: Double    // lbs of tonnage this week
     let avgVolume: Double       // trailing per-week average tonnage
     let daysSinceLastPerformed: Int   // >= 14 reads as "not performed"
@@ -38,6 +39,33 @@ struct LiftReportItem: Identifiable {
 
     var performedThisWeek: Bool { daysSinceLastPerformed <= 7 }
     var recency: Double { recencyOpacity(daysSince: daysSinceLastPerformed) }
+
+    /// How far this lift got toward "its work is done for the week", 0...1.
+    ///
+    /// Deliberately NOT binary. Two routes reach 1.0, mirroring what already feeds
+    /// the next-focus recommendation:
+    ///   • e1RM increased by any amount — that's the actual goal, so it saturates
+    ///     immediately regardless of set count.
+    ///   • `setsSaturation` sets logged — the volume route, matching next-focus's
+    ///     6-set recency cap.
+    /// Anything less is partial credit rather than zero: one set is progress.
+    var completion: Double {
+        if e1rmDelta > 0 { return 1.0 }
+        return min(Double(setsThisWeek) / Self.setsSaturation, 1.0)
+    }
+
+    /// Set count at which volume alone counts the lift as done for the week.
+    static let setsSaturation: Double = 6
+
+    var isComplete: Bool { completion >= 1.0 }
+
+    /// Grey at zero, saturating to full accent at 1.0 — the same visual language as
+    /// the Training Activity heatmap (`FrequencyCalendarWidget`), so a barely-touched
+    /// lift reads as dim-but-present rather than absent.
+    var completionColor: Color {
+        guard completion > 0 else { return Color(white: 0.2) }
+        return Color.appAccent.opacity(0.25 + 0.75 * completion)
+    }
 }
 
 struct WeekPoint: Identifiable {
@@ -99,39 +127,45 @@ extension StrengthReportSample {
     // Arrays are split into their own constants so each stays a small, fast-to-
     // type-check expression (large nested literals otherwise trip the compiler).
 
+    // Ordered to match `TrendsCalculator.fundamentalExercises` so the five-lift strip
+    // reads the same here as everywhere else in the app.
     private static let strongLifts: [LiftReportItem] = [
         LiftReportItem(name: "Deadlifts", icon: icon("Deadlifts"), tier: .advanced,
-                       e1rm: 405, e1rmDelta: 15, weeklyVolume: 12_400, avgVolume: 9_000,
+                       e1rm: 405, e1rmDelta: 15, setsThisWeek: 5, weeklyVolume: 12_400, avgVolume: 9_000,
                        daysSinceLastPerformed: 1, tierProgress: 0.62),
         LiftReportItem(name: "Squats", icon: icon("Squats"), tier: .advanced,
-                       e1rm: 335, e1rmDelta: 10, weeklyVolume: 10_100, avgVolume: 9_600,
+                       e1rm: 335, e1rmDelta: 10, setsThisWeek: 4, weeklyVolume: 10_100, avgVolume: 9_600,
                        daysSinceLastPerformed: 2, tierProgress: 0.44),
         LiftReportItem(name: "Bench Press", icon: icon("Bench Press"), tier: .intermediate,
-                       e1rm: 245, e1rmDelta: 5, weeklyVolume: 8_000, avgVolume: 8_200,
+                       e1rm: 245, e1rmDelta: 5, setsThisWeek: 3, weeklyVolume: 8_000, avgVolume: 8_200,
                        daysSinceLastPerformed: 3, tierProgress: 0.71),
+        // Complete on the VOLUME route rather than a gain — 6 sets, no e1RM increase.
         LiftReportItem(name: "Barbell Rows", icon: icon("Barbell Rows"), tier: .intermediate,
-                       e1rm: 205, e1rmDelta: 5, weeklyVolume: 6_500, avgVolume: 5_000,
+                       e1rm: 205, e1rmDelta: 0, setsThisWeek: 6, weeklyVolume: 6_500, avgVolume: 5_000,
                        daysSinceLastPerformed: 2, tierProgress: 0.30),
+        // The laggard: real work done, but only halfway. Shows partial credit.
         LiftReportItem(name: "Overhead Press", icon: icon("Overhead Press"), tier: .beginner,
-                       e1rm: 135, e1rmDelta: 0, weeklyVolume: 3_000, avgVolume: 3_500,
+                       e1rm: 135, e1rmDelta: 0, setsThisWeek: 3, weeklyVolume: 3_000, avgVolume: 3_500,
                        daysSinceLastPerformed: 4, tierProgress: 0.52),
     ]
 
+    // Nothing reaches 1.0 here, but three lifts are non-zero — the case that motivated
+    // the spectrum: a light week should not render as five empty slots.
     private static let lightLifts: [LiftReportItem] = [
-        LiftReportItem(name: "Bench Press", icon: icon("Bench Press"), tier: .intermediate,
-                       e1rm: 245, e1rmDelta: 0, weeklyVolume: 5_200, avgVolume: 8_200,
-                       daysSinceLastPerformed: 2, tierProgress: 0.71),
-        LiftReportItem(name: "Barbell Rows", icon: icon("Barbell Rows"), tier: .intermediate,
-                       e1rm: 205, e1rmDelta: 0, weeklyVolume: 4_100, avgVolume: 5_000,
-                       daysSinceLastPerformed: 6, tierProgress: 0.30),
         LiftReportItem(name: "Deadlifts", icon: icon("Deadlifts"), tier: .advanced,
-                       e1rm: 405, e1rmDelta: 0, weeklyVolume: 2_800, avgVolume: 9_000,
+                       e1rm: 405, e1rmDelta: 0, setsThisWeek: 1, weeklyVolume: 2_800, avgVolume: 9_000,
                        daysSinceLastPerformed: 9, tierProgress: 0.62),
         LiftReportItem(name: "Squats", icon: icon("Squats"), tier: .advanced,
-                       e1rm: 335, e1rmDelta: 0, weeklyVolume: 0, avgVolume: 9_600,
+                       e1rm: 335, e1rmDelta: 0, setsThisWeek: 0, weeklyVolume: 0, avgVolume: 9_600,
                        daysSinceLastPerformed: 12, tierProgress: 0.44),
+        LiftReportItem(name: "Bench Press", icon: icon("Bench Press"), tier: .intermediate,
+                       e1rm: 245, e1rmDelta: 0, setsThisWeek: 3, weeklyVolume: 5_200, avgVolume: 8_200,
+                       daysSinceLastPerformed: 2, tierProgress: 0.71),
+        LiftReportItem(name: "Barbell Rows", icon: icon("Barbell Rows"), tier: .intermediate,
+                       e1rm: 205, e1rmDelta: 0, setsThisWeek: 2, weeklyVolume: 4_100, avgVolume: 5_000,
+                       daysSinceLastPerformed: 6, tierProgress: 0.30),
         LiftReportItem(name: "Overhead Press", icon: icon("Overhead Press"), tier: .beginner,
-                       e1rm: 135, e1rmDelta: 0, weeklyVolume: 0, avgVolume: 3_500,
+                       e1rm: 135, e1rmDelta: 0, setsThisWeek: 0, weeklyVolume: 0, avgVolume: 3_500,
                        daysSinceLastPerformed: 16, tierProgress: 0.52),
     ]
 

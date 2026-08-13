@@ -26,59 +26,67 @@ struct StrengthTierWidget: View {
     )
 
     var body: some View {
-        if isPremium {
-            VStack(alignment: .leading, spacing: 12) {
-                resultsView(tierResult)
+        Group {
+            if !isPremium {
+                lockedContent
+            } else if tierResult.overallTier == .none {
+                // Any missing fundamental forces `.none` (the overall tier is the
+                // lowest of the five), so this is precisely "not yet unlocked".
+                // Derived from data rather than `hasMetStrengthTierConditions`, so it
+                // self-corrects if sets are later deleted.
+                preUnlockSampleCard
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    resultsView(tierResult)
+                }
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(white: 0.14))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
             }
-            .padding()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(white: 0.14))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            // .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.4), lineWidth: 1.5))
-            .task(id: "\(exercises.compactMap(\.currentE1RMLocalCache).count)-\(allEstimated1RM.count)") {
-                tierResult = TrendsCalculator.strengthTierAssessment(
-                    from: allEstimated1RM,
-                    exercises: exercises,
-                    bodyweight: bodyweight,
-                    biologicalSex: biologicalSex
-                )
-            }
-        } else {
-            lockedContent
+        }
+        .task(id: "\(exercises.compactMap(\.currentE1RMLocalCache).count)-\(allEstimated1RM.count)") {
+            tierResult = TrendsCalculator.strengthTierAssessment(
+                from: allEstimated1RM,
+                exercises: exercises,
+                bodyweight: bodyweight,
+                biologicalSex: biologicalSex
+            )
         }
     }
 
-    // MARK: - Locked Content (Free Users)
+    // MARK: - Sample content
+    //
+    // One fake, two chromes: the pre-unlock card wraps it in sample chrome, and
+    // `lockedContent` wraps the same thing in `.premiumLocked`. Previously this existed
+    // only inside `lockedContent`, which is unreachable while `isPremium` is hardcoded
+    // true at the call site — so it was never actually seen. It ships now, which is why
+    // the values below are internally consistent rather than merely plausible.
 
-    private var lockedContent: some View {
-        // Fake results view — static, non-interactive
+    private var sampleTierContent: some View {
         VStack(spacing: 16) {
-            // Header
-            VStack(spacing: 4) {
+            VStack(spacing: 6) {
                 Text("STRENGTH TIER")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.4))
-                    .tracking(1.2)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .tracking(1.5)
+
                 HStack(spacing: 10) {
-                    Image("LiftTheBullIcon")
+                    Image(StrengthSampleData.overallTier.icon)
                         .resizable()
                         .scaledToFit()
                         .frame(width: 30, height: 30)
                         .foregroundStyle(StrengthTier.elite.color)
-                    Text("Advanced")
+                    Text(StrengthSampleData.overallTier.title)
                         .font(.title.weight(.bold))
-                        .foregroundStyle(StrengthTier.advanced.color)
+                        .foregroundStyle(StrengthSampleData.overallTier.color)
                 }
-                RoundedRectangle(cornerRadius: 0.5)
-                    .fill(.white.opacity(0.15))
-                    .frame(width: 180, height: 1)
-                    .padding(.top, 8)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
 
-            // Fake progress bar
             VStack(spacing: 4) {
+                let progress = StrengthSampleData.progressToNextTier
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 3)
@@ -86,58 +94,70 @@ struct StrengthTierWidget: View {
                             .frame(height: 6)
                         RoundedRectangle(cornerRadius: 3)
                             .fill(Color.appAccent)
-                            .frame(width: geo.size.width * 0.72, height: 6)
+                            .frame(width: geo.size.width * progress, height: 6)
                     }
                 }
                 .frame(height: 6)
 
-                Text("72% to Elite")
+                if let next = StrengthSampleData.overallTier.next {
+                    (
+                        Text("\(Int(progress * 100))% to ")
+                            .foregroundStyle(.white.opacity(0.4))
+                        + Text(next.title).foregroundStyle(next.color).bold()
+                    )
                     .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.4))
+                }
             }
             .padding(.horizontal, 16)
 
-            // Fake exercise rows — each a different tier for maximum color variety
             VStack(spacing: 0) {
-                fakeExerciseRow(name: "Squat", lbs: 315, tier: .elite)
-                Divider().background(.white.opacity(0.1))
-                fakeExerciseRow(name: "Bench Press", lbs: 225, tier: .advanced)
-                Divider().background(.white.opacity(0.1))
-                fakeExerciseRow(name: "Deadlift", lbs: 405, tier: .legend)
-                Divider().background(.white.opacity(0.1))
-                fakeExerciseRow(name: "Overhead Press", lbs: 135, tier: .intermediate)
-                Divider().background(.white.opacity(0.1))
-                fakeExerciseRow(name: "Barbell Rows", lbs: 185, tier: .beginner)
+                ForEach(Array(TrendsCalculator.fundamentalExercises.enumerated()), id: \.offset) { index, fundamental in
+                    sampleExerciseRow(fundamental)
+                    if index < TrendsCalculator.fundamentalExercises.count - 1 {
+                        Divider().background(.white.opacity(0.1))
+                    }
+                }
             }
-
         }
-        .padding()
-        .premiumLocked(
-            title: "Unlock Strength Tiers",
-            subtitle: "Discover your strength level across your lifts",
-            feature: "strength_tiers",
-            showUpsell: $showUpsell
-        )
-        .background(Color(white: 0.14))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
-    private func fakeExerciseRow(name: String, lbs: Int, tier: StrengthTier) -> some View {
-        HStack(spacing: 10) {
-            Image("LiftTheBullIcon")
+    private func sampleExerciseRow(_ fundamental: TrendsCalculator.FundamentalExercise) -> some View {
+        let unit = userProperties.preferredWeightUnit
+        let tier = StrengthSampleData.tier(for: fundamental.name)
+        let e1rm = StrengthSampleData.e1rm(for: fundamental.name)
+        let progress = StrengthSampleData.tierProgress(for: fundamental.name)
+
+        return HStack(spacing: 10) {
+            Image(fundamental.icon)
                 .resizable()
                 .scaledToFit()
                 .frame(width: 22, height: 22)
                 .foregroundStyle(StrengthTier.elite.color)
+
             VStack(alignment: .leading, spacing: 2) {
-                Text(name)
+                Text(fundamental.name)
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.7))
-                Text("\(lbs) \(userProperties.preferredWeightUnit.label)")
+                // Converted, so a kg user isn't shown lbs numbers labelled "kg".
+                Text("\(unit.formatWeightTrimmed(e1rm)) \(unit.label)")
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(0.4))
             }
+
             Spacer()
+
+            // Mini bar, matching the real rows — without it the sample looks less
+            // complete than the card it's advertising.
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.white.opacity(0.1))
+                    .frame(width: 36, height: 4)
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(tier.color)
+                    .frame(width: 36 * progress, height: 4)
+            }
+            .frame(width: 36, height: 4)
+
             Text(tier.title)
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(tier <= .novice ? .white.opacity(0.6) : tier.color)
@@ -149,15 +169,63 @@ struct StrengthTierWidget: View {
         .padding(.vertical, 8)
     }
 
+    // MARK: - Pre-unlock sample card
+
+    /// Sample above, the user's REAL progress below. Deliberately shares nothing with
+    /// the premium-lock treatment — no blur, no scrim, no lock, no CTA. Tiers are free,
+    /// so borrowing that vocabulary would tell free users to pay for what they have.
+    private var preUnlockSampleCard: some View {
+        VStack(spacing: 16) {
+            sampleTierContent
+                .allowsHitTesting(false)
+
+            StrengthSampleDivider()
+
+            StrengthUnlockFooter(
+                loggedFlags: tierResult.exerciseTiers.map { $0.e1rm != nil },
+                widget: "strength_tier"
+            )
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(white: 0.14))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Color.appAccent.opacity(0.25), lineWidth: 1)
+        )
+        .overlay(alignment: .topTrailing) {
+            StrengthSampleBadge().padding(10)
+        }
+    }
+
+    // MARK: - Locked Content (Free Users)
+
+    /// Paywall variant. Unreachable while `isPremium` is hardcoded `true` at the call
+    /// site (`BalanceView.swift:73`), but kept working so tiers can go premium again
+    /// without rebuilding the fake. Same content as the sample card, different chrome.
+    private var lockedContent: some View {
+        sampleTierContent
+            .padding()
+            .premiumLocked(
+                title: "Unlock Strength Tiers",
+                subtitle: "Discover your strength level across your lifts",
+                feature: "strength_tiers",
+                showUpsell: $showUpsell
+            )
+            .background(Color(white: 0.14))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
     // MARK: - Results View
 
     @State private var expandedExercises: Set<String> = []
 
+    /// Only ever renders a genuinely earned tier. The pre-unlock case is handled by
+    /// `preUnlockSampleCard` in `body`, so the old `isChecklistMode` fork that ran
+    /// through this whole function is gone.
     private func resultsView(_ result: TrendsCalculator.StrengthTierResult) -> some View {
-        let isChecklistMode = result.overallTier == .none
-        let loggedCount = result.exerciseTiers.filter { $0.e1rm != nil }.count
-
-        return VStack(spacing: 16) {
+        VStack(spacing: 16) {
             // Centered header
             VStack(spacing: 6) {
                 Text("STRENGTH TIER")
@@ -165,46 +233,23 @@ struct StrengthTierWidget: View {
                     .foregroundStyle(.white)
                     .tracking(1.5)
 
-                if isChecklistMode {
-                    Text("Log All 5 Lifts to Unlock")
-                        .font(.headline.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.5))
-                    Text("\(loggedCount) of 5 exercises logged")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.4))
-                } else {
-                    HStack(spacing: 10) {
-                        Image(result.overallTier.icon)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 30, height: 30)
-                            .foregroundStyle(StrengthTier.elite.color)
+                HStack(spacing: 10) {
+                    Image(result.overallTier.icon)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 30, height: 30)
+                        .foregroundStyle(StrengthTier.elite.color)
 
-                        Text(result.overallTier.title)
-                            .font(.title.weight(.bold))
-                            .foregroundStyle(result.overallTier.color)
-                    }
+                    Text(result.overallTier.title)
+                        .font(.title.weight(.bold))
+                        .foregroundStyle(result.overallTier.color)
                 }
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
 
             // Progress indicator
-            if isChecklistMode {
-                HStack(spacing: 12) {
-                    ForEach(Array(result.exerciseTiers.enumerated()), id: \.offset) { _, item in
-                        Circle()
-                            .fill(item.e1rm != nil ? Color.appAccent : .white.opacity(0.15))
-                            .overlay(
-                                item.e1rm == nil
-                                    ? Circle().stroke(.white.opacity(0.3), lineWidth: 1)
-                                    : nil
-                            )
-                            .frame(width: 10, height: 10)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-            } else if result.overallTier != .legend {
+            if result.overallTier != .legend {
                 let overallProgress = overallTierProgress(result)
                 VStack(spacing: 4) {
                     GeometryReader { geo in
@@ -236,10 +281,9 @@ struct StrengthTierWidget: View {
             VStack(spacing: 0) {
                 ForEach(Array(result.exerciseTiers.enumerated()), id: \.element.exercise.id) { index, item in
                     VStack(spacing: 0) {
-                        exerciseRow(item: item, isExpanded: expandedExercises.contains(item.exercise.name), checklistMode: isChecklistMode)
+                        exerciseRow(item: item, isExpanded: expandedExercises.contains(item.exercise.name))
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                guard !isChecklistMode else { return }
                                 withAnimation(.easeInOut(duration: 0.25)) {
                                     if expandedExercises.contains(item.exercise.name) {
                                         expandedExercises.remove(item.exercise.name)
@@ -249,7 +293,7 @@ struct StrengthTierWidget: View {
                                 }
                             }
 
-                        if !isChecklistMode && expandedExercises.contains(item.exercise.name) {
+                        if expandedExercises.contains(item.exercise.name) {
                             exerciseExpansion(for: item.exercise.name)
                                 .transition(.opacity)
                         }
@@ -266,23 +310,12 @@ struct StrengthTierWidget: View {
             tierLegendBar
 
             // Explanation with profile settings link
-            Group {
-                if isChecklistMode {
-                    (Text("Log at least one set of each exercise above to see your strength tier. Tier ranges are based on your ")
-                        .foregroundStyle(.white.opacity(0.3))
-                    + Text("profile settings")
-                        .foregroundStyle(Color.appAccent)
-                    + Text(".")
-                        .foregroundStyle(.white.opacity(0.3)))
-                } else {
-                    (Text("Your overall tier is determined by your lowest lift. Tier ranges are based on your ")
-                        .foregroundStyle(.white.opacity(0.3))
-                    + Text("profile settings")
-                        .foregroundStyle(Color.appAccent)
-                    + Text(".")
-                        .foregroundStyle(.white.opacity(0.3)))
-                }
-            }
+            (Text("Your overall tier is determined by your lowest lift. Tier ranges are based on your ")
+                .foregroundStyle(.white.opacity(0.3))
+            + Text("profile settings")
+                .foregroundStyle(Color.appAccent)
+            + Text(".")
+                .foregroundStyle(.white.opacity(0.3)))
             .font(.caption2)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
@@ -290,8 +323,8 @@ struct StrengthTierWidget: View {
         }
     }
 
-    private func exerciseRow(item: (exercise: TrendsCalculator.FundamentalExercise, e1rm: Double?, tier: StrengthTier), isExpanded: Bool, checklistMode: Bool = false) -> some View {
-        let progress = checklistMode ? nil : progressToNextTier(item: item)
+    private func exerciseRow(item: (exercise: TrendsCalculator.FundamentalExercise, e1rm: Double?, tier: StrengthTier), isExpanded: Bool) -> some View {
+        let progress = progressToNextTier(item: item)
 
         return HStack(spacing: 10) {
             Image(item.exercise.icon)
@@ -330,46 +363,37 @@ struct StrengthTierWidget: View {
 
             Spacer()
 
-            if checklistMode {
-                // Checklist status icon
-                Image(systemName: item.e1rm != nil ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 18))
-                    .foregroundStyle(item.e1rm != nil ? Color.appAccent : .white.opacity(0.25))
-            } else {
-                // Progress bar — fixed position before fixed-width pill
-                if let progress = progress {
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(Color.white.opacity(0.1))
-                            .frame(width: 36, height: 4)
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(item.tier.color)
-                            .frame(width: 36 * progress, height: 4)
-                    }
-                    .frame(width: 36, height: 4)
-                } else {
-                    Spacer().frame(width: 36)
+            // Progress bar — fixed position before fixed-width pill
+            if let progress = progress {
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.white.opacity(0.1))
+                        .frame(width: 36, height: 4)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(item.tier.color)
+                        .frame(width: 36 * progress, height: 4)
                 }
-
-                // Tier pill — fixed width so all rows align
-                Text(item.tier.title)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(item.tier <= .novice ? .white.opacity(0.6) : item.tier.color)
-                    .frame(width: 90)
-                    .padding(.vertical, 3)
-                    .background(
-                        item.tier <= .novice ? Color.white.opacity(0.1) : item.tier.color.opacity(0.15)
-                    )
-                    .clipShape(Capsule())
+                .frame(width: 36, height: 4)
+            } else {
+                Spacer().frame(width: 36)
             }
+
+            // Tier pill — fixed width so all rows align
+            Text(item.tier.title)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(item.tier <= .novice ? .white.opacity(0.6) : item.tier.color)
+                .frame(width: 90)
+                .padding(.vertical, 3)
+                .background(
+                    item.tier <= .novice ? Color.white.opacity(0.1) : item.tier.color.opacity(0.15)
+                )
+                .clipShape(Capsule())
 
             // Expand/collapse indicator — right when collapsed, down when expanded.
-            if !checklistMode {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.3))
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
-            }
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.white.opacity(0.3))
+                .rotationEffect(.degrees(isExpanded ? 90 : 0))
         }
         .padding(.vertical, 8)
     }

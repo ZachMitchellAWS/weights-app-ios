@@ -35,9 +35,21 @@ struct StrengthMilestonesWidget: View {
 
     // MARK: - Unlocked Content
 
+    /// True until every fundamental has an e1RM — the same condition that leaves the
+    /// tier widget unlocked, so the two cards flip to real data together.
+    private var isPreUnlock: Bool {
+        guard let result = milestoneResult else { return true }
+        return result.currentTier == .none
+    }
+
     @ViewBuilder
     private var unlockedContent: some View {
-        if let result = milestoneResult {
+        if isPreUnlock {
+            // Before unlock the real grid renders every one of its 30 badges at 0%,
+            // which is technically accurate and completely inert. Show the sample
+            // instead — same component, sample numbers.
+            preUnlockSampleCard
+        } else if let result = milestoneResult {
             MilestoneContentView(result: result, weightUnit: weightUnit)
         } else {
             WidgetCard(title: "Strength Milestones") {
@@ -47,6 +59,47 @@ struct StrengthMilestonesWidget: View {
                 )
             }
         }
+    }
+
+    // MARK: - Pre-unlock Sample
+
+    /// The real milestone UI driven by `StrengthSampleData`, so this card and the tier
+    /// card describe the same imaginary lifter. Both derive from one set of e1RMs run
+    /// through the production algorithm, so they cannot drift apart.
+    ///
+    /// Deliberately shares no vocabulary with the premium lock — no blur, no scrim, no
+    /// CTA. Milestones are free; obscuring them would read as a paywall.
+    @ViewBuilder
+    private var preUnlockSampleCard: some View {
+        if let sample = StrengthSampleData.milestoneResult {
+            MilestoneContentView(
+                result: sample,
+                weightUnit: weightUnit,
+                unlockFooter: StrengthUnlockFooter(
+                    loggedFlags: realLoggedFlags,
+                    widget: "strength_milestones"
+                )
+            )
+            // No blanket `allowsHitTesting(false)` here — it would swallow the footer's
+            // tap. `MilestoneContentView` disables only the sample grid itself.
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Color.appAccent.opacity(0.25), lineWidth: 1)
+            )
+            .overlay(alignment: .topTrailing) {
+                StrengthSampleBadge().padding(10)
+            }
+        }
+    }
+
+    /// The user's genuine per-lift logged state, taken from the real result's Novice
+    /// batch — its milestone is literally "≥1 set", so `achieved` per lift is exactly
+    /// the unlock checklist, already computed and in fundamentals order.
+    private var realLoggedFlags: [Bool] {
+        guard let novice = milestoneResult?.batches.first(where: { $0.tier == .novice }) else {
+            return Array(repeating: false, count: TrendsCalculator.fundamentalExercises.count)
+        }
+        return novice.milestones.map(\.achieved)
     }
 
     // MARK: - Locked Content
@@ -135,6 +188,12 @@ struct StrengthMilestonesWidget: View {
 private struct MilestoneContentView: View {
     let result: TrendsCalculator.MilestoneResult
     var weightUnit: WeightUnit = .lbs
+    /// Real unlock progress, appended inside the card. Only the sample variant passes
+    /// this — an earned card has nothing left to unlock.
+    var unlockFooter: StrengthUnlockFooter? = nil
+
+    /// Only the sample card supplies a footer, so its presence identifies that variant.
+    private var isSample: Bool { unlockFooter != nil }
 
     @State private var expandedTiers: Set<Int> = []
 
@@ -164,6 +223,13 @@ private struct MilestoneContentView: View {
                 ) {
                     toggleTier(batch.id)
                 }
+            }
+            // Sample tier rows must not expand; the footer above stays tappable.
+            .allowsHitTesting(!isSample)
+
+            if let unlockFooter {
+                StrengthSampleDivider()
+                unlockFooter
             }
         }
         .padding()

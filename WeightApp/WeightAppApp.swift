@@ -98,7 +98,7 @@ struct WeightAppApp: App {
                                 // original `if showOnboarding ... else UpsellView` branch
                                 // is preserved in the block comment below so we can
                                 // reinstate the upsell + tutorial-popup chain later.
-                                OnboardingView(debugNavigation: authViewModel.isOnboardingDebugPreview) {
+                                OnboardingView(isDevelopmentPreview: authViewModel.isOnboardingDebugPreview) {
                                     authViewModel.markOnboardingComplete()
                                     AnalyticsService.logOnboardingComplete()
                                     AmplitudeService.shared.track(.onboardingCompleted)
@@ -283,6 +283,16 @@ struct WeightAppApp: App {
                         // Silently re-register for push notifications if previously authorized
                         PushNotificationService.shared.refreshTokenIfAuthorized()
 
+                        // The session reminder is scheduled on whichever device ran
+                        // onboarding, so unlocking the tier on another device only
+                        // reaches this one via sync. Reconcile here.
+                        let unlocked = try? modelContainer.mainContext
+                            .fetch(FetchDescriptor<UserProperties>())
+                            .first?.hasMetStrengthTierConditions
+                        if unlocked == true {
+                            PushNotificationService.shared.cancelSessionReminder(reason: "tier_unlocked")
+                        }
+
                         // Check for new narrative badge (throttled to every 6 hours)
                         await NarrativeBadgeService.shared.refreshOnAppOpen()
                     }
@@ -333,6 +343,17 @@ struct WeightAppApp: App {
 class AppDelegate: NSObject, UIApplicationDelegate {
     static var orientationLock = UIInterfaceOrientationMask.all
 
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        // Required for BOTH foreground presentation and tap handling. Without a
+        // delegate, a reminder that fires while the app is open is silently dropped
+        // by iOS, and taps can't be routed or measured.
+        UNUserNotificationCenter.current().delegate = self
+        return true
+    }
+
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         return AppDelegate.orientationLock
     }
@@ -344,5 +365,41 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         print("APNS registration failed: \(error)")
+    }
+}
+
+// MARK: - Notification handling
+
+extension AppDelegate: UNUserNotificationCenterDelegate {
+    /// Show the reminder even when the app is already open. "Today" fires two hours
+    /// out, so the app being foregrounded at that moment is a likely case, not an
+    /// edge one.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        if notification.request.identifier == PushNotificationService.sessionReminderIdentifier {
+            let intent = PushNotificationService.shared.pendingReminderIntent ?? "unknown"
+            AmplitudeService.shared.track(.sessionReminderDelivered(intent: intent))
+        }
+        completionHandler([.banner, .sound])
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let identifier = response.notification.request.identifier
+        if identifier == PushNotificationService.sessionReminderIdentifier {
+            let intent = PushNotificationService.shared.pendingReminderIntent ?? "unknown"
+            AmplitudeService.shared.track(.sessionReminderOpened(intent: intent))
+            // It has been delivered, so drop the bookkeeping without emitting a
+            // cancellation — otherwise a later logout would report it as cancelled.
+            PushNotificationService.shared.clearReminderRecord()
+            NotificationRouter.shared.pendingDestination = .liftTab
+        }
+        completionHandler()
     }
 }
