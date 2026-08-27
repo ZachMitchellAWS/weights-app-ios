@@ -14,6 +14,10 @@ struct AccessoryGoalCheckinDTO: Codable {
     let metricType: String
     let value: Double
     let createdTimezone: String
+    /// UTC offset in seconds EAST of UTC at creation. Optional: records written before
+    /// this field existed have none, and a backend that has not been redeployed will not
+    /// return it. `0` is legal (UTC), so never test it for falsiness.
+    let createdUtcOffsetSeconds: Int?
     let createdDatetime: Date
     let lastModifiedDatetime: Date?
 
@@ -22,15 +26,17 @@ struct AccessoryGoalCheckinDTO: Codable {
         self.metricType = checkin.metricType
         self.value = checkin.value
         self.createdTimezone = checkin.createdTimezone
+        self.createdUtcOffsetSeconds = checkin.createdUtcOffsetSeconds
         self.createdDatetime = checkin.createdAt
         self.lastModifiedDatetime = nil
     }
 
-    init(checkinId: UUID, metricType: String, value: Double, createdTimezone: String, createdDatetime: Date, lastModifiedDatetime: Date? = nil) {
+    init(checkinId: UUID, metricType: String, value: Double, createdTimezone: String, createdDatetime: Date, lastModifiedDatetime: Date? = nil, createdUtcOffsetSeconds: Int? = nil) {
         self.checkinId = checkinId
         self.metricType = metricType
         self.value = value
         self.createdTimezone = createdTimezone
+        self.createdUtcOffsetSeconds = createdUtcOffsetSeconds
         self.createdDatetime = createdDatetime
         self.lastModifiedDatetime = lastModifiedDatetime
     }

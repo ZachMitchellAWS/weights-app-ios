@@ -11,7 +11,7 @@ import SwiftData
 struct HistoryView: View {
     @Environment(\.modelContext) private var modelContext
     @ObservedObject var selectedSetData: SelectedSetData
-    @Binding var selectedTab: Int
+    @Binding var selectedTab: AppTab
     var isVisible: Bool = true
     var weightUnit: WeightUnit = .lbs
     @Binding var isDeleteModeActive: Bool
@@ -94,7 +94,7 @@ struct HistoryView: View {
                                         selectedSetData.reps = set.reps
                                         selectedSetData.weight = set.weight
                                         selectedSetData.shouldPopulate = true
-                                        selectedTab = 1
+                                        selectedTab = .lift
                                     },
                                     effortCache: effortCache,
                                     weightUnit: weightUnit

@@ -11,6 +11,26 @@ import Combine
 import Sentry
 import OSLog
 
+/// UTC offset to stamp on a record rebuilt from the backend.
+///
+/// Prefers the value the originating device stored. Falls back to resolving the record's own
+/// IANA timezone against its own instant.
+///
+/// Deliberately never uses `TimeZone.current` and never leaves the value an initialiser
+/// derived: those initialisers compute the offset from `Date()`, and every fetch path below
+/// overwrites `createdAt` with the record's real timestamp immediately afterwards. Trusting
+/// either would stamp historical records with today's offset in today's timezone — worse
+/// than having no offset at all, because it looks authoritative.
+/// `nonisolated` because file-scope declarations inherit the project's default actor
+/// isolation (MainActor), while every caller below runs inside a nonisolated async sync
+/// routine. Safe to mark: the function is pure, reads no shared state, and `TimeZone` is a
+/// Sendable value type.
+fileprivate nonisolated func resolvedUtcOffsetSeconds(_ stored: Int?, timezone: String, at date: Date) -> Int? {
+    if let stored { return stored }
+    guard let tz = TimeZone(identifier: timezone) else { return nil }
+    return tz.secondsFromGMT(for: date)
+}
+
 @MainActor
 class SyncService: ObservableObject {
     static let shared = SyncService()
@@ -265,6 +285,9 @@ class SyncService: ObservableObject {
             if let timezone = response.timezone {
                 userProperties.timezoneIdentifier = timezone
             }
+            if let utcOffsetSeconds = response.utcOffsetSeconds {
+                userProperties.utcOffsetSeconds = utcOffsetSeconds
+            }
             userProperties.biologicalSex = response.biologicalSex
             if let weightUnit = response.weightUnit {
                 userProperties.weightUnit = weightUnit
@@ -301,13 +324,18 @@ class SyncService: ObservableObject {
             return
         }
         let currentTz = TimeZone.current.identifier
+        let currentOffset = TimeZone.current.secondsFromGMT()
         let currentLocale = Locale.current.identifier
         let currentLanguage = Locale.current.language.languageCode?.identifier
         let currentAppVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
 
         let userProperties = fetchOrCreateUserProperties(context: context)
 
+        // Offset is checked separately from the identifier: a DST transition moves the
+        // offset while the identifier stays put, and the cached value would otherwise sit
+        // wrong until something else happened to change.
         let tzChanged = userProperties.timezoneIdentifier != currentTz
+        let offsetChanged = userProperties.utcOffsetSeconds != currentOffset
         let localeChanged = userProperties.localeIdentifier != currentLocale
         let languageChanged = userProperties.languageCode != currentLanguage
         let appVersionChanged = userProperties.syncedAppVersion != currentAppVersion
@@ -318,13 +346,14 @@ class SyncService: ObservableObject {
         let isStale = userProperties.lastMetadataSyncAt.map { $0 < oneWeekAgo } ?? true
         let sendAll = force || isStale
 
-        guard sendAll || tzChanged || localeChanged || languageChanged || appVersionChanged else {
+        guard sendAll || tzChanged || offsetChanged || localeChanged || languageChanged || appVersionChanged else {
             SyncLogger.sync.debug("syncDeviceMetadataIfNeeded: already up to date")
             return
         }
 
         var request = UserPropertiesRequest()
         if sendAll || tzChanged { request.timezone = currentTz }
+        if sendAll || offsetChanged { request.utcOffsetSeconds = currentOffset }
         if sendAll || localeChanged { request.locale = currentLocale }
         if sendAll || languageChanged { request.language = currentLanguage }
         if sendAll || appVersionChanged { request.latestAppVersion = currentAppVersion }
@@ -333,6 +362,7 @@ class SyncService: ObservableObject {
         do {
             _ = try await APIService.shared.updateUserProperties(request)
             userProperties.timezoneIdentifier = currentTz
+            userProperties.utcOffsetSeconds = currentOffset
             userProperties.localeIdentifier = currentLocale
             userProperties.languageCode = currentLanguage
             userProperties.syncedAppVersion = currentAppVersion
@@ -482,6 +512,7 @@ class SyncService: ObservableObject {
                 weightUnit: userProperties.weightUnit,
                 timezone: userProperties.timezoneIdentifier
             )
+            request.utcOffsetSeconds = userProperties.utcOffsetSeconds
             if let planId = userProperties.activeSetPlanId {
                 request.activeSetPlanId = planId.uuidString
             } else {
@@ -614,6 +645,16 @@ class SyncService: ObservableObject {
                                 liftSet.id = dto.liftSetId
                                 liftSet.createdTimezone = dto.createdTimezone
                                 liftSet.createdAt = dto.createdDatetime
+                        liftSet.createdUtcOffsetSeconds = resolvedUtcOffsetSeconds(
+                            dto.createdUtcOffsetSeconds,
+                            timezone: dto.createdTimezone,
+                            at: dto.createdDatetime
+                        )
+                                liftSet.createdUtcOffsetSeconds = resolvedUtcOffsetSeconds(
+                                    dto.createdUtcOffsetSeconds,
+                                    timezone: dto.createdTimezone,
+                                    at: dto.createdDatetime
+                                )
                                 liftSet.isBaselineSet = dto.isBaselineSet ?? false
                                 context.insert(liftSet)
                                 liftSetById[dto.liftSetId] = liftSet
@@ -640,6 +681,11 @@ class SyncService: ObservableObject {
                                 estimated1RM.id = dto.estimated1RMId
                                 estimated1RM.createdTimezone = dto.createdTimezone
                                 estimated1RM.createdAt = dto.createdDatetime
+                                estimated1RM.createdUtcOffsetSeconds = resolvedUtcOffsetSeconds(
+                                    dto.createdUtcOffsetSeconds,
+                                    timezone: dto.createdTimezone,
+                                    at: dto.createdDatetime
+                                )
                                 context.insert(estimated1RM)
                                 e1rmById[dto.estimated1RMId] = estimated1RM
                             }
@@ -1065,6 +1111,11 @@ class SyncService: ObservableObject {
                         planDescription: dto.planDescription,
                         createdAt: dto.createdDatetime ?? Date(),
                         createdTimezone: dto.createdTimezone,
+                        createdUtcOffsetSeconds: resolvedUtcOffsetSeconds(
+                            dto.createdUtcOffsetSeconds,
+                            timezone: dto.createdTimezone,
+                            at: dto.createdDatetime ?? Date()
+                        ),
                         deleted: dto.deleted ?? false
                     )
                     context.insert(plan)
@@ -1210,6 +1261,11 @@ class SyncService: ObservableObject {
                         isCustom: dto.isCustom,
                         createdAt: dto.createdDatetime ?? Date(),
                         createdTimezone: dto.createdTimezone,
+                        createdUtcOffsetSeconds: resolvedUtcOffsetSeconds(
+                            dto.createdUtcOffsetSeconds,
+                            timezone: dto.createdTimezone,
+                            at: dto.createdDatetime ?? Date()
+                        ),
                         lastModifiedDatetime: dto.lastModifiedDatetime ?? Date(),
                         deleted: dto.deleted ?? false
                     )
@@ -1354,6 +1410,50 @@ class SyncService: ObservableObject {
     }
 
 
+    /// Push the built-in catalog to the backend once per catalog version.
+    ///
+    /// Exists because new built-ins reach existing users LOCALLY for free —
+    /// `SeedService.seedSetPlans` runs every launch — but never reach their backend.
+    /// `createAndSyncDefaultSetPlans` is the only thing that pushes built-ins, and it fires
+    /// only when the backend returned zero plans, i.e. at account creation. Without this an
+    /// existing user sits at 21 plans locally and 16 on the backend, permanently.
+    ///
+    /// MUST NOT be called from `performInitialSync`: that returns immediately when
+    /// `syncState.syncComplete` is true, which it is for every existing install — the exact
+    /// cohort this is for. It is called from the per-launch authenticated block in
+    /// `WeightAppApp`, alongside `syncDeviceMetadataIfNeeded()`.
+    ///
+    /// Pushes the WHOLE catalog rather than a computed diff. Diffing would mean asking the
+    /// backend what it has, and `GET /checkin/set-plans` returns only non-deleted plans — so
+    /// a deleted plan is indistinguishable from a missing one and would be resurrected. A
+    /// version counter never infers intent from absence.
+    func syncBuiltInCatalogIfNeeded() async {
+        let key = "builtInSetPlanCatalogVersion"
+        let stored = UserDefaults.standard.integer(forKey: key)   // absent → 0
+        guard stored < SetPlan.builtInCatalogVersion else { return }
+
+        guard let context = modelContext else { return }
+        let plans = (try? context.fetch(
+            FetchDescriptor<SetPlan>(predicate: #Predicate { $0.isCustom == false })
+        )) ?? []
+        guard !plans.isEmpty else {
+            // Seeding runs earlier in the same `.onAppear`, so this should not happen —
+            // but writing the version here would mark the catalog synced without sending it.
+            SyncLogger.sync.error("Built-in catalog push skipped: no local plans")
+            return
+        }
+
+        do {
+            _ = try await APIService.shared.upsertSetPlans(plans.map { $0.toDTO() })
+            // Only on success. A failed push leaves the version behind so the next launch
+            // retries, rather than silently declaring the backend current.
+            UserDefaults.standard.set(SetPlan.builtInCatalogVersion, forKey: key)
+            SyncLogger.sync.info("Pushed \(plans.count) built-in set plans (catalog v\(SetPlan.builtInCatalogVersion))")
+        } catch {
+            SyncLogger.sync.error("Built-in catalog push failed: \(error.localizedDescription)")
+        }
+    }
+
     private func createAndSyncDefaultSetPlans(context: ModelContext) async {
         var dtos: [SetPlanDTO] = []
         for def in SetPlan.builtInPlans {
@@ -1380,6 +1480,9 @@ class SyncService: ObservableObject {
         // Push to backend
         do {
             _ = try await APIService.shared.upsertSetPlans(dtos)
+            // These ARE the current catalog, so record it — otherwise every new user does a
+            // redundant full upsert on their second launch.
+            UserDefaults.standard.set(SetPlan.builtInCatalogVersion, forKey: "builtInSetPlanCatalogVersion")
         } catch {
             SyncLogger.sync.error("Failed to batch POST default set plans: \(error.localizedDescription)")
             for dto in dtos {
@@ -1456,6 +1559,11 @@ class SyncService: ObservableObject {
                         movementType: movementType,
                         createdAt: dto.createdDatetime ?? Date(),
                         createdTimezone: dto.createdTimezone,
+                        createdUtcOffsetSeconds: resolvedUtcOffsetSeconds(
+                            dto.createdUtcOffsetSeconds,
+                            timezone: dto.createdTimezone,
+                            at: dto.createdDatetime ?? Date()
+                        ),
                         notes: dto.notes,
                         deleted: dto.deleted ?? false,
                         icon: dto.icon ?? "LiftTheBullIcon"
@@ -1588,6 +1696,11 @@ class SyncService: ObservableObject {
                     checkin.id = dto.checkinId
                     checkin.createdTimezone = dto.createdTimezone
                     checkin.createdAt = dto.createdDatetime
+                    checkin.createdUtcOffsetSeconds = resolvedUtcOffsetSeconds(
+                        dto.createdUtcOffsetSeconds,
+                        timezone: dto.createdTimezone,
+                        at: dto.createdDatetime
+                    )
                     context.insert(checkin)
                 }
             }
@@ -1609,9 +1722,6 @@ class SyncService: ObservableObject {
         syncFailed = false
         retryQueue.clearAll()
         UserDefaults.standard.removeObject(forKey: Self.syncStateKey)
-        UserDefaults.standard.removeObject(forKey: "insights_cached_response")
-        UserDefaults.standard.removeObject(forKey: "insights_last_fetched_at")
-        UserDefaults.standard.removeObject(forKey: "insights_last_viewed_week")
         UserDefaults.standard.removeObject(forKey: "hasSeenTierIntro")
         UserDefaults.standard.removeObject(forKey: "hasSeenLiftTutorialAfterTierUnlock")
         // Cleared alongside the tutorial flag above — they are two stages of the same
@@ -1620,6 +1730,8 @@ class SyncService: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "contiguousAccessoryCharts")
         UserDefaults.standard.removeObject(forKey: "starterInsightViewed")
         UserDefaults.standard.removeObject(forKey: "starterInsightCachedResponse")
+        // Tier-unlock insight (the Strength tab audio clip). `narratives_*` is a historical
+        // spelling — these are not narratives keys and must not be dropped with them.
         UserDefaults.standard.removeObject(forKey: "tierUnlocksCachedResponse")
         UserDefaults.standard.removeObject(forKey: "narratives_last_viewed_tier")
         UserDefaults.standard.removeObject(forKey: "narratives_last_auto_refreshed_at")

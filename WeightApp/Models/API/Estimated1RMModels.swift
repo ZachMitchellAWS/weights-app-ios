@@ -15,6 +15,10 @@ struct Estimated1RMDTO: Codable {
     let exerciseId: UUID
     let value: Double
     let createdTimezone: String
+    /// UTC offset in seconds EAST of UTC at creation. Optional: records written before
+    /// this field existed have none, and a backend that has not been redeployed will not
+    /// return it. `0` is legal (UTC), so never test it for falsiness.
+    let createdUtcOffsetSeconds: Int?
     let createdDatetime: Date
     let lastModifiedDatetime: Date?
 
@@ -24,16 +28,18 @@ struct Estimated1RMDTO: Codable {
         self.exerciseId = estimated1RM.exercise?.id ?? UUID()
         self.value = estimated1RM.value
         self.createdTimezone = estimated1RM.createdTimezone
+        self.createdUtcOffsetSeconds = estimated1RM.createdUtcOffsetSeconds
         self.createdDatetime = estimated1RM.createdAt
         self.lastModifiedDatetime = nil
     }
 
-    init(estimated1RMId: UUID, liftSetId: UUID, exerciseId: UUID, value: Double, createdTimezone: String, createdDatetime: Date, lastModifiedDatetime: Date? = nil) {
+    init(estimated1RMId: UUID, liftSetId: UUID, exerciseId: UUID, value: Double, createdTimezone: String, createdDatetime: Date, lastModifiedDatetime: Date? = nil, createdUtcOffsetSeconds: Int? = nil) {
         self.estimated1RMId = estimated1RMId
         self.liftSetId = liftSetId
         self.exerciseId = exerciseId
         self.value = value
         self.createdTimezone = createdTimezone
+        self.createdUtcOffsetSeconds = createdUtcOffsetSeconds
         self.createdDatetime = createdDatetime
         self.lastModifiedDatetime = lastModifiedDatetime
     }

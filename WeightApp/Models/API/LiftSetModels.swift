@@ -15,6 +15,10 @@ struct LiftSetDTO: Codable {
     let reps: Int
     let weight: Double
     let createdTimezone: String
+    /// UTC offset in seconds EAST of UTC at creation. Optional: records written before
+    /// this field existed have none, and a backend that has not been redeployed will not
+    /// return it. `0` is legal (UTC), so never test it for falsiness.
+    let createdUtcOffsetSeconds: Int?
     let createdDatetime: Date
     let lastModifiedDatetime: Date?
     let isBaselineSet: Bool?
@@ -25,17 +29,19 @@ struct LiftSetDTO: Codable {
         self.reps = liftSet.reps
         self.weight = liftSet.weight
         self.createdTimezone = liftSet.createdTimezone
+        self.createdUtcOffsetSeconds = liftSet.createdUtcOffsetSeconds
         self.createdDatetime = liftSet.createdAt
         self.lastModifiedDatetime = nil
         self.isBaselineSet = liftSet.isBaselineSet ? true : nil
     }
 
-    init(liftSetId: UUID, exerciseId: UUID, reps: Int, weight: Double, createdTimezone: String, createdDatetime: Date, lastModifiedDatetime: Date? = nil, isBaselineSet: Bool? = nil) {
+    init(liftSetId: UUID, exerciseId: UUID, reps: Int, weight: Double, createdTimezone: String, createdDatetime: Date, lastModifiedDatetime: Date? = nil, isBaselineSet: Bool? = nil, createdUtcOffsetSeconds: Int? = nil) {
         self.liftSetId = liftSetId
         self.exerciseId = exerciseId
         self.reps = reps
         self.weight = weight
         self.createdTimezone = createdTimezone
+        self.createdUtcOffsetSeconds = createdUtcOffsetSeconds
         self.createdDatetime = createdDatetime
         self.lastModifiedDatetime = lastModifiedDatetime
         self.isBaselineSet = isBaselineSet

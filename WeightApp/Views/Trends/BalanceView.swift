@@ -13,7 +13,7 @@ struct BalanceView: View {
     /// How many months of Estimated1RM history to query for hybrid e1RM lookups.
     private static let e1rmQueryMonths = -3
 
-    @Binding var trendsTab: TrendsTab
+    @Binding var selectedTab: AppTab
     @Query(filter: #Predicate<Exercise> { !$0.deleted }) private var exercises: [Exercise]
     @Query private var userPropertiesArray: [UserProperties]
     @Query private var entitlementRecords: [EntitlementGrant]
@@ -78,7 +78,7 @@ struct BalanceView: View {
                 )
                 .id("strengthTierWidget")
 
-                StrengthInsightWidget(audioPlayer: audioPlayer, showUpsell: $showInsightUpsell, isPremium: isPremium, trendsTab: $trendsTab, currentOverallTier: currentOverallTier)
+                StrengthInsightWidget(audioPlayer: audioPlayer, showUpsell: $showInsightUpsell, isPremium: isPremium, selectedTab: $selectedTab, currentOverallTier: currentOverallTier)
                     .id("strengthInsightWidget")
 
                 StrengthMilestonesWidget(
@@ -126,7 +126,7 @@ struct BalanceView: View {
                     .padding(.top, 8)
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 70)
+            .padding(.bottom, 16)
         }
         .scrollIndicators(.hidden)
         .task(id: "\(exercises.compactMap(\.currentE1RMLocalCache).count)-\(allEstimated1RM.count)") {
@@ -190,10 +190,16 @@ struct BalanceView: View {
             await refreshTierUnlockAudio()
         }
         .fullScreenCover(isPresented: $showUpsell) {
-            UpsellView(initialPage: 2) { _ in showUpsell = false }
+            UpsellView(initialPage: SubscriptionConfig.upsellPage(for: SubscriptionConfig.balanceTitle),
+                       source: SubscriptionConfig.UpsellSource.lockedBalance) { _ in showUpsell = false }
         }
         .fullScreenCover(isPresented: $showInsightUpsell) {
-            UpsellView(initialPage: 1) { _ in showInsightUpsell = false }
+            // Weekly Progress Narratives no longer has a carousel page of its own — it was
+                // removed from `premiumFeatures`. Its lock states open the paywall at the
+                // default page rather than at a page about this feature. Stated explicitly
+                // instead of leaning on `upsellPage(for:)`'s fallback, which would resolve to
+                // the same number silently and read like an oversight.
+                UpsellView(source: SubscriptionConfig.UpsellSource.strengthInsight) { _ in showInsightUpsell = false }
         }
     }
 

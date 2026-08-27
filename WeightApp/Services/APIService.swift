@@ -524,27 +524,55 @@ class APIService {
 
     // MARK: - Insights Endpoints
 
-    func getWeeklyInsights() async throws -> WeeklyInsightsResponse {
-        return try await request(
-            endpoint: "/insights/weekly",
-            method: "GET",
-            requiresAuth: true
-        )
-    }
-
-    func getStarterInsight() async throws -> StarterInsightResponse {
-        return try await request(
-            endpoint: "/insights/starter",
-            method: "GET",
-            requiresAuth: true
-        )
-    }
-
+    // Only the tier-unlock pair remains. `/insights/weekly` served Weekly Progress Narratives,
+    // which Smart Sessions replaced; `/insights/starter` was superseded by tier unlocks and had
+    // no caller for some time before that.
     func postTierUnlock(tier: String) async throws -> TierUnlockResponse {
         return try await request(
             endpoint: "/insights/tier-unlock",
             method: "POST",
             body: ["tier": tier],
+            requiresAuth: true
+        )
+    }
+
+    /// Record which Apple Ads campaign produced this install.
+    ///
+    /// Fire-and-forget from the caller's point of view: it runs in a background task after
+    /// authentication and must never affect what the user sees.
+    func postAdAttribution(_ payload: AdAttributionRequest) async throws {
+        let _: MessageResponse = try await request(
+            endpoint: "/user/ad-attribution",
+            method: "POST",
+            body: payload,
+            requiresAuth: true
+        )
+    }
+
+    // MARK: - Sessions
+
+    /// Generate today's session. Premium-only; expect this to take up to ~20 seconds.
+    ///
+    /// Makes exactly one attempt, matching the backend, which also makes exactly one. It
+    /// sits behind API Gateway's fixed 29s ceiling, so a retry loop on either side would
+    /// risk a bare 504 with no error body. A 503 carries `retryable: true` and means "ask
+    /// again" — the Session tab's Retry button is the retry.
+    func generateSession(
+        catalog: [SetPlanCatalogEntry],
+        chips: [String],
+        note: String
+    ) async throws -> GeneratedSessionResponse {
+        let body = GeneratedSessionRequest(
+            setPlanCatalog: catalog,
+            userContext: SessionUserContext(chips: chips, note: note)
+        )
+
+        // The whole response, not just `session` — `nothing_to_recommend` sits beside it
+        // and the caller needs both to tell "already trained today" from a real failure.
+        return try await request(
+            endpoint: "/sessions/generate",
+            method: "POST",
+            body: body,
             requiresAuth: true
         )
     }

@@ -56,17 +56,15 @@ struct AnalyticsView: View {
         userProperties?.bodyweight != nil && userProperties?.biologicalSex != nil && !allSets.isEmpty
     }
 
-    /// Page index for the Progress Card feature in the upsell carousel
-    /// (page 0 = overview, pages 1..N = features in order)
+    /// Page index for the Progress Card feature in the upsell carousel.
+    /// Page index is the feature's array index — there is no overview page in front.
     private var progressCardUpsellPage: Int {
-        let index = SubscriptionConfig.premiumFeatures.firstIndex { $0.title == "Progress Card" } ?? (SubscriptionConfig.premiumFeatures.count - 1)
-        return index + 1
+        SubscriptionConfig.upsellPage(for: SubscriptionConfig.progressCardTitle)
     }
 
     /// Page index for the Advanced Analytics feature in the upsell carousel
     private var analyticsUpsellPage: Int {
-        let index = SubscriptionConfig.premiumFeatures.firstIndex { $0.title == "Advanced Analytics" } ?? 2
-        return index + 1
+        SubscriptionConfig.upsellPage(for: SubscriptionConfig.analyticsTitle)
     }
 
     var body: some View {
@@ -105,13 +103,13 @@ struct AnalyticsView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                    .padding(.bottom, 60)
+                    .padding(.bottom, 16)
                 }
                 .fullScreenCover(isPresented: $showUpsell) {
-                    UpsellView(initialPage: analyticsUpsellPage) { _ in showUpsell = false }
+                    UpsellView(initialPage: analyticsUpsellPage, source: SubscriptionConfig.UpsellSource.lockedAnalytics) { _ in showUpsell = false }
                 }
                 .fullScreenCover(isPresented: $showReportCardUpsell) {
-                    UpsellView(initialPage: progressCardUpsellPage) { _ in showReportCardUpsell = false }
+                    UpsellView(initialPage: progressCardUpsellPage, source: SubscriptionConfig.UpsellSource.lockedProgressCard) { _ in showReportCardUpsell = false }
                 }
                 .sheet(isPresented: $showShareSheet) {
                     if let image = reportCardImage {

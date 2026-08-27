@@ -17,16 +17,39 @@ struct StrengthMilestonesWidget: View {
     @Binding var showUpsell: Bool
 
     @State private var milestoneResult: TrendsCalculator.MilestoneResult?
+    /// Whether `.task` has run at all.
+    ///
+    /// Needed as a SEPARATE flag because nil already means two different things here: the
+    /// task also assigns nil when `bodyweight` or `biologicalSex` is missing, and that user
+    /// is genuinely pre-unlock and should still see the sample. Keying "unknown" off nil
+    /// alone would silently downgrade them to the empty state.
+    @State private var hasEvaluated = false
+
+    @ObservedObject private var syncService = SyncService.shared
+
+    /// Same rule as `StrengthTierWidget.canTrustVerdict`, and for the same reason: a
+    /// milestone result computed over an incomplete `allEstimated1RM` reports
+    /// `currentTier == .none`, which is indistinguishable from a genuinely locked user.
+    private var canTrustVerdict: Bool {
+        syncService.initialSyncComplete || !allEstimated1RM.isEmpty
+    }
 
     var body: some View {
         if isPremium {
             unlockedContent
-                .task(id: "\(exercises.compactMap(\.currentE1RMLocalCache).count)-\(allEstimated1RM.count)") {
+                .task(id: "\(exercises.compactMap(\.currentE1RMLocalCache).count)-\(allEstimated1RM.count)-\(syncService.initialSyncComplete)") {
+                    // Stay unevaluated rather than record a verdict from absent data.
+                    // `hasEvaluated` deliberately stays false, so `isPreUnlock` keeps
+                    // returning false and the sample card is not reachable yet.
+                    guard canTrustVerdict else { return }
                     if let bw = bodyweight, let sex = biologicalSex {
                         milestoneResult = TrendsCalculator.strengthMilestones(from: allEstimated1RM, exercises: exercises, bodyweight: bw, biologicalSex: sex)
                     } else {
                         milestoneResult = nil
                     }
+                    // Both branches: the question "has this been worked out yet" is now
+                    // answered, whatever the answer turned out to be.
+                    hasEvaluated = true
                 }
         } else {
             lockedContent
@@ -37,7 +60,15 @@ struct StrengthMilestonesWidget: View {
 
     /// True until every fundamental has an e1RM — the same condition that leaves the
     /// tier widget unlocked, so the two cards flip to real data together.
+    ///
+    /// Returns FALSE before evaluation, not true. It used to return true while
+    /// `milestoneResult` was nil, so the sample card rendered on the first frame for every
+    /// user and `StrengthUnlockFooter.onAppear` fired `strengthSampleShown` — including for
+    /// users who had long since unlocked, on every visit to the tab.
     private var isPreUnlock: Bool {
+        guard hasEvaluated else { return false }
+        // Evaluated but resultless means no bodyweight/sex on file. That user cannot be
+        // scored yet, which IS pre-unlock — keep showing them the sample.
         guard let result = milestoneResult else { return true }
         return result.currentTier == .none
     }
@@ -52,10 +83,13 @@ struct StrengthMilestonesWidget: View {
         } else if let result = milestoneResult {
             MilestoneContentView(result: result, weightUnit: weightUnit)
         } else {
+            // Reached only before `.task` has run. The old copy nudged the user to log
+            // their five lifts, which is a false statement to the unlocked user who now
+            // passes through here for a frame — so it is loading-shaped instead.
             WidgetCard(title: "Strength Milestones") {
                 EmptyWidgetState(
                     icon: "medal.fill",
-                    message: "Log sets for the 5 fundamental lifts to track your milestones"
+                    message: "Checking your milestones…"
                 )
             }
         }

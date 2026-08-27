@@ -109,6 +109,7 @@ class AuthViewModel: ObservableObject {
             self?.hardDeleteAllData()
             SyncService.shared.clearOnLogout()
             NarrativeBadgeService.shared.clearOnLogout()
+            ProgramSessionStore.shared.clearOnLogout()
         }
     }
 
@@ -335,6 +336,7 @@ class AuthViewModel: ObservableObject {
         onDataCleanup()
         SyncService.shared.clearOnLogout()
         NarrativeBadgeService.shared.clearOnLogout()
+        ProgramSessionStore.shared.clearOnLogout()
 
         isLoading = false
     }

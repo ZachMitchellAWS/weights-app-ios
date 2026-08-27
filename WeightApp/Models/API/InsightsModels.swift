@@ -4,32 +4,15 @@
 //
 //  Created by Zach Mitchell on 3/10/26.
 //
+//  Wire types for the tier-unlock insight — the Strength tab's generated narrative and audio clip.
+//
+//  This file also held `InsightSection`, `WeeklyInsightsResponse` and `StarterInsightResponse`,
+//  for Weekly Progress Narratives and the superseded starter insight. Smart Sessions replaced
+//  narratives and both are gone; the backend still serves `/insights/starter` for a lazy
+//  server-side migration, but no client calls it.
+//
 
 import Foundation
-
-struct InsightSection: Codable, Equatable {
-    let title: String
-    let body: String
-    let audioUrl: String?
-    let audioUrlExpiresAt: String?
-
-    var isAudioExpired: Bool {
-        guard let expiresAt = audioUrlExpiresAt,
-              let date = ISO8601DateFormatter().date(from: expiresAt) else { return true }
-        return Date() >= date
-    }
-
-    var hasValidAudio: Bool {
-        audioUrl != nil && !isAudioExpired
-    }
-}
-
-struct StarterInsightResponse: Codable, Equatable {
-    let body: String?
-    let generatedAt: String?
-    let audioUrl: String?
-    let message: String?
-}
 
 struct TierUnlockItem: Codable, Equatable, Identifiable, Hashable {
     let tier: String
@@ -73,26 +56,4 @@ struct TierUnlockResponse: Codable, Equatable {
     let generatedAt: String?
     let audioUrl: String?
     let message: String?
-}
-
-struct WeeklyInsightsResponse: Codable, Equatable, Hashable {
-    let weekStartDate: String?
-    let weekEndDate: String?
-    let generatedAt: String?
-    let sections: [InsightSection]?
-    let message: String?
-    let status: String?
-    let error: String?
-
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(weekStartDate)
-        hasher.combine(weekEndDate)
-    }
-}
-
-extension InsightSection: Hashable {
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(title)
-        hasher.combine(body)
-    }
 }

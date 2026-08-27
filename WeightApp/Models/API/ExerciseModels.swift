@@ -15,6 +15,10 @@ struct ExerciseDTO: Codable {
     let isCustom: Bool
     let loadType: String
     let createdTimezone: String
+    /// UTC offset in seconds EAST of UTC at creation. Optional: records written before
+    /// this field existed have none, and a backend that has not been redeployed will not
+    /// return it. `0` is legal (UTC), so never test it for falsiness.
+    let createdUtcOffsetSeconds: Int?
     let notes: String?
     let createdDatetime: Date?
     let deleted: Bool?
@@ -29,6 +33,7 @@ struct ExerciseDTO: Codable {
         self.isCustom = exercise.isCustom
         self.loadType = exercise.loadType
         self.createdTimezone = exercise.createdTimezone
+        self.createdUtcOffsetSeconds = exercise.createdUtcOffsetSeconds
         self.notes = exercise.notes
         self.createdDatetime = exercise.createdAt
         self.deleted = exercise.deleted
@@ -38,12 +43,13 @@ struct ExerciseDTO: Codable {
         self.barbellWeight = exercise.barbellWeight
     }
 
-    init(exerciseItemId: UUID, name: String, isCustom: Bool, loadType: String, createdTimezone: String, notes: String?, createdDatetime: Date? = nil, deleted: Bool? = nil, icon: String? = nil, movementType: String? = nil, weightIncrement: Double? = nil, barbellWeight: Double? = nil) {
+    init(exerciseItemId: UUID, name: String, isCustom: Bool, loadType: String, createdTimezone: String, notes: String?, createdDatetime: Date? = nil, deleted: Bool? = nil, icon: String? = nil, movementType: String? = nil, weightIncrement: Double? = nil, barbellWeight: Double? = nil, createdUtcOffsetSeconds: Int? = nil) {
         self.exerciseItemId = exerciseItemId
         self.name = name
         self.isCustom = isCustom
         self.loadType = loadType
         self.createdTimezone = createdTimezone
+        self.createdUtcOffsetSeconds = createdUtcOffsetSeconds
         self.notes = notes
         self.createdDatetime = createdDatetime
         self.deleted = deleted

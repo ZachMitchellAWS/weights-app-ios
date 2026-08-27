@@ -81,6 +81,9 @@ struct UserPropertiesRequest: Codable {
     var proteinGoal: Int?
     var bodyweightTarget: Double?
     var timezone: String?
+    /// Device's current UTC offset in seconds east of UTC. A cache synced beside
+    /// `timezone`; the identifier remains authoritative for resolving "right now".
+    var utcOffsetSeconds: Int?
     var clearStepsGoal: Bool = false
     var clearProteinGoal: Bool = false
     var clearBodyweightTarget: Bool = false
@@ -98,6 +101,7 @@ struct UserPropertiesRequest: Codable {
         case activeSetPlanId
         case stepsGoal, proteinGoal, bodyweightTarget
         case timezone
+        case utcOffsetSeconds
         case hasMetStrengthTierConditions
         case locale, language, hasCompletedOnboarding
         case latestAppVersion
@@ -147,6 +151,9 @@ struct UserPropertiesRequest: Codable {
         } else if let bodyweightTarget = bodyweightTarget {
             try container.encode(bodyweightTarget, forKey: .bodyweightTarget)
         }
+        if let utcOffsetSeconds = utcOffsetSeconds {
+            try container.encode(utcOffsetSeconds, forKey: .utcOffsetSeconds)
+        }
         if let timezone = timezone {
             try container.encode(timezone, forKey: .timezone)
         }
@@ -181,6 +188,7 @@ struct UserPropertiesResponse: Codable {
     let proteinGoal: Int?
     let bodyweightTarget: Double?
     let timezone: String?
+    let utcOffsetSeconds: Int?
     let hasMetStrengthTierConditions: Bool?
     let createdDatetime: String
     let lastModifiedDatetime: String
@@ -189,7 +197,7 @@ struct UserPropertiesResponse: Codable {
         case userId, bodyweight, availableChangePlates, minReps, maxReps
         case biologicalSex, weightUnit
         case activeSetPlanId
-        case stepsGoal, proteinGoal, bodyweightTarget, timezone
+        case stepsGoal, proteinGoal, bodyweightTarget, timezone, utcOffsetSeconds
         case hasMetStrengthTierConditions
         case createdDatetime, lastModifiedDatetime
     }

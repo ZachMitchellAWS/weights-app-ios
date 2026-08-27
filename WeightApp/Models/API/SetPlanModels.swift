@@ -8,6 +8,10 @@ struct SetPlanDTO: Codable {
     let effortSequence: [String]
     let isCustom: Bool
     let createdTimezone: String
+    /// UTC offset in seconds EAST of UTC at creation. Optional: records written before
+    /// this field existed have none, and a backend that has not been redeployed will not
+    /// return it. `0` is legal (UTC), so never test it for falsiness.
+    let createdUtcOffsetSeconds: Int?
     let planDescription: String?
     let createdDatetime: Date?
     let deleted: Bool?
@@ -18,19 +22,21 @@ struct SetPlanDTO: Codable {
         self.effortSequence = plan.effortSequence
         self.isCustom = plan.isCustom
         self.createdTimezone = plan.createdTimezone
+        self.createdUtcOffsetSeconds = plan.createdUtcOffsetSeconds
         self.planDescription = plan.planDescription
         self.createdDatetime = plan.createdAt
         self.deleted = plan.deleted
     }
 
     init(planId: UUID, name: String, effortSequence: [String], isCustom: Bool,
-         createdTimezone: String, planDescription: String? = nil,
+         createdTimezone: String, createdUtcOffsetSeconds: Int? = nil, planDescription: String? = nil,
          createdDatetime: Date? = nil, deleted: Bool? = nil) {
         self.planId = planId
         self.name = name
         self.effortSequence = effortSequence
         self.isCustom = isCustom
         self.createdTimezone = createdTimezone
+        self.createdUtcOffsetSeconds = createdUtcOffsetSeconds
         self.planDescription = planDescription
         self.createdDatetime = createdDatetime
         self.deleted = deleted

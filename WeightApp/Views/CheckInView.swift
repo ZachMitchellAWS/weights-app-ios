@@ -3,6 +3,59 @@ import SwiftData
 import Sentry
 import StoreKit
 
+/// Global-space bottom edge of the auto-highlighted "next" set row, and top edge of the
+/// floating log bar. Together they answer one question: has the row the app just moved the
+/// highlight to slid underneath the log bar where the user cannot see it?
+///
+/// FEATURE: next-set auto-nudge. Everything for it is tagged `NEXT-SET NUDGE` so it can be
+/// pulled out in one pass if it proves more hindrance than help.
+struct NextSetRowMaxYKey: PreferenceKey {
+    static var defaultValue: CGFloat? = nil
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+        value = nextValue() ?? value
+    }
+}
+
+struct LogBarMinYKey: PreferenceKey {
+    static var defaultValue: CGFloat? = nil
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+        value = nextValue() ?? value
+    }
+}
+
+struct ScrollViewportKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
+}
+
+/// Tags the highlighted row for `scrollTo` and reports its bottom edge.
+///
+/// A modifier rather than inline chrome so the row's own view code stays about the row.
+/// `.id()` is applied unconditionally-but-only-when-next: an id that jumps between rows as
+/// the highlight advances is exactly what `scrollTo` needs to follow it.
+struct NextSetRowTracker: ViewModifier {
+    let isNext: Bool
+    let id: String
+
+    func body(content: Content) -> some View {
+        if isNext {
+            content
+                .id(id)
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(key: NextSetRowMaxYKey.self,
+                                               value: geo.frame(in: .global).maxY)
+                    }
+                )
+        } else {
+            content
+        }
+    }
+}
+
 struct CheckInView: View {
     @Environment(\.modelContext) private var modelContext
 
@@ -27,7 +80,7 @@ struct CheckInView: View {
 
     @ObservedObject var selectedSetData: SelectedSetData
     @ObservedObject private var syncService = SyncService.shared
-    @Binding var selectedTab: Int
+    @Binding var selectedTab: AppTab
 
     // MARK: - State
 
@@ -41,6 +94,28 @@ struct CheckInView: View {
     @State private var selectedAccessoryId: UUID? = nil
     @State private var isAccessoryMode = false
     @State private var showHub = false
+    /// The standalone set-plan catalog, split out of the Hub. `showSetPlanCatalog` opens it;
+    /// `sessionPlanItem` decides whether a selection lands on the session or the global
+    /// default, so no second flag is needed to tell the two cases apart.
+    @State private var showSetPlanCatalog = false
+
+    // SESSION CELEBRATION -------------------------------------------------------------
+    /// What the celebration card is showing, if anything.
+    ///
+    /// Carries its OWN copy of the items rather than reading `sessionStore.items` live. The
+    /// session CTA calls `finish()`, which empties that array — and the card is still
+    /// animating out at that moment, so a live read collapsed the chain to nothing mid-fade.
+    /// A snapshot is also simply correct: this card describes the session as it was when the
+    /// set landed.
+    ///
+    /// One optional holding both, rather than a kind plus a separate array, so the two can
+    /// never disagree about what is on screen.
+    private struct SessionCelebrationState {
+        let kind: SessionCelebrationCard.Kind
+        let items: [ProgramSessionStore.Item]
+    }
+    @State private var sessionCelebration: SessionCelebrationState?
+    // ----------------------------------------------------------------------------------
     @State private var hubSection: HubSection = .exercises
     @State private var hubDeepLinkExerciseId: UUID? = nil
     @State private var hubSelectedExerciseId: UUID? = nil
@@ -150,6 +225,20 @@ struct CheckInView: View {
     private let mediumHaptic = UIImpactFeedbackGenerator(style: .medium)
     @State private var tappedTileIndex: Int? = nil
     @State private var scrollProxy: ScrollViewProxy?
+
+    // NEXT-SET NUDGE ------------------------------------------------------------------
+    /// Set only by `logSet()`. The measurement below fires constantly as the user scrolls,
+    /// so without a one-shot latch the view would fight them for control of the scroll
+    /// position. Consumed by the first measurement after the highlight moves.
+    @State private var pendingNextSetNudge = false
+    @State private var nextSetRowMaxY: CGFloat?
+    @State private var logBarMinY: CGFloat?
+    @State private var scrollViewport: CGRect = .zero
+    private static let nextSetRowId = "nextSetRow"
+    /// Clearance left between the row and the log bar, so the row is comfortably visible
+    /// rather than touching the chrome.
+    private static let nextSetNudgeMargin: CGFloat = 12
+    // ----------------------------------------------------------------------------------
     @State private var progressOptionsHighlighted = false
     @State private var logSetFlashActive = false
     @State private var hasAppeared = false
@@ -160,6 +249,8 @@ struct CheckInView: View {
     @State private var focusedPanelVisible: Bool = true
     @State private var showE1RMPopup: Bool = false
     @State private var showE1RMUpsell: Bool = false
+    /// Raised by "Plan my whole session" on the Ready to Lift card for a free user.
+    @State private var showSessionUpsell: Bool = false
     @State private var showReadyToLift: Bool = false
     // Auto-trigger for the "Ready to lift?" popup. Observes the tutorial coordinator
     // so we can fire it once the intro flow (tutorial + resources hint) completes.
@@ -320,8 +411,38 @@ struct CheckInView: View {
         return exercises.filter { !groupIds.contains($0.id) }
     }
 
+    // PROGRAM SESSION (prototype): the live session, if any.
+    private var sessionStore: ProgramSessionStore { ProgramSessionStore.shared }
+
+    /// The set plan owned by the session for the selected exercise, if the session
+    /// covers it. Non-nil is what puts the plan selector into its locked state.
+    /// Whether this tab should surface the session at all.
+    ///
+    /// `sessionStore.isActive` alone is not enough. The store persists across launches, so a
+    /// lapsed subscription — or, before it was fixed, a logout — could leave a live session
+    /// behind an account that cannot have one. The Session tab was always correct because it
+    /// gates on premium; this tab was not.
+    ///
+    /// Read-only on purpose: it hides the session rather than ending it. Entitlement state can
+    /// read false transiently while records sync, and tearing down a live session on a flicker
+    /// would be far worse than briefly not drawing it.
+    private var sessionVisible: Bool { isPremium && sessionStore.isActive }
+
+    private var sessionPlanItem: ProgramSessionStore.Item? {
+        guard sessionVisible, let id = selectedExercise?.id else { return nil }
+        return sessionStore.item(for: id)
+    }
+
     // Set plan
     private var activeSetPlan: SetPlan? {
+        // A session overrides the plan for the exercises it covers — computed, never
+        // stored. `userProperties.activeSetPlanId` is a single global value synced to
+        // the backend, so writing it here would silently change the user's own default
+        // and push it to the server. Because this is only an override, ending a session
+        // restores the global plan with no revert step to get wrong.
+        if let item = sessionPlanItem {
+            return allPlans.first(where: { $0.id == item.setPlanId })
+        }
         guard let planId = userProperties.activeSetPlanId else { return nil }
         return allPlans.first(where: { $0.id == planId })
     }
@@ -415,12 +536,23 @@ struct CheckInView: View {
                 .padding(.bottom, 120)
             }
             .onAppear { scrollProxy = proxy }
+            // NEXT-SET NUDGE: the viewport is the frame the row has to be visible WITHIN.
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(key: ScrollViewportKey.self,
+                                           value: geo.frame(in: .global))
+                }
+            )
             }
 
-            // Sticky exercise banner
+            // Sticky exercise banner — session form while one is running.
             if !focusedPanelVisible {
                 VStack {
-                    stickyExerciseBanner
+                    if sessionVisible {
+                        stickySessionBanner
+                    } else {
+                        stickyExerciseBanner
+                    }
                     Spacer()
                 }
                 .transition(.opacity)
@@ -431,6 +563,15 @@ struct CheckInView: View {
             VStack {
                 Spacer()
                 floatingLogBar
+                    // NEXT-SET NUDGE: measured rather than assumed. The bar's height varies
+                    // with safe-area inset and with its own contents, and a hardcoded
+                    // constant would be wrong on exactly the devices hardest to test on.
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(key: LogBarMinYKey.self,
+                                                   value: geo.frame(in: .global).minY)
+                        }
+                    )
             }
 
             // Overlays
@@ -471,9 +612,8 @@ struct CheckInView: View {
                         navigateToTierExercise(exerciseId)
                     },
                     onNavigateToStrength: {
-                        selectedSetData.pendingTrendsTab = .strength
                         selectedSetData.pendingScrollToStrengthTop = true
-                        selectedTab = 0
+                        selectedTab = .strength
                     }
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
@@ -544,8 +684,7 @@ struct CheckInView: View {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                 showE1RMPopup = false
                             }
-                            selectedSetData.pendingTrendsTab = .analytics
-                            selectedTab = 0
+                            selectedTab = .analytics
                         } label: {
                             HStack(spacing: 6) {
                                 Text("View Full Analytics")
@@ -606,8 +745,28 @@ struct CheckInView: View {
                     .transition(.opacity)
                     .zIndex(25)
             }
+            // SESSION CELEBRATION. Above the other post-log overlays because it is raised
+            // only after they have cleared — nothing it can stack on remains.
+            if let celebration = sessionCelebration {
+                Color.black.opacity(0.62)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        dismissSessionCelebration(kind: celebration.kind.analyticsKind)
+                    }
+                    .zIndex(28)
+
+                SessionCelebrationCard(
+                    kind: celebration.kind,
+                    items: celebration.items,
+                    onPrimary: { actOnSessionCelebration(celebration.kind) },
+                    onDismiss: { dismissSessionCelebration(kind: celebration.kind.analyticsKind) }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.94)))
+                .zIndex(29)
+            }
+
             // "Ready to lift?" next-focus popup
-            if showReadyToLift, let focus = nextFocus {
+            if showReadyToLift, canShowReadyToLift, let focus = nextFocus {
                 Color.black.opacity(0.62)
                     .ignoresSafeArea()
                     .onTapGesture {
@@ -627,6 +786,22 @@ struct CheckInView: View {
 
     private var checkInContent: some View {
         checkInZStack
+        // NEXT-SET NUDGE: the decision point.
+        //
+        // Driven by the row's own measurement rather than by a timer after `logSet()`,
+        // because the row only reports its new position AFTER layout has settled — which
+        // is precisely the moment the answer becomes knowable. A `DispatchQueue.asyncAfter`
+        // guess would be racing the same layout pass.
+        .onPreferenceChange(NextSetRowMaxYKey.self) { maxY in
+            nextSetRowMaxY = maxY
+            guard pendingNextSetNudge else { return }
+            // One-shot: consumed whether or not a scroll turns out to be needed, so a
+            // single log can never queue a nudge that fires later while the user scrolls.
+            pendingNextSetNudge = false
+            nudgeNextSetIntoViewIfHidden()
+        }
+        .onPreferenceChange(LogBarMinYKey.self) { logBarMinY = $0 }
+        .onPreferenceChange(ScrollViewportKey.self) { scrollViewport = $0 }
         .onChange(of: syncService.initialSyncComplete) { _, complete in
             if complete {
                 if showSyncOverlay {
@@ -657,15 +832,31 @@ struct CheckInView: View {
             if isShowing, overlayDidIncrease {
                 scrollProxy?.scrollTo("checkInTop", anchor: .top)
             }
+            guard !isShowing else { return }
+
+            // The celebration takes this slot ahead of the review request. Both want the
+            // moment after the overlay clears, and a system rating alert stacked on top of
+            // a celebration is the worst of the available orderings — the review prompt has
+            // other chances, this moment does not.
+            if consumeSessionCelebration() { return }
+
             // After the "Increased 1RM" dialog dismisses (auto-dismiss or tap), request an App Store
             // review — once ever — for the queued first post-unlock fundamental progress set.
-            guard !isShowing, pendingReviewAfterProgress else { return }
+            guard pendingReviewAfterProgress else { return }
             pendingReviewAfterProgress = false
             hasRequestedAppStoreReview = true
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(500))
                 requestReview()
             }
+        }
+        // The tier overlays are the other thing a log can raise, and `logSet()` RETURNS
+        // early on those paths — so `showSubmitOverlay` never fires and the handler above
+        // never runs. Without this, completing a lift with a tier-unlocking set would lose
+        // the celebration entirely.
+        .onChange(of: showTierJourneyOverlay) { _, isShowing in
+            guard !isShowing else { return }
+            _ = consumeSessionCelebration()
         }
         // First-time trigger: the resources-hint alert (which follows the tutorial
         // popup) was just dismissed — mark the intro complete and show Ready to Lift.
@@ -679,6 +870,25 @@ struct CheckInView: View {
         // available. Restricted to the nil → non-nil transition on purpose — when
         // logging sets shifts the recommendation from one exercise to another
         // mid-session, the popup must NOT reappear.
+        // PROGRAM SESSION (prototype): covers the common case where this view already
+        // exists when a session starts, so the selection lands before the tab switch
+        // finishes rather than waiting on `onAppear`.
+        .onChange(of: sessionStore.pendingSelection) { _, _ in
+            consumeSessionSelection()
+        }
+        // Driven by the query rather than by `logSet`, so a set added or removed anywhere
+        // — including a delete — reconciles the rail without a second code path.
+        .onChange(of: allLiftSets.count) { _, _ in
+            syncSessionProgress()
+        }
+        .onChange(of: sessionStore.isActive) { _, active in
+            if active {
+                syncSessionProgress()
+                // Dismiss rather than merely hide: a session is the answer to "what
+                // next", so a popup nominating a different lift has to go immediately.
+                showReadyToLift = false
+            }
+        }
         .onChange(of: nextFocus?.id) { oldValue, newValue in
             guard oldValue == nil, newValue != nil else { return }
             maybeShowReadyToLift()
@@ -762,6 +972,15 @@ struct CheckInView: View {
             recentSetCounts = counts
         }
         .onAppear {
+            // PROGRAM SESSION (prototype): land on the session's first lift. Consumed
+            // here as well as in the onChange below because a session can start while
+            // this view does not yet exist — the user may open the app straight onto
+            // the Session tab, in which case only this runs.
+            sessionStore.finalizeIfIdle4h()
+            sessionStore.dissolveIfSetlessAndRolledOver()
+            syncSessionProgress()
+            consumeSessionSelection()
+
             // Evaluate the tutorial-popup trigger on every tab appearance
             // (not just first-appearance) so returning to Lift after unlocking
             // the tier on this same launch still fires the popup. The
@@ -777,6 +996,26 @@ struct CheckInView: View {
             // next-focus data, and gating would skip the show without the nil →
             // non-nil onChange below ever firing to recover it.
             maybeShowReadyToLift()
+
+            // A card left over from a session that has since ended. Reachable: finish a
+            // lift, switch to the Session tab, End Session there, come back — the card is
+            // still set and would offer to continue a session that no longer exists.
+            //
+            // Cleared HERE rather than guarded at the render or observed on `isActive`,
+            // because both of those also fire during the card's own session CTA — which
+            // calls `finish()` — and would cut its exit animation short.
+            if sessionCelebration != nil, !sessionStore.isActive {
+                sessionCelebration = nil
+            }
+
+            // Safety net. Every path through `logSet()` raises one of the overlays whose
+            // false-edge consumes a pending celebration, so this is not the primary route —
+            // but an app backgrounded mid-overlay can miss that edge, and a celebration
+            // left in the store would then never be seen. Fires only when nothing else is
+            // on screen, and is a no-op when there is nothing pending.
+            if sessionCelebration == nil, !showSubmitOverlay, !showTierJourneyOverlay {
+                consumeSessionCelebration()
+            }
 
             if hasAppeared {
                 // Re-fetch exercise data on tab return (e.g., after deleting from History)
@@ -870,6 +1109,14 @@ struct CheckInView: View {
 
     private var checkInSheets: some View {
         checkInLifecycle
+        .sheet(isPresented: $showSetPlanCatalog) {
+            // `sessionPlanItem` is non-nil only for a lift the live session covers, so the
+            // same sheet edits the session there and the global default everywhere else.
+            SetPlanCatalogSheet(
+                sessionExerciseId: sessionPlanItem?.exerciseId,
+                scopeName: sessionPlanItem?.exerciseName
+            )
+        }
         .sheet(isPresented: $showHub, onDismiss: {
             if let selectedId = hubSelectedExerciseId {
                 if let index = activeGroupExercises.firstIndex(where: { $0.id == selectedId }) {
@@ -937,8 +1184,14 @@ struct CheckInView: View {
         } message: {
             Text("This helps estimate your 1RM for better suggestions.")
         }
+        .fullScreenCover(isPresented: $showSessionUpsell) {
+            // Opens on Smart Sessions, which is what the button just offered.
+            UpsellView(initialPage: SubscriptionConfig.upsellPage(for: SubscriptionConfig.smartSessionsTitle),
+                       source: SubscriptionConfig.UpsellSource.readyToLift) { _ in showSessionUpsell = false }
+        }
         .fullScreenCover(isPresented: $showE1RMUpsell) {
-            UpsellView(initialPage: 3) { _ in showE1RMUpsell = false }
+            UpsellView(initialPage: SubscriptionConfig.upsellPage(for: SubscriptionConfig.analyticsTitle),
+                       source: SubscriptionConfig.UpsellSource.lockedE1RM) { _ in showE1RMUpsell = false }
         }
         .overlay {
             if showSetsInfoSheet {
@@ -964,7 +1217,12 @@ struct CheckInView: View {
             .first(where: { $0.exercise.id == strengthTierResult.limitingExercise.id })?.tier ?? .novice
 
         return VStack(spacing: 4) {
-            if isChecklistMode {
+            // PROGRAM SESSION (prototype): a third mode in this same container rather
+            // than a separate widget, so the header keeps identical dimensions whether
+            // you are browsing or mid-session. The swap itself is the state machine.
+            if sessionVisible {
+                sessionRailRows
+            } else if isChecklistMode {
                 let isTierGroup = activeGroupId == ExerciseGroup.tierExercisesId
                 // Row 1: Title on left, dots on right
                 HStack(alignment: .center) {
@@ -1010,7 +1268,11 @@ struct CheckInView: View {
                         .tracking(1)
                         .padding(.leading, 30)
                     Spacer()
-                    if nextFocus != nil {
+                    // PROGRAM SESSION (prototype): next-focus is the free path. Premium
+                    // users get Sessions instead, and two recommenders in one corner is
+                    // exactly the collision the rail exists to avoid. No eyebrow over the
+                    // premium chip — it already says what it is.
+                    if !isPremium, nextFocus != nil {
                         Text("NEXT FOCUS")
                             .font(.system(size: 8, weight: .bold))
                             .foregroundStyle(.white.opacity(0.3))
@@ -1032,7 +1294,9 @@ struct CheckInView: View {
 
                     Spacer()
 
-                    if let focus = nextFocus {
+                    if isPremium {
+                        startSessionChip
+                    } else if let focus = nextFocus {
                         // Chip treatment so the next-focus name reads as tappable
                         // (the tap itself is handled by the right-hand overlay
                         // below, which is sized to contain this chip). Same
@@ -1080,13 +1344,15 @@ struct CheckInView: View {
         .background(Color(white: 0.12), in: RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(isChecklistMode ? .white.opacity(0.15) : tier.color.opacity(0.3), lineWidth: 1)
+                .strokeBorder(headerBorderColor(tier: tier, isChecklistMode: isChecklistMode), lineWidth: 1)
         )
         .contentShape(Rectangle())
         .onTapGesture {
-            selectedSetData.pendingTrendsTab = .strength
+            // During a session the header belongs to the rail, which has its own
+            // controls — tapping through to the Strength tab would fight it.
+            guard !sessionVisible else { return }
             selectedSetData.pendingScrollToStrengthTop = true
-            selectedTab = 0
+            selectedTab = .strength
         }
         // Right-hand NEXT FOCUS area opens the "Ready to lift?" popup instead of
         // navigating to the Strength tab. Taps elsewhere fall through to the
@@ -1099,6 +1365,11 @@ struct CheckInView: View {
         // supported phone (~343pt card → ~120pt) while still starting well right of
         // the tier title, which ends around 186pt even for "Intermediate".
         .overlay {
+            // Suppressed whenever something else owns this corner: the rail's action
+            // button mid-session, or the premium Session chip. Previously gated on the
+            // session alone, which left this invisible region on top of the premium chip
+            // and opened the next-focus popup on tap.
+            if !sessionVisible && !isPremium {
             GeometryReader { geo in
                 HStack(spacing: 0) {
                     Spacer(minLength: 0)
@@ -1122,14 +1393,363 @@ struct CheckInView: View {
                                     showReadyToLift = true
                                 }
                             } else {
-                                selectedSetData.pendingTrendsTab = .strength
                                 selectedSetData.pendingScrollToStrengthTop = true
-                                selectedTab = 0
+                                selectedTab = .strength
                             }
                         }
                 }
             }
+            }
         }
+    }
+
+    // MARK: - Program session rail (prototype)
+
+    /// Premium's replacement for the next-focus chip. Same slot, same chip vocabulary and
+    /// the same ~24pt height, so the header does not resize between the two audiences.
+    ///
+    /// Because it owns this corner, the invisible next-focus tap region below is gated off for
+    /// premium — otherwise that region would sit on top of this chip and swallow the tap.
+    ///
+    /// Navigation only. The store still supports `pendingAutoStart`, so making this open
+    /// straight into a draft is one line away — it is just not what this does for now.
+    private var startSessionChip: some View {
+        Button {
+            mediumHaptic.impactOccurred()
+            selectedTab = .session
+        } label: {
+            // Premium treatment, arrived at after trying flat black + white border. That
+            // read as a system chip — correct, but inert. Everything here is doing one job:
+            // make a small mark feel like it opens something worth opening.
+            //
+            // Geometry is deliberately unchanged from the flat version. This sits in a
+            // dense header whose height is pinned so it does not resize when a session
+            // starts, so the paddings, corner radius and baseline guide all stay put.
+            HStack(spacing: 5) {
+                // Glints every few seconds rather than pulsing. A pulse would read as a
+                // loading indicator; a slow catch of light reads as something latent —
+                // which is exactly what an unopened session is.
+                GlintingSparkle(size: 13)
+                    .foregroundStyle(Color.appAccent)
+
+                Text("Session")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .padding(.leading, 7)
+            .padding(.trailing, 9)
+            .padding(.vertical, 3)
+            // Diagonal rather than flat: a single fill is a swatch, a gradient reads as a
+            // surface catching light from somewhere.
+            .background(
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.appAccent.opacity(0.30), Color.appAccent.opacity(0.11)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            // The border carries the same light direction as the fill, so the top-left
+            // edge is lit and the bottom-right falls away. A uniform stroke flattens the
+            // whole thing back into a swatch.
+            .overlay(
+                RoundedRectangle(cornerRadius: 7)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [Color.appAccent.opacity(0.85), Color.appAccent.opacity(0.30)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
+            )
+            // Just enough to lift it off the header card. Tinted, not black — a grey
+            // shadow under an amber chip reads as dirt.
+            .shadow(color: Color.appAccent.opacity(0.22), radius: 4, y: 1)
+            .alignmentGuide(.lastTextBaseline) { d in d[.bottom] - 4 }
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Effort key for a set just logged, derived the same way `actualEffort(for:)` derives
+    /// its label — compared against the e1RM standing BEFORE this set. Returns the key
+    /// form the session tiles use rather than a display label.
+    private func loggedEffortKey(weight: Double, reps: Int, priorE1RM: Double) -> String {
+        guard weight > 0 else { return "moderate" }
+        let estimated = OneRMCalculator.estimate1RM(weight: weight, reps: reps)
+
+        if priorE1RM > 0 && (estimated - priorE1RM) > 0.0001 { return "pr" }
+
+        let percent = priorE1RM > 0 ? estimated / priorE1RM : 0
+        switch TrendsCalculator.IntensityBucket.from(percent1RM: percent) {
+        case .pr, .nearMax: return "redline"
+        case .hard: return "hard"
+        case .moderate: return "moderate"
+        case .easy: return "easy"
+        }
+    }
+
+    /// Push the session's set counts in from the store of record.
+    ///
+    /// Lower bound is the start of the session's own day, so work done before you hit
+    /// Start Lifting still counts — squat in the morning and a session including squats
+    /// opens with them already done rather than asking twice.
+    ///
+    /// Deliberately NO upper bound. A session owns whatever is logged while it is active,
+    /// so a set at 12:04am counts toward a session begun at 11:30pm. Clamping to the day
+    /// would make a session forget itself at midnight, mid-workout.
+    private func syncSessionProgress() {
+        // A showcase session is authored, not lived, and reconciling it against real sets
+        // defeats it twice over. The visible half is that today's work fills tiles the
+        // screenshot wants empty. The subtler half is the phase: `recordSetCount` calls
+        // `markUnderway()` as soon as any lift shows work beyond what was credited at
+        // activation, and since the showcase credits nothing, a single set logged today
+        // sent it straight past Planning — skipping the Start Lifting step the screenshots
+        // are being taken of.
+        guard !ShowcaseSessionOverride.isEnabled else { return }
+
+        guard sessionStore.isActive,
+              let sessionDay = sessionStore.startedOnDay else { return }
+        let dayStart = Calendar.current.startOfDay(for: sessionDay)
+
+        for item in sessionStore.items {
+            let count = allLiftSets.filter {
+                $0.exercise?.id == item.exerciseId
+                    && !$0.deleted
+                    && !$0.isBaselineSet
+                    && $0.createdAt >= dayStart
+            }.count
+
+            if count == 0 {
+                // Zero is ambiguous from here: it means either "every set was deleted" or
+                // "the query has not seen the insert yet". Distinguished by asking whether
+                // the query has ANY set for this lift today, baselines included — a lift
+                // that was just logged has one, a lift genuinely emptied has none.
+                //
+                // Without this, `recordSetCount` refuses stale zeros (it cannot tell them
+                // apart either) and a deleted-to-empty lift would keep its tiles.
+                let hasAnySetToday = allLiftSets.contains {
+                    $0.exercise?.id == item.exerciseId
+                        && !$0.deleted
+                        && $0.createdAt >= dayStart
+                }
+                if !hasAnySetToday {
+                    sessionStore.clearLoggedSets(forExerciseId: item.exerciseId)
+                }
+                continue
+            }
+
+            sessionStore.recordSetCount(count, forExerciseId: item.exerciseId)
+        }
+    }
+
+    /// Select whatever exercise the session is asking for, then clear the request so it
+    /// cannot fire twice and fight a manual selection.
+    private func consumeSessionSelection() {
+        guard let exerciseId = sessionStore.pendingSelection else { return }
+        sessionStore.pendingSelection = nil
+        navigateToTierExercise(exerciseId)
+    }
+
+    /// Amber while a session is live, so the mode is readable before any text is.
+    private func headerBorderColor(tier: StrengthTier, isChecklistMode: Bool) -> Color {
+        if sessionVisible { return Color.appAccent.opacity(0.45) }
+        return isChecklistMode ? .white.opacity(0.15) : tier.color.opacity(0.3)
+    }
+
+    /// What the rail's single right-hand button offers, if anything. Resolved in priority
+    /// order — finishing outranks a stale prompt, which outranks getting back on plan.
+    private enum RailAction {
+        /// Advance to the next lift that still needs work. Prominent — you just finished
+        /// something and the rail is telling you where to go.
+        case advance
+        /// Step to the next lift in program order, wrapping. De-emphasised: you are
+        /// exactly where you should be, and this is only for looking ahead.
+        case cycle
+        case resume, finish
+    }
+
+    private var railAction: RailAction? {
+        guard sessionVisible else { return nil }
+        if sessionStore.allComplete { return .finish }
+
+        guard let selectedId = selectedExercise?.id else { return nil }
+        // Off-script: whatever you are doing is fine, but offer the way back.
+        guard let item = sessionStore.item(for: selectedId) else { return .resume }
+        // On a lift you have already finished, with work still left elsewhere.
+        if item.isComplete && sessionStore.nextIncomplete != nil { return .advance }
+        // Mid-lift and on plan — still let them move through the session's exercises.
+        if sessionStore.items.count > 1 { return .cycle }
+        return nil
+    }
+
+    /// Two rows, mirroring the other two header modes so the container's height is
+    /// unchanged: labels row, then a content row holding the lift chain and the action.
+    @ViewBuilder
+    private var sessionRailRows: some View {
+        // Row 1 — labels, same treatment as STRENGTH TIER / NEXT FOCUS.
+        HStack {
+            Text("TODAY'S SESSION")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(.white)
+                .tracking(1)
+
+            Spacer()
+
+            Text("\(sessionStore.completedCount) OF \(sessionStore.items.count)")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(.white.opacity(0.3))
+                .tracking(1)
+        }
+
+        // Row 2 — the chain, and the action. `minHeight: 26` pins this to the band the
+        // normal mode's 22pt tier title produces, which is the whole reason the header
+        // does not resize when a session starts.
+        HStack(alignment: .center, spacing: 6) {
+            liftChain
+
+            Spacer(minLength: 4)
+
+            if let action = railAction {
+                railButton(action)
+            }
+        }
+        .frame(minHeight: 26)
+    }
+
+    /// Font sizes the chain may use, largest first. `ViewThatFits` picks the first that fits.
+    private static let chainFontSizes: [CGFloat] = [14, 13, 12, 11, 10, 9]
+
+    /// The lift chain, at ONE font size for every name.
+    ///
+    /// This used to be a single HStack with `.minimumScaleFactor(0.6)`, which produced
+    /// visibly mismatched text: `minimumScaleFactor` is applied per `Text`, and each one
+    /// shrinks only as much as its own allotted width demands. So "Bench" and "Rows" stayed
+    /// at full size, "Squats" shrank a little, and "Deadlifts" and "OH Press" shrank most —
+    /// five different sizes in one row.
+    ///
+    /// `ViewThatFits` fixes it by changing what varies. Each candidate below renders the
+    /// whole chain at a single uniform size, and the first one that fits the available width
+    /// wins. Shrinking still happens on a crowded five-lift session, but it happens to the
+    /// row as a whole rather than to individual names.
+    private var liftChain: some View {
+        ViewThatFits(in: .horizontal) {
+            ForEach(Self.chainFontSizes, id: \.self) { size in
+                chain(fontSize: size)
+            }
+        }
+    }
+
+    private func chain(fontSize: CGFloat) -> some View {
+        HStack(spacing: 5) {
+            ForEach(Array(sessionStore.items.enumerated()), id: \.element.id) { index, item in
+                if index > 0 {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.25))
+                }
+
+                HStack(spacing: 3) {
+                    Text(item.shortName)
+                        .font(.system(size: fontSize, weight: .semibold))
+                        .foregroundStyle(chainColor(for: item))
+
+                    if item.isComplete {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(Color.appAccent)
+                    }
+                }
+            }
+        }
+        .lineLimit(1)
+        // Every candidate must report its true ideal width, or `ViewThatFits` would see the
+        // first one "fit" by compressing and never try a smaller size.
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    /// Amber once done, white for where you are, grey for what is ahead.
+    private func chainColor(for item: ProgramSessionStore.Item) -> Color {
+        if item.isComplete { return Color.appAccent }
+        if item.exerciseId == selectedExercise?.id { return .white }
+        return .white.opacity(0.4)
+    }
+
+    // Deliberately not `@ViewBuilder`: this returns exactly one `Button`, and the
+    // attribute would try to read the `switch` below as view content rather than as
+    // ordinary control flow.
+    private func railButton(_ action: RailAction) -> some View {
+        // Each state carries a glyph, and the directional ones sit on the side they point
+        // toward: the forward arrow trails "Next", the u-turn leads "Resume". Reading
+        // order then matches the direction of travel instead of fighting it.
+        let title: String
+        let symbol: String
+        let symbolTrails: Bool
+
+        switch action {
+        case .advance, .cycle:
+            title = "Next"; symbol = "arrow.forward"; symbolTrails = true
+        case .resume:
+            title = "Resume"; symbol = "arrow.uturn.backward"; symbolTrails = false
+        case .finish:
+            title = "Finish"; symbol = "checkmark"; symbolTrails = false
+        }
+
+        // Quiet while you are already exactly where you should be — `cycle` is for
+        // looking ahead, and would read as nagging in full amber.
+        let isQuiet = (action == .cycle)
+
+        return Button {
+            mediumHaptic.impactOccurred()
+            switch action {
+            case .advance, .resume:
+                if let target = sessionStore.nextIncomplete {
+                    navigateToTierExercise(target.exerciseId)
+                }
+            case .cycle:
+                if let current = selectedExercise?.id,
+                   let target = sessionStore.itemAfter(exerciseId: current) {
+                    navigateToTierExercise(target.exerciseId)
+                }
+            case .finish:
+                sessionStore.finish()
+                selectedTab = .session
+            }
+        } label: {
+            HStack(spacing: 4) {
+                if !symbolTrails {
+                    Image(systemName: symbol)
+                        .font(.system(size: 10, weight: .bold))
+                }
+
+                Text(title)
+                    .font(.system(size: 12, weight: .bold))
+
+                if symbolTrails {
+                    Image(systemName: symbol)
+                        .font(.system(size: 10, weight: .bold))
+                }
+            }
+            .foregroundStyle(isQuiet ? .white.opacity(0.6) : .black)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(isQuiet ? Color.white.opacity(0.08) : Color.appAccent)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 7)
+                    .strokeBorder(isQuiet ? Color.white.opacity(0.14) : .clear, lineWidth: 1)
+            )
+            // The chain beside this can shrink; the button cannot, or the glyph and
+            // label start colliding on a narrow screen.
+            .fixedSize(horizontal: true, vertical: false)
+        }
+        .buttonStyle(.plain)
     }
 
     // "Ready to lift?" popup — surfaces the same next-focus fundamental and, on
@@ -1139,9 +1759,44 @@ struct CheckInView: View {
     /// (tutorial popup + the resources-hint alert). First appearance fires right
     /// after the resources hint is dismissed; thereafter it fires on the first Lift
     /// tab view of each new launch.
+    /// Whether next-focus is allowed to be on screen at all.
+    ///
+    /// Used by the RENDER as well as the triggers. `showReadyToLift` is state that
+    /// outlives the conditions that set it: anything that raised the popup a moment
+    /// before a session started — or during the window where `entitlementRecords` has
+    /// not loaded yet and `isPremium` still reads false — would otherwise keep it on
+    /// screen straight through the session. Gating the trigger only fixes the cause you
+    /// happened to think of; gating the render makes the state unreachable.
+    /// Whether the popup may appear at all.
+    ///
+    /// Free users only — premium's corner is the Session chip, and the invisible tap region
+    /// behind it is gated off to match, so this and the chip's own visibility agree. That
+    /// agreement is the point: if the chip is on screen, tapping it must produce the popup.
+    private var canShowReadyToLift: Bool { !isPremium }
+
+    /// Whether the AUTOMATIC nudge may fire.
+    ///
+    /// Adds the one condition that must NOT gate a manual tap. Someone who already has today's
+    /// session or receipt does not need to be nudged toward a next focus — but if they tap the
+    /// chip asking for it, they should get it.
+    ///
+    /// These were one property, used as both the render gate and this guard, which made the chip
+    /// silently dead for anyone holding a session or a receipt: the tap fired and set the flag,
+    /// and the render gate then refused to draw. Reachable in production for a lapsed
+    /// subscriber, and reliably via the Free override with a session in the store.
+    private var canAutoShowReadyToLift: Bool {
+        canShowReadyToLift && !sessionStore.ownsTodaysRecommendation
+    }
+
     private func maybeShowReadyToLift() {
         guard !tutorialPresenter.readyToLiftShownThisLaunch,
               !showReadyToLift,
+              // PROGRAM SESSION (prototype): next-focus is the free experience. For
+              // premium users Sessions answers "what should I do next", and a popup
+              // nominating a different lift on top of it is the same two-recommenders
+              // collision the header swap exists to prevent. The receipt check covers
+              // the free-user-who-just-upgraded case for the rest of the day.
+              canAutoShowReadyToLift,
               userProperties.hasMetStrengthTierConditions,
               // Never stack on the intro flow while it is actually on screen.
               !tutorialPresenter.showLiftTutorial,
@@ -1153,7 +1808,11 @@ struct CheckInView: View {
               // can never replay, so `hasSeenResourcesHint` could never flip and this
               // guard blocked the popup forever. Accepting the older flag covers those
               // installs without a migration.
-              hasSeenResourcesHint || hasSeenLiftTutorialAfterTierUnlock,
+              // With the tutorial disabled there IS no intro to settle, and neither flag
+              // can ever flip — its only writer sits downstream of the popup. Without this
+              // first clause, switching the tutorial off would silently take "Ready to
+              // lift?" down with it for every user who unlocks from here on.
+              !Self.liftTutorialEnabled || hasSeenResourcesHint || hasSeenLiftTutorialAfterTierUnlock,
               nextFocus != nil else { return }
         tutorialPresenter.readyToLiftShownThisLaunch = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
@@ -1235,6 +1894,57 @@ struct CheckInView: View {
             }
             .buttonStyle(.plain)
             .padding(.top, 4)
+
+            // The second offer, and a real button rather than a text link — it was quiet
+            // enough to read as a caption on the line above it.
+            //
+            // Same copy and same placement for everyone, so the popup's shape does not change
+            // with entitlement; only the destination and the emphasis do. A premium user goes
+            // to the Session tab they already own, and it is styled to look worth tapping. A
+            // free user goes to the paywall opened on Smart Sessions, and it stays quieter —
+            // this is a helpful nudge about the NEXT LIFT, and a loud upsell under it would
+            // turn the popup into an ad.
+            Button {
+                AmplitudeService.shared.track(
+                    .readyToLiftSessionTapped(focusExercise: focus.name, isPremium: isPremium)
+                )
+                withAnimation(.easeOut(duration: 0.18)) { showReadyToLift = false }
+                if isPremium {
+                    selectedTab = .session
+                } else {
+                    showSessionUpsell = true
+                }
+            } label: {
+                if isPremium {
+                    // Premium gets the capsule: this is a real destination they already own, and
+                    // it should look worth tapping.
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("Plan my whole session")
+                            .font(.interSemiBold(size: 14))
+                    }
+                    .foregroundStyle(accent)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(accent.opacity(0.12), in: Capsule())
+                    .overlay(Capsule().strokeBorder(accent.opacity(0.45), lineWidth: 1))
+                } else {
+                    // Free stays plain text under the CTA, deliberately. This popup is a nudge
+                    // about the NEXT LIFT; a second button under "LET'S GO" competes with it and
+                    // turns a helpful moment into an ad. It still opens the paywall — the offer
+                    // is unchanged, only its volume is.
+                    HStack(spacing: 5) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Plan my whole session")
+                            .font(.inter(size: 13))
+                    }
+                    .foregroundStyle(.white.opacity(0.45))
+                    .padding(.vertical, 6)
+                }
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 26)
         .padding(.top, 30)
@@ -1658,6 +2368,85 @@ struct CheckInView: View {
 
     // MARK: - Sticky Exercise Banner
 
+    /// The scrolled-away header, in its session form.
+    ///
+    /// The default banner answers "which lift am I on, and where does it stand" — the right
+    /// question when you are just logging. Mid-session it is the wrong one: what you have
+    /// scrolled away from is the session rail, so this replaces the e1RM and tier with the
+    /// two facts the rail was carrying (how far into THIS lift's plan, and how far through
+    /// the session), and keeps the identity half unchanged so the swap is not disorienting.
+    ///
+    /// Falls back to the plain banner for an exercise the session does not cover — an
+    /// accessory logged mid-session is not session work — but keeps the overall counter, so
+    /// the session never silently disappears from the top of the screen.
+    @ViewBuilder
+    private var stickySessionBanner: some View {
+        let item = sessionPlanItem
+        let name = item?.exerciseName ?? (selectedExercise?.name ?? "")
+        let icon = item?.icon ?? (selectedExercise?.icon ?? "")
+
+        HStack(spacing: 10) {
+            Image(icon)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 22, height: 22)
+                .foregroundStyle(Color.appAccent)
+
+            Text(name)
+                .font(.bebasNeue(size: 20))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+
+            Spacer(minLength: 8)
+
+            if let item {
+                // The same tiles as the rail and the Session tab, so the strip means the
+                // same thing everywhere: filled is what happened, outlined is what is left.
+                EffortSquares(
+                    sequence: item.sequence,
+                    loggedEfforts: item.loggedEfforts,
+                    side: 9,
+                    spacing: 2,
+                    radius: 2
+                )
+            } else {
+                // Off-plan work during a session. Named rather than left blank, so the
+                // banner explains why it is not showing set progress.
+                Text("OFF PLAN")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(0.8)
+                    .foregroundStyle(.white.opacity(0.35))
+            }
+
+            Text("\(sessionStore.completedCount)/\(sessionStore.items.count)")
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .foregroundStyle(Color.appAccent)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(
+                    Capsule().fill(Color.appAccent.opacity(0.14))
+                )
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color.black.ignoresSafeArea(.all, edges: .top))
+        .overlay(alignment: .bottom) {
+            LinearGradient(
+                stops: [
+                    .init(color: .black, location: 0),
+                    .init(color: .black.opacity(0.6), location: 0.35),
+                    .init(color: .black.opacity(0.2), location: 0.7),
+                    .init(color: .black.opacity(0), location: 1.0),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 40)
+            .offset(y: 40)
+            .allowsHitTesting(false)
+        }
+    }
+
     private var stickyExerciseBanner: some View {
         let groupExercise = selectedGroupExercise
         let fundamentalIds = Set(fundamentals.map(\.id))
@@ -1728,10 +2517,25 @@ struct CheckInView: View {
 
     // MARK: - Tier Journey Evaluation
 
+    /// FEATURE FLAG: the post-unlock lift tutorial popup is OFF.
+    ///
+    /// TO RE-ENABLE: set this to `true`. That is the whole change — the popup, its
+    /// presentation at `WeightAppApp.swift:191`, the resources hint that follows it, and
+    /// both call sites of `evaluateLiftTutorialTrigger()` are all still wired up.
+    ///
+    /// Note that turning it back on will NOT reach users who unlocked their tier while it
+    /// was off: `hasSeenLiftTutorialAfterTierUnlock` is a one-shot and is deliberately left
+    /// unspent below, but those users have already passed the moment it fires on.
+    private static let liftTutorialEnabled = false
+
     // One-shot tutorial popup: fires the first time this tab is evaluated
     // with sync complete and the strength tier unlocked. Flag is flipped
     // before presentation so an app kill mid-video still counts as "seen".
     private func evaluateLiftTutorialTrigger() {
+        // Returns BEFORE spending the one-shot. Setting the flag here would mark every
+        // user as having seen a tutorial that never played, so re-enabling would show it
+        // to nobody. See `maybeShowReadyToLift` for why leaving it unspent is safe.
+        guard Self.liftTutorialEnabled else { return }
         guard !hasSeenLiftTutorialAfterTierUnlock,
               userProperties.hasMetStrengthTierConditions else { return }
         hasSeenLiftTutorialAfterTierUnlock = true
@@ -2081,10 +2885,47 @@ struct CheckInView: View {
     // sits just under the Today row as a group — distinct from the full-width rows.
     @ViewBuilder
     private var verticalPlanSelector: some View {
-        if isViewingToday {
+        // PROGRAM SESSION: for a lift the session covers, this now OPENS — it was locked
+        // while the only outcome of tapping it was wrong (desync the rail, or quietly
+        // rewrite the user's global default). The catalog is session-aware now, so a
+        // selection lands on the session item and neither of those happens.
+        //
+        // The PLAN badge stays. It no longer means "you cannot change this"; it means this
+        // lift belongs to today's session, which is still worth saying — and it is how the
+        // user knows the change they are about to make is scoped to the session.
+        if let item = sessionPlanItem {
             Button {
-                hubSection = .setPlans
-                showHub = true
+                showSetPlanCatalog = true
+            } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "list.clipboard.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Color.appAccent.opacity(0.8))
+                Text(item.planName)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.appAccent)
+
+                // "SESSION", not "PLAN". This sits immediately beside the plan's own name
+                // ("Standard"), where a badge reading PLAN says the same word twice and
+                // explains nothing. What it actually means is that this lift belongs to
+                // today's session — so it says that.
+                Text("SESSION")
+                    .font(.system(size: 8, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundStyle(Color.appAccent)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.appAccent.opacity(0.16)))
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.appAccent.opacity(0.35), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+        } else if isViewingToday {
+            Button {
+                showSetPlanCatalog = true
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "list.clipboard.fill")
@@ -2176,7 +3017,7 @@ struct CheckInView: View {
         return HStack(spacing: 12) {
             RoundedRectangle(cornerRadius: 2)
                 .fill(color)
-                .frame(width: 4, height: isTwoRow ? 34 : 22)
+                .frame(width: 4, height: isTwoRow ? 30 : 20)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 5) {
@@ -2255,7 +3096,7 @@ struct CheckInView: View {
                 }
             }
         }
-        .padding(.vertical, isTwoRow ? 10 : 7)
+        .padding(.vertical, isTwoRow ? 8 : 5)
         .padding(.horizontal, 12)
         // Non-NEXT rows are pinned to an EXACT height (min == max) so the populated
         // and unpopulated states always match. A bare minHeight isn't enough: the
@@ -2264,8 +3105,8 @@ struct CheckInView: View {
         // past the floor and read as a taller row. NEXT keeps a floor, not a cap —
         // it's deliberately taller and its second line must be free to size itself.
         .frame(maxWidth: .infinity,
-               minHeight: isTwoRow ? 50 : 36,
-               maxHeight: isTwoRow ? nil : 36)
+               minHeight: isTwoRow ? 44 : 32,
+               maxHeight: isTwoRow ? nil : 32)
         .background(
             RoundedRectangle(cornerRadius: 10)
                 .fill(set != nil ? color.opacity(0.12)
@@ -2413,6 +3254,11 @@ struct CheckInView: View {
                         let effortKey = index < sequence.count ? sequence[index] : ""
                         verticalPlannedRow(setNumber: index + 1, effortKey: effortKey, set: nil,
                                            isNext: index == planSets.count)
+                            // NEXT-SET NUDGE: only the highlighted row is tagged and
+                            // measured. Reporting every row would mean a preference update
+                            // per row on every scroll tick.
+                            .modifier(NextSetRowTracker(isNext: index == planSets.count,
+                                                        id: Self.nextSetRowId))
                             // Extra headroom for the NEXT tab, but only when it's not the
                             // topmost row — a baseline row above it counts as one.
                             .padding(.top, (index == planSets.count && (index > 0 || baselineSet != nil)) ? 5 : 0)
@@ -2667,8 +3513,7 @@ struct CheckInView: View {
                         if setsWidgetStyle != .original {
                             // Variant: pill-styled selector so it's obviously tappable.
                             Button {
-                                hubSection = .setPlans
-                                showHub = true
+                                showSetPlanCatalog = true
                             } label: {
                                 HStack(spacing: 5) {
                                     Image(systemName: "slider.horizontal.3")
@@ -2687,8 +3532,7 @@ struct CheckInView: View {
                             .buttonStyle(.plain)
                         } else {
                         Button {
-                            hubSection = .setPlans
-                            showHub = true
+                            showSetPlanCatalog = true
                         } label: {
                             HStack(spacing: 3) {
                                 Text(activeSetPlan?.name ?? "Freestyle")
@@ -4481,9 +5325,8 @@ struct CheckInView: View {
                     withAnimation(.easeOut(duration: 0.18)) {
                         showSubmitOverlay = false
                     }
-                    selectedSetData.pendingTrendsTab = .strength
                     selectedSetData.pendingScrollToMilestones = true
-                    selectedTab = 0
+                    selectedTab = .strength
                 } label: {
                     Text("See Milestones")
                         .font(.subheadline.weight(.semibold))
@@ -4633,6 +5476,110 @@ struct CheckInView: View {
         }
     }
 
+    // MARK: - SESSION CELEBRATION
+
+    /// Raise the celebration card if one is pending. Returns whether it did.
+    ///
+    /// Called on the false-edge of whichever overlay `logSet()` raised, and directly when it
+    /// raised none. Consuming the store's pending flags here — rather than reading them at
+    /// render time — is what keeps the card behind the overlays instead of on top of them.
+    @discardableResult
+    private func consumeSessionCelebration() -> Bool {
+        // A session that ended in the meantime has nothing to celebrate. Cheaper to check
+        // here than to reason about every path that could tear one down mid-animation.
+        guard sessionStore.isActive else {
+            sessionStore.pendingLiftCelebration = nil
+            sessionStore.pendingSessionCelebration = false
+            return false
+        }
+
+        if sessionStore.pendingSessionCelebration {
+            sessionStore.pendingSessionCelebration = false
+            sessionStore.pendingLiftCelebration = nil
+            AmplitudeService.shared.track(.sessionCelebrationShown(kind: "session"))
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
+                sessionCelebration = SessionCelebrationState(kind: .session, items: sessionStore.items)
+            }
+            return true
+        }
+
+        guard let exerciseId = sessionStore.pendingLiftCelebration else { return false }
+        sessionStore.pendingLiftCelebration = nil
+
+        // Both halves must resolve. `nextIncomplete` is nil once everything is done, which
+        // is the session case and already handled above — reaching here without one means
+        // the session changed underneath us, and a card with nowhere to send you is worse
+        // than no card.
+        guard let completed = sessionStore.item(for: exerciseId),
+              let next = sessionStore.nextIncomplete else { return false }
+
+        AmplitudeService.shared.track(.sessionCelebrationShown(kind: "lift"))
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
+            sessionCelebration = SessionCelebrationState(
+                kind: .lift(completed: completed, next: next),
+                items: sessionStore.items
+            )
+        }
+        return true
+    }
+
+    private func dismissSessionCelebration(kind: String) {
+        AmplitudeService.shared.track(.sessionCelebrationDismissed(kind: kind))
+        withAnimation(.easeOut(duration: 0.2)) { sessionCelebration = nil }
+    }
+
+    private func actOnSessionCelebration(_ kind: SessionCelebrationCard.Kind) {
+        withAnimation(.easeOut(duration: 0.2)) { sessionCelebration = nil }
+
+        switch kind {
+        case let .lift(_, next):
+            AmplitudeService.shared.track(.sessionCelebrationCTATapped(kind: "lift"))
+            mediumHaptic.impactOccurred()
+            sessionStore.pendingSelection = next.exerciseId
+            consumeSessionSelection()
+
+        case .session:
+            AmplitudeService.shared.track(.sessionCelebrationCTATapped(kind: "session"))
+            mediumHaptic.impactOccurred()
+            // Same teardown the Session tab's End Session performs, rather than a second
+            // path that could drift from it. The receipt is waiting when the tab appears.
+            sessionStore.finish()
+            selectedTab = .session
+        }
+    }
+
+    // MARK: - NEXT-SET NUDGE
+
+    /// Scroll the newly-highlighted set back into view, but only if it is actually hidden.
+    ///
+    /// The condition is the whole point. Logging a set advances the highlight to the row
+    /// below, and on a long plan that row can already be under the floating log bar — so
+    /// the app silently moves your attention somewhere you cannot see. But scrolling every
+    /// time would yank the view on the majority of logs where the row was perfectly
+    /// visible, which is worse than the problem.
+    private func nudgeNextSetIntoViewIfHidden() {
+        guard let rowBottom = nextSetRowMaxY,
+              let barTop = logBarMinY,
+              scrollViewport.height > 0,
+              let proxy = scrollProxy else { return }
+
+        // The last y the user can actually see: above the log bar, with clearance.
+        let visibleBottom = barTop - Self.nextSetNudgeMargin
+        guard rowBottom > visibleBottom else { return }
+
+        // `scrollTo(anchor:)` aligns a fraction of the ROW with the same fraction of the
+        // viewport, and the viewport runs to the bottom of the screen — behind the bar.
+        // Anchoring `.bottom` would therefore park the row under the very thing hiding it.
+        // Converting the visible bottom into a viewport fraction targets the usable area
+        // instead.
+        let fraction = (visibleBottom - scrollViewport.minY) / scrollViewport.height
+        let anchorY = min(max(fraction, 0), 1)
+
+        withAnimation(.easeOut(duration: 0.28)) {
+            proxy.scrollTo(Self.nextSetRowId, anchor: UnitPoint(x: 0.5, y: anchorY))
+        }
+    }
+
     private func logSet() {
         guard let ex = selectedExercise else { return }
         // Snapshot BEFORE any mutation: the unlock flag is flipped mid-function on the
@@ -4648,6 +5595,27 @@ struct CheckInView: View {
             set.isBaselineSet = true
         }
         modelContext.insert(set)
+
+        // NEXT-SET NUDGE: arm the check. The highlight moves to the row below as a result
+        // of this insert, and that row reports its new position once layout settles — the
+        // flag is what tells that measurement it was caused by a log rather than by the
+        // user scrolling.
+        pendingNextSetNudge = true
+
+        // PROGRAM SESSION (prototype): record what the set ACTUALLY was, so the session
+        // tiles fill in the effort that happened rather than the one the plan asked for.
+        // Done here because `before` — the e1RM prior to this set — is only in hand at
+        // log time; the count-based sync cannot reconstruct it after the fact.
+        // Baseline sets are excluded. A baseline is a calibration measurement taken to
+        // establish an e1RM, not training against the plan — crediting it would fill a tile
+        // the user has not actually worked for, and it classifies as `progress` almost by
+        // construction (there is no prior e1RM to beat), so it would fill the tile in the
+        // most flattering colour available. Matches the backend, which already discounts
+        // baselines in `today_coverage`.
+        if sessionStore.isActive, sessionStore.item(for: ex.id) != nil, !set.isBaselineSet {
+            let key = loggedEffortKey(weight: set.weight, reps: set.reps, priorE1RM: before)
+            sessionStore.recordEffort(key, forExerciseId: ex.id)
+        }
 
         let newEstimate = OneRMCalculator.estimate1RM(weight: set.weight, reps: set.reps)
         let after = max(before, newEstimate)

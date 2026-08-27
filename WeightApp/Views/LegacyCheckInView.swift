@@ -28,7 +28,7 @@ struct LegacyCheckInView: View {
 
     @ObservedObject var selectedSetData: SelectedSetData
     var initialExerciseId: UUID? = nil
-    @Binding var selectedTab: Int
+    @Binding var selectedTab: AppTab
 
     @State private var selectedExercisesId: UUID?
     @State private var hasAppliedInitialExercise = false
@@ -64,6 +64,9 @@ struct LegacyCheckInView: View {
     @State private var weightDelta: Double = 5.0
     @State private var initialWeightDelta: Double = 5.0
     @State private var showHub = false
+    /// The set-plan catalog is its own sheet now, not a Hub tab. Mirrored here so the
+    /// UI-test path keeps compiling and behaving like the live view.
+    @State private var showSetPlanCatalog = false
     @State private var hubSection: HubSection = .exercises
     @State private var hubDeepLinkExerciseId: UUID?
     @State private var activeGroupId: UUID = ExerciseGroup.tierExercisesId
@@ -677,6 +680,9 @@ struct LegacyCheckInView: View {
                 repsPickerSheet
                     .presentationDetents([.height(480)])
                     .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $showSetPlanCatalog) {
+                SetPlanCatalogSheet()
             }
             .sheet(isPresented: $showHub, onDismiss: {
                 hubDeepLinkExerciseId = nil
@@ -1405,8 +1411,7 @@ struct LegacyCheckInView: View {
                         withAnimation(.easeOut(duration: 0.18)) {
                             showSubmitOverlay = false
                         }
-                        selectedSetData.pendingTrendsTab = .strength
-                        selectedTab = 0
+                        selectedTab = .strength
                     }
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
@@ -2162,9 +2167,7 @@ struct LegacyCheckInView: View {
                             Menu {
                                 Button {
                                     hapticFeedback.impactOccurred()
-                                    hubSection = .setPlans
-                                    hubDeepLinkExerciseId = nil
-                                    showHub = true
+                                    showSetPlanCatalog = true
                                 } label: {
                                     Label("Set Plan Catalog", systemImage: "square.stack")
                                 }
@@ -2211,9 +2214,7 @@ struct LegacyCheckInView: View {
                         if !isBodyweightFoundation {
                             Button {
                                 hapticFeedback.impactOccurred()
-                                hubSection = .setPlans
-                                hubDeepLinkExerciseId = nil
-                                showHub = true
+                                showSetPlanCatalog = true
                             } label: {
                                 Image(systemName: "square.stack")
                                     .font(.system(size: 10, weight: .semibold))
