@@ -23,6 +23,15 @@ final class UserProperties {
     var proteinGoal: Int?
     var bodyweightTarget: Double?
     var timezoneIdentifier: String?
+    /// Latest known UTC offset for the user's device, in seconds EAST of UTC. Synced
+    /// alongside `timezoneIdentifier` as device metadata.
+    ///
+    /// A CACHE, not a source of truth: it is captured at sync time and does not move when
+    /// DST does, so it can be wrong for up to a week. Anything asking "what is this user's
+    /// offset right now" must resolve `timezoneIdentifier` against the current instant.
+    /// Per-record `createdUtcOffsetSeconds` values do not have this problem — they are
+    /// pinned to their own instant and never go stale.
+    var utcOffsetSeconds: Int?
     // Push-only device metadata mirrors — stored locally only to detect changes
     // and avoid redundant pushes. Never pulled back from the backend.
     var localeIdentifier: String?

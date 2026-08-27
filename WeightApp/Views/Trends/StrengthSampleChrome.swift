@@ -72,6 +72,18 @@ struct StrengthUnlockFooter: View {
     /// Strength tab together, so this is what distinguishes which one earned the tap.
     let widget: String
 
+    /// What the five lifts unlock, from the perspective of the tab you are on.
+    ///
+    /// The same checklist gates different things: on the Strength tab it is the starting
+    /// Strength Tier, on the Session tab it is Smart Sessions. Naming the wrong one is not
+    /// a cosmetic error — it tells the user to go do something for a feature they were not
+    /// looking at.
+    ///
+    /// Split in two so the highlight can be the accent-coloured payoff term while any
+    /// lead-in ("your starting ") stays plain.
+    var unlockPrefix: String = "your starting "
+    var unlockHighlight: String = "Strength Tier"
+
     private var loggedCount: Int { loggedFlags.filter { $0 }.count }
 
     /// Paired with the fundamentals so the row can show each lift's real icon and name.
@@ -84,7 +96,7 @@ struct StrengthUnlockFooter: View {
     /// Tapping goes straight to the Lift tab — the footer names an action, so it should
     /// perform it. Routed through `NotificationRouter`, which `ContentView` already
     /// consumes for exactly this destination, rather than threading a `selectedTab`
-    /// binding down through TrendsView and BalanceView to reach these widgets.
+    /// binding down through the tab root and BalanceView to reach these widgets.
     var body: some View {
         Button {
             AmplitudeService.shared.track(
@@ -147,8 +159,8 @@ struct StrengthUnlockFooter: View {
             VStack(spacing: 1) {
                 Text("Log one set of each lift to unlock")
 
-                Text("your starting ")
-                + Text("Strength Tier").foregroundColor(.appAccent)
+                Text(unlockPrefix)
+                + Text(unlockHighlight).foregroundColor(.appAccent)
             }
             .font(.caption2)
             .foregroundStyle(.white.opacity(0.5))

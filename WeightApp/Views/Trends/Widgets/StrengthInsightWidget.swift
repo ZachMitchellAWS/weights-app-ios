@@ -11,7 +11,7 @@ struct StrengthInsightWidget: View {
     var audioPlayer: AudioPlayerManager
     @Binding var showUpsell: Bool
     var isPremium: Bool = false
-    @Binding var trendsTab: TrendsTab
+    @Binding var selectedTab: AppTab
     var currentOverallTier: StrengthTier = .none
 
     @State private var isExpanded = false
@@ -159,15 +159,17 @@ struct StrengthInsightWidget: View {
 
                         Button {
                             if isPremium {
-                                trendsTab = .narratives
+                                selectedTab = .session
                             } else {
                                 AmplitudeService.shared.track(.lockedWidgetTapped(feature: "strength_insight_upsell"))
                                 showUpsell = true
                             }
                         } label: {
                             HStack(spacing: 6) {
-                                Image(systemName: isPremium ? "chart.bar.doc.horizontal" : "sparkles")
-                                Text(isPremium ? "See Progress Narratives" : "Unlock Progress Narratives")
+                                // The destination was already the Session tab; only the label
+                                // was stale, left over from when that tab was Narratives.
+                                Image(systemName: "sparkles")
+                                Text(isPremium ? "See Your Session" : "Unlock Smart Sessions")
                             }
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.black)

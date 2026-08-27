@@ -2,6 +2,15 @@ import SwiftUI
 import SwiftData
 
 struct SetPlanCatalogView: View {
+    /// Non-nil when the catalog was opened FOR A LIFT INSIDE A LIVE SESSION.
+    ///
+    /// It changes where a selection lands: the session's own item rather than the user's
+    /// global default. Deliberately not a bool — the session store is keyed by exercise, so
+    /// this carries the identity as well as the mode.
+    ///
+    /// nil is the ordinary case and behaves exactly as it always has.
+    var sessionExerciseId: UUID? = nil
+
     @Environment(\.modelContext) private var modelContext
 
     @Query(filter: #Predicate<SetPlan> { !$0.deleted })
@@ -25,14 +34,54 @@ struct SetPlanCatalogView: View {
     // breaks set-plan sync. Change display labels in `effortLabel(for:)` instead.
     private static let effortLevels = ["easy", "moderate", "hard", "redline", "pr"]
 
+    /// The session item this catalog is editing, if any.
+    private var sessionItem: ProgramSessionStore.Item? {
+        guard let sessionExerciseId else { return nil }
+        return ProgramSessionStore.shared.item(for: sessionExerciseId)
+    }
+
+    /// Which plan currently reads as selected.
+    ///
+    /// Must follow the same branch as `apply(plan:)` — a catalog that writes to the session
+    /// but ticks the global default would show the user the wrong answer to "what is
+    /// selected right now".
+    private var selectedPlanId: UUID? {
+        if let sessionItem { return sessionItem.setPlanId }
+        return userProperties.activeSetPlanId
+    }
+
+    /// Apply a selection. THE one place that decides where a chosen plan lands.
+    ///
+    /// `nil` means the "None" card — freestyle. A session always has a plan, so None is not
+    /// offered there (see the call site), and this treats it as a no-op rather than
+    /// inventing a meaning for it.
+    private func apply(_ plan: SetPlan?) {
+        if let sessionExerciseId {
+            guard let plan else { return }
+            // The session's plan is an OVERRIDE, computed and never stored globally
+            // (see `CheckInView.activeSetPlan`). Writing `activeSetPlanId` here would
+            // outlive the session and silently re-plan every other exercise.
+            ProgramSessionStore.shared.changeSetPlan(
+                forExerciseId: sessionExerciseId,
+                setPlanId: plan.id,
+                planName: plan.name,
+                sequence: plan.effortSequence
+            )
+            return
+        }
+
+        userProperties.activeSetPlanId = plan?.id
+        try? modelContext.save()
+        Task { await SyncService.shared.updateActiveSetPlan(plan?.id) }
+    }
+
     private var isPremium: Bool {
         if FreeOverride.isEnabled { return false }
         return PremiumOverride.isEnabled || EntitlementGrant.isPremium(entitlementRecords)
     }
 
     private var setPlansUpsellPage: Int {
-        let index = SubscriptionConfig.premiumFeatures.firstIndex { $0.title == "Set Plan Catalog" } ?? 3
-        return index + 1
+        SubscriptionConfig.upsellPage(for: SubscriptionConfig.setPlanCatalogTitle)
     }
 
     private var userProperties: UserProperties {
@@ -160,8 +209,18 @@ struct SetPlanCatalogView: View {
                             }
                         }
 
-                        // None option
-                        noneCard()
+                        // Freestyle is not offered inside a session: every session item
+                        // carries a plan by construction, and "no plan" has no meaning
+                        // there. Outside a session it is a legitimate choice.
+                        if sessionExerciseId == nil {
+                            noneCard()
+                        }
+
+                        // Zero-height anchor rather than `.id` on the None card, which is
+                        // now conditional — the scroll-to-bottom after creating a plan must
+                        // still have a target when that card is absent.
+                        Color.clear
+                            .frame(height: 1)
                             .id("catalogBottom")
                     }
                     .padding(.horizontal, 20)
@@ -182,7 +241,7 @@ struct SetPlanCatalogView: View {
             }
         }
         .fullScreenCover(isPresented: $showUpsell) {
-            UpsellView(initialPage: setPlansUpsellPage) { _ in showUpsell = false }
+            UpsellView(initialPage: setPlansUpsellPage, source: SubscriptionConfig.UpsellSource.lockedSetPlans) { _ in showUpsell = false }
         }
         .alert("New Plan", isPresented: $showNewPlanAlert) {
             TextField("Name", text: $newPlanName)
@@ -236,16 +295,14 @@ struct SetPlanCatalogView: View {
 
     @ViewBuilder
     private func planCard(plan: SetPlan, isEditable: Bool) -> some View {
-        let isActive = userProperties.activeSetPlanId == plan.id
+        let isActive = selectedPlanId == plan.id
 
         VStack(alignment: .leading, spacing: 10) {
             // Title row with selection
             HStack(spacing: 12) {
                 Button {
                     hapticFeedback.impactOccurred()
-                    userProperties.activeSetPlanId = plan.id
-                    try? modelContext.save()
-                    Task { await SyncService.shared.updateActiveSetPlan(plan.id) }
+                    apply(plan)
                 } label: {
                     Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 20))
@@ -368,22 +425,18 @@ struct SetPlanCatalogView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             hapticFeedback.impactOccurred()
-            userProperties.activeSetPlanId = plan.id
-            try? modelContext.save()
-            Task { await SyncService.shared.updateActiveSetPlan(plan.id) }
+            apply(plan)
         }
     }
 
     @ViewBuilder
     private func noneCard() -> some View {
-        let isActive = userProperties.activeSetPlanId == nil
+        let isActive = selectedPlanId == nil
 
         HStack(spacing: 12) {
             Button {
                 hapticFeedback.impactOccurred()
-                userProperties.activeSetPlanId = nil
-                try? modelContext.save()
-                Task { await SyncService.shared.updateActiveSetPlan(nil) }
+                apply(nil)
             } label: {
                 Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 20))
@@ -419,9 +472,7 @@ struct SetPlanCatalogView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             hapticFeedback.impactOccurred()
-            userProperties.activeSetPlanId = nil
-            try? modelContext.save()
-            Task { await SyncService.shared.updateActiveSetPlan(nil) }
+            apply(nil)
         }
     }
 
@@ -432,15 +483,17 @@ struct SetPlanCatalogView: View {
 
     private func deletePlan(_ plan: SetPlan) {
         plan.deleted = true
-        if userProperties.activeSetPlanId == plan.id {
-            userProperties.activeSetPlanId = SetPlan.standardId
+
+        // Whatever was pointing at this plan falls back to Standard — and that has to
+        // follow the same branch as a selection. Deleting the plan a SESSION is running on
+        // must re-point the session item, not the user's global default: the session would
+        // otherwise keep naming a plan that no longer exists.
+        if selectedPlanId == plan.id,
+           let standard = allPlans.first(where: { $0.id == SetPlan.standardId }) {
+            apply(standard)
         }
+
         try? modelContext.save()
-        Task {
-            await SyncService.shared.deleteSetPlan(plan.id)
-            if userProperties.activeSetPlanId == SetPlan.standardId {
-                await SyncService.shared.updateActiveSetPlan(SetPlan.standardId)
-            }
-        }
+        Task { await SyncService.shared.deleteSetPlan(plan.id) }
     }
 }

@@ -52,6 +52,15 @@ final class Exercise {
     @Attribute(.unique) var id: UUID
     var createdAt: Date
     var createdTimezone: String
+    /// UTC offset in effect where and when this record was created, in seconds EAST of
+    /// UTC (negative in the Americas). Captured on device, where the OS has current
+    /// timezone rules — strictly more accurate than re-deriving it later from a bundled
+    /// tzdata snapshot, and immune to retroactive revisions of historical offset rules.
+    ///
+    /// Optional because records written before this field existed have none; readers fall
+    /// back to resolving `createdTimezone` against `createdAt`. Note `0` is a legal value
+    /// (UTC, London in winter), so presence checks must test for nil, not falsiness.
+    var createdUtcOffsetSeconds: Int?
     var name: String
     var isCustom: Bool
     var loadType: String // Store as String for SwiftData compatibility
@@ -72,8 +81,12 @@ final class Exercise {
         self.id = UUID()
         self.name = name
         self.isCustom = isCustom
-        self.createdAt = Date()
+        let now = Date()
+        self.createdAt = now
         self.createdTimezone = TimeZone.current.identifier
+        // `now`, not `self.createdAt` — Swift forbids reading a stored property back until
+        // every one of them is initialised, and several are assigned after this point.
+        self.createdUtcOffsetSeconds = TimeZone.current.secondsFromGMT(for: now)
         self.loadType = loadType.rawValue
         self.movementType = movementType.rawValue
         self.notes = nil
@@ -84,12 +97,14 @@ final class Exercise {
     init(id: UUID? = nil, name: String, isCustom: Bool, loadType: ExerciseLoadType = .barbell,
          movementType: ExerciseMovementType = .other,
          createdAt: Date = Date(), createdTimezone: String = TimeZone.current.identifier,
+         createdUtcOffsetSeconds: Int? = nil,
          notes: String? = nil, deleted: Bool = false, icon: String = "LiftTheBullIcon") {
         self.id = id ?? UUID()
         self.name = name
         self.isCustom = isCustom
         self.createdAt = createdAt
         self.createdTimezone = createdTimezone
+        self.createdUtcOffsetSeconds = createdUtcOffsetSeconds ?? TimeZone.current.secondsFromGMT(for: createdAt)
         self.loadType = loadType.rawValue
         self.movementType = movementType.rawValue
         self.notes = notes

@@ -6,6 +6,15 @@ final class SetPlan {
     @Attribute(.unique) var id: UUID
     var createdAt: Date
     var createdTimezone: String
+    /// UTC offset in effect where and when this record was created, in seconds EAST of
+    /// UTC (negative in the Americas). Captured on device, where the OS has current
+    /// timezone rules — strictly more accurate than re-deriving it later from a bundled
+    /// tzdata snapshot, and immune to retroactive revisions of historical offset rules.
+    ///
+    /// Optional because records written before this field existed have none; readers fall
+    /// back to resolving `createdTimezone` against `createdAt`. Note `0` is a legal value
+    /// (UTC, London in winter), so presence checks must test for nil, not falsiness.
+    var createdUtcOffsetSeconds: Int?
     var name: String
     var planDescription: String?
     var effortSequence: [String]
@@ -14,8 +23,12 @@ final class SetPlan {
 
     init(id: UUID = UUID(), name: String, effortSequence: [String], isCustom: Bool = true, planDescription: String? = nil) {
         self.id = id
-        self.createdAt = Date()
+        let now = Date()
+        self.createdAt = now
         self.createdTimezone = TimeZone.current.identifier
+        // `now`, not `self.createdAt` — Swift forbids reading a stored property back until
+        // every one of them is initialised, and several are assigned after this point.
+        self.createdUtcOffsetSeconds = TimeZone.current.secondsFromGMT(for: now)
         self.name = name
         self.planDescription = planDescription
         self.effortSequence = effortSequence
@@ -24,7 +37,8 @@ final class SetPlan {
     }
 
     init(id: UUID, name: String, effortSequence: [String], isCustom: Bool, planDescription: String?,
-         createdAt: Date, createdTimezone: String, deleted: Bool = false) {
+         createdAt: Date, createdTimezone: String, createdUtcOffsetSeconds: Int? = nil,
+         deleted: Bool = false) {
         self.id = id
         self.name = name
         self.effortSequence = effortSequence
@@ -32,6 +46,7 @@ final class SetPlan {
         self.planDescription = planDescription
         self.createdAt = createdAt
         self.createdTimezone = createdTimezone
+        self.createdUtcOffsetSeconds = createdUtcOffsetSeconds ?? TimeZone.current.secondsFromGMT(for: createdAt)
         self.deleted = deleted
     }
 
@@ -73,11 +88,17 @@ final class SetPlan {
     static let speedWorkId       = UUID(uuidString: "00000000-0000-0000-0000-000000000114")!
     static let emomId            = UUID(uuidString: "00000000-0000-0000-0000-000000000115")!
     static let techniqueId       = UUID(uuidString: "00000000-0000-0000-0000-000000000116")!
+    static let quickAttemptId    = UUID(uuidString: "00000000-0000-0000-0000-000000000117")!
+    static let primerId          = UUID(uuidString: "00000000-0000-0000-0000-000000000118")!
+    static let openersId         = UUID(uuidString: "00000000-0000-0000-0000-000000000119")!
+    static let compactStandardId = UUID(uuidString: "00000000-0000-0000-0000-000000000120")!
+    static let rebuildId         = UUID(uuidString: "00000000-0000-0000-0000-000000000121")!
 
     static let builtInIds: Set<UUID> = [
         standardId, greaseId, maintenanceId, deloadId, pyramidId, topSetBackoffId,
         reversePyramidId, waveLoadingId, clusterSetsId, restPauseId, dropSetsId,
-        laddersId, pauseRepsId, speedWorkId, emomId, techniqueId
+        laddersId, pauseRepsId, speedWorkId, emomId, techniqueId,
+        quickAttemptId, primerId, openersId, compactStandardId, rebuildId
     ]
 
     /// IDs of presets available in free tier
@@ -102,6 +123,26 @@ final class SetPlan {
         (speedWorkId,      "Speed / Dynamic",     ["easy", "easy", "easy", "easy", "easy", "easy", "easy", "easy"],            "Submaximal weight, max velocity"),
         (emomId,           "EMOM",                ["moderate", "moderate", "moderate", "moderate", "moderate", "moderate"],     "Every minute on the minute"),
         (techniqueId,      "Technique",           ["easy", "easy", "easy", "moderate", "moderate"],                            "Light load, focus on form"),
+        // Appended, never inserted. The picker sorts by `createdAt`, and an existing user
+        // seeds these today, so they land last for them regardless — adding them at the
+        // end here makes a new user see the same order.
+        //
+        // "redline" is the STORED spelling of what the product calls Near Max. The sessions
+        // payload uses "near_max" and the backend translates on the way in; writing
+        // "near_max" here would seed locally and then 400 on every set-plan sync, since
+        // POST /checkin/set-plans validates against [easy, moderate, hard, redline, pr].
+        (quickAttemptId,    "Quick Attempt",      ["easy", "moderate", "hard", "pr"],                                          "Fast ramp to a progress attempt when time is short"),
+        (primerId,          "Primer",             ["easy", "moderate", "hard", "redline", "redline"],                          "Heavy exposure without spending an attempt; rehearsal before a future attempt"),
+        (openersId,         "Openers",            ["moderate", "hard", "redline"],                                             "Short feel-heavy day at near-max intensity"),
+        (compactStandardId, "Compact Standard",   ["easy", "moderate", "moderate", "hard", "pr"],                              "Standard's structure with one less warm-up set"),
+        (rebuildId,         "Rebuild",            ["easy", "moderate", "moderate", "moderate", "hard"],                        "Moderate-volume builder for a stalled lift; accumulate without attempting"),
     ]
+
+    /// Bump whenever `builtInPlans` changes.
+    ///
+    /// Existing users already get new plans LOCALLY for free — `SeedService.seedSetPlans`
+    /// runs every launch and inserts whatever is missing. This version exists only for the
+    /// backend, which is otherwise written to exactly once, at account creation.
+    static let builtInCatalogVersion = 2
 
 }

@@ -93,49 +93,47 @@ struct WeightAppApp: App {
                     if authViewModel.isAuthenticated {
                         if authViewModel.showPostAuthFlow {
                             if authViewModel.isNewUser {
-                                // Post-onboarding upsell temporarily disabled — new users
-                                // flow straight from onboarding into the tab view. The
-                                // original `if showOnboarding ... else UpsellView` branch
-                                // is preserved in the block comment below so we can
-                                // reinstate the upsell + tutorial-popup chain later.
-                                OnboardingView(isDevelopmentPreview: authViewModel.isOnboardingDebugPreview) {
-                                    authViewModel.markOnboardingComplete()
-                                    AnalyticsService.logOnboardingComplete()
-                                    AmplitudeService.shared.track(.onboardingCompleted)
-                                    withAnimation(.easeInOut(duration: 0.4)) {
-                                        authViewModel.completePostAuthFlow()
-                                    }
-                                }
-                                .transition(.opacity)
-                                /*
+                                // Onboarding, then the upsell, then the tab view.
+                                //
+                                // Restored from the block that was preserved here while it
+                                // was disabled. Two deviations from that block, both
+                                // deliberate:
+                                //
+                                // 1. The `OnboardingView` call keeps the arguments it
+                                //    gained while the upsell was off — `isDevelopmentPreview`
+                                //    and the `onboardingCompleted` event. The preserved copy
+                                //    predates both, and pasting it back verbatim would have
+                                //    silently dropped them.
+                                // 2. The tutorial-popup chain is NOT revived. It guarded on
+                                //    `tutorialPopupEnabled`, which is not declared anywhere,
+                                //    and it set `showOnboardingTutorial`, which nothing
+                                //    renders any more — the live tutorial goes through
+                                //    `TutorialPresenter`. The tutorial is also switched off
+                                //    by a later decision than the one that wrote this block.
+                                //
+                                // `showOnboarding` is the gate between the two steps, so
+                                // finishing onboarding no longer ends the post-auth flow —
+                                // the upsell's own completion does.
                                 if showOnboarding {
-                                    OnboardingView {
+                                    OnboardingView(isDevelopmentPreview: authViewModel.isOnboardingDebugPreview) {
                                         authViewModel.markOnboardingComplete()
                                         AnalyticsService.logOnboardingComplete()
+                                        AmplitudeService.shared.track(.onboardingCompleted)
                                         withAnimation(.easeInOut(duration: 0.4)) {
                                             showOnboarding = false
                                         }
                                     }
                                     .transition(.opacity)
                                 } else {
-                                    // Upsell for new users
-                                    UpsellView { didSubscribe in
-                                        // Trigger the tutorial popup in the same
-                                        // tick the upsell exits so it crossfades in
-                                        // over the upsell→ContentView transition
-                                        // instead of arriving late.
-                                        if tutorialPopupEnabled && !hasSeenOnboardingTutorial {
-                                            withAnimation(.easeInOut(duration: 0.28)) {
-                                                showOnboardingTutorial = true
-                                            }
-                                        }
+                                    // Opens on whatever `premiumFeatures` leads with, which
+                                    // is Smart Sessions.
+                                    UpsellView(source: SubscriptionConfig.UpsellSource.postOnboarding) { _ in
                                         withAnimation(.easeInOut(duration: 0.4)) {
                                             authViewModel.completePostAuthFlow()
                                         }
                                     }
                                     .transition(.opacity)
                                 }
-                                */
                             } else {
                                 WelcomeBackView {
                                     withAnimation(.easeInOut(duration: 0.4)) {
@@ -273,6 +271,22 @@ struct WeightAppApp: App {
 
                         // Retry the onboarding-complete push if it failed offline at completion time
                         await SyncService.shared.syncOnboardingCompleteIfNeeded()
+
+                        // Push newly-added built-in set plans to the backend. Same shape as
+                        // its neighbours: runs every launch, no-ops unless the catalog
+                        // version moved. It lives HERE rather than in `performInitialSync`
+                        // because that returns early once sync is complete — so an existing
+                        // install, the only cohort that needs this, would never reach it.
+                        await SyncService.shared.syncBuiltInCatalogIfNeeded()
+
+                        // Which Apple Ads campaign produced this install, recorded against
+                        // the user who signed up from it. Here rather than in AuthViewModel
+                        // because this block is the only place covering all four ways a
+                        // user becomes authenticated — login, signup, Apple Sign-In, and
+                        // token restore on launch. Once resolved it never runs again for
+                        // the life of the install, including after signing in as someone
+                        // else.
+                        await AdAttributionService.shared.syncIfNeeded()
 
                         // Sync entitlement status from backend
                         await EntitlementsService.shared.syncEntitlementStatus()

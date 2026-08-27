@@ -15,37 +15,73 @@ struct StrengthTierWidget: View {
     @Binding var showUpsell: Bool
     var onSettingsTapped: (() -> Void)? = nil
 
+    @ObservedObject private var syncService = SyncService.shared
+
+    /// Whether a `.none` verdict can be TRUSTED to mean "not unlocked".
+    ///
+    /// `strengthTierAssessment` over an incomplete `allEstimated1RM` returns `.none` — the
+    /// same value a genuinely locked user produces. So computing before the data has landed
+    /// manufactures a locked verdict for everybody, which is what kept firing
+    /// `strengthSampleShown` for unlocked users even after the nil-state fix.
+    ///
+    /// Sync complete is authoritative. Failing that, the presence of any local e1RM means
+    /// there is real data to assess. Neither → we do not know yet, so do not guess.
+    /// Mirrors the `syncComplete || !hasData` idiom at `CheckInView.evaluateTierJourney`.
+    private var canTrustVerdict: Bool {
+        syncService.initialSyncComplete || !allEstimated1RM.isEmpty
+    }
+
     private var biologicalSex: String { userProperties.biologicalSex ?? "male" }
     private var bodyweight: Double { userProperties.bodyweight ?? 200.0 }
 
-    @State private var tierResult: TrendsCalculator.StrengthTierResult = TrendsCalculator.strengthTierAssessment(
-        from: [],
-        exercises: [],
-        bodyweight: 0,
-        biologicalSex: "male"
-    )
+    /// Optional so that "not computed yet" is a state the view can SEE.
+    ///
+    /// This used to be seeded by running the real assessment over empty arrays, which
+    /// necessarily returns `.none` — the same value the gate below reads as "not yet
+    /// unlocked". Every user therefore rendered the sample card on their first frame, and
+    /// `StrengthUnlockFooter.onAppear` fired `strengthSampleShown` before `.task` had a
+    /// chance to compute the truth. Unlocked users emitted it on every visit to this tab.
+    ///
+    /// `.task` assigns unconditionally, so nil here means exactly one thing: it has not run.
+    @State private var tierResult: TrendsCalculator.StrengthTierResult?
 
     var body: some View {
         Group {
             if !isPremium {
                 lockedContent
-            } else if tierResult.overallTier == .none {
-                // Any missing fundamental forces `.none` (the overall tier is the
-                // lowest of the five), so this is precisely "not yet unlocked".
-                // Derived from data rather than `hasMetStrengthTierConditions`, so it
-                // self-corrects if sets are later deleted.
-                preUnlockSampleCard
-            } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    resultsView(tierResult)
+            } else if let tierResult {
+                if tierResult.overallTier == .none {
+                    // Any missing fundamental forces `.none` (the overall tier is the
+                    // lowest of the five), so this is precisely "not yet unlocked".
+                    // Derived from data rather than `hasMetStrengthTierConditions`, so it
+                    // self-corrects if sets are later deleted.
+                    preUnlockSampleCard(tierResult)
+                } else {
+                    VStack(alignment: .leading, spacing: 12) {
+                        resultsView(tierResult)
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(white: 0.14))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(white: 0.14))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+            } else {
+                // Unknown, not locked. Copy is loading-shaped on purpose: the pre-unlock
+                // nudge ("log your five lifts") would be a false statement to the unlocked
+                // user who passes through here for a frame.
+                WidgetCard(title: "Strength Tier") {
+                    EmptyWidgetState(
+                        icon: "figure.strengthtraining.traditional",
+                        message: "Calculating your strength tier…"
+                    )
+                }
             }
         }
-        .task(id: "\(exercises.compactMap(\.currentE1RMLocalCache).count)-\(allEstimated1RM.count)") {
+        .task(id: "\(exercises.compactMap(\.currentE1RMLocalCache).count)-\(allEstimated1RM.count)-\(syncService.initialSyncComplete)") {
+            // Leave `tierResult` nil rather than writing a verdict we cannot stand behind.
+            // The id above includes `initialSyncComplete`, so this re-runs the moment sync
+            // lands and the real assessment replaces the loading state.
+            guard canTrustVerdict else { return }
             tierResult = TrendsCalculator.strengthTierAssessment(
                 from: allEstimated1RM,
                 exercises: exercises,
@@ -174,7 +210,13 @@ struct StrengthTierWidget: View {
     /// Sample above, the user's REAL progress below. Deliberately shares nothing with
     /// the premium-lock treatment — no blur, no scrim, no lock, no CTA. Tiers are free,
     /// so borrowing that vocabulary would tell free users to pay for what they have.
-    private var preUnlockSampleCard: some View {
+    /// Takes the settled result rather than reading `tierResult` itself.
+    ///
+    /// That is the point: the footer's `loggedFlags` — and therefore the `liftsLogged` it
+    /// reports — can now only be built from a computed assessment. Reading the optional here
+    /// would let a nil unwrap silently to an all-false checklist, which is exactly the wrong
+    /// data that made the spurious events say `liftsLogged: 0`.
+    private func preUnlockSampleCard(_ result: TrendsCalculator.StrengthTierResult) -> some View {
         VStack(spacing: 16) {
             sampleTierContent
                 .allowsHitTesting(false)
@@ -182,7 +224,7 @@ struct StrengthTierWidget: View {
             StrengthSampleDivider()
 
             StrengthUnlockFooter(
-                loggedFlags: tierResult.exerciseTiers.map { $0.e1rm != nil },
+                loggedFlags: result.exerciseTiers.map { $0.e1rm != nil },
                 widget: "strength_tier"
             )
         }

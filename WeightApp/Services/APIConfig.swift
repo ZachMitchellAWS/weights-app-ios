@@ -8,10 +8,17 @@
 import Foundation
 
 struct APIConfig {
-    static let environment: String = Bundle.main.infoDictionary?["AppEnvironment"] as? String ?? "staging"
-    static let baseURL: String = Bundle.main.infoDictionary?["APIBaseURL"] as? String ?? ""
-    static let apiKey: String = Bundle.main.infoDictionary?["APIKey"] as? String ?? ""
-    static let amplitudeAPIKey: String = Bundle.main.infoDictionary?["AmplitudeAPIKey"] as? String ?? ""
+    // `nonisolated` because the project builds with SWIFT_DEFAULT_ACTOR_ISOLATION =
+    // MainActor, which would otherwise make these main-actor-bound and unreadable from
+    // background contexts — Amplitude's enrichment plugin, URLSession callbacks, and any
+    // detached task that needs to know the environment.
+    //
+    // Safe by construction: immutable `let`s of a Sendable type, read once from the app
+    // bundle, with no mutable state behind them.
+    nonisolated static let environment: String = Bundle.main.infoDictionary?["AppEnvironment"] as? String ?? "staging"
+    nonisolated static let baseURL: String = Bundle.main.infoDictionary?["APIBaseURL"] as? String ?? ""
+    nonisolated static let apiKey: String = Bundle.main.infoDictionary?["APIKey"] as? String ?? ""
+    nonisolated static let amplitudeAPIKey: String = Bundle.main.infoDictionary?["AmplitudeAPIKey"] as? String ?? ""
 
     static var commonHeaders: [String: String] {
         [
@@ -42,6 +49,45 @@ enum PremiumOverride {
 
 enum FreeOverride {
     private static let key = "free_override"
+
+    static var isEnabled: Bool {
+        guard APIConfig.environment == "staging" else { return false }
+        return UserDefaults.standard.bool(forKey: key)
+    }
+
+    static func set(_ value: Bool) {
+        UserDefaults.standard.set(value, forKey: key)
+    }
+}
+
+/// Forces the Session tab back onto `MockSessionDraftService`.
+///
+/// Kept after the live endpoint landed because the mock is the only way to reach certain
+/// UI states on demand — a generation that fails, or a five-lift day — without waiting on
+/// the model to happen to produce one. Staging-only, like its neighbours.
+enum MockSessionsOverride {
+    private static let key = "mock_sessions_override"
+
+    static var isEnabled: Bool {
+        guard APIConfig.environment == "staging" else { return false }
+        return UserDefaults.standard.bool(forKey: key)
+    }
+
+    static func set(_ value: Bool) {
+        UserDefaults.standard.set(value, forKey: key)
+    }
+}
+
+/// Makes Start Session return the hand-authored `SessionShowcase.plan` instead of calling
+/// the API, and presents `SessionShowcase.context` as though the user had typed it.
+///
+/// For App Store screenshots. A real account cannot be made to produce a specific session
+/// on demand — the generator answers the history it is given — so the alternative is
+/// waiting for a lucky result and re-shooting when it changes. Staging-only like its
+/// neighbours, which costs nothing here: the Developer section that exposes it is itself
+/// behind the same check, and the app is visually identical between the two environments.
+enum ShowcaseSessionOverride {
+    private static let key = "showcase_session_override"
 
     static var isEnabled: Bool {
         guard APIConfig.environment == "staging" else { return false }

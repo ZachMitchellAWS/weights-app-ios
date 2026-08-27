@@ -55,7 +55,6 @@ enum AppEvent {
 
     // Navigation / engagement
     case tabSwitched(tab: String)
-    case trendsSubtabSwitched(subtab: String)
     case screenViewed(name: String)
     case buttonTapped(name: String, context: String?)
 
@@ -69,6 +68,11 @@ enum AppEvent {
     case readyToLiftCTATapped(focusExercise: String)
     /// Closed without acting, via the X or the scrim.
     case readyToLiftDismissed(focusExercise: String)
+    /// The "Plan my whole session" CTA. Previously fired `readyToLiftDismissed`, which both
+    /// inflated the dismissal rate and hid the fact that anyone was taking this route at all.
+    /// `isPremium` matters because the two states go to different places — the Session tab
+    /// versus the paywall.
+    case readyToLiftSessionTapped(focusExercise: String, isPremium: Bool)
 
     // Sets widget engagement
     /// The "How this works" disclosure under the set rows. `isExpanded` false is a
@@ -105,6 +109,25 @@ enum AppEvent {
     // Strength tab engagement
     case strengthInsightPlayTapped(action: String, tier: String)
 
+    // Generated sessions (Session tab). Distinct from the `sessionReminder*` events
+    // above, which are about the onboarding notification, not a generated session.
+    //
+    // `durationSeconds` is the point of these: generation is synchronous behind API
+    // Gateway's fixed 29s ceiling, and this is the only place real client-side latency —
+    // network included — is visible. CloudWatch sees the Lambda's time, never the user's.
+    case sessionGenerationRequested(trigger: String)
+    case sessionGenerationSucceeded(trigger: String, durationSeconds: Double, liftCount: Int)
+    case sessionGenerationFailed(trigger: String, durationSeconds: Double, reason: String)
+
+    // Session completion moments (Lift tab popups). `kind` is "lift" or "session".
+    //
+    // The ratio of CTA-tapped to dismissed is the number that matters: this is a popup in
+    // the middle of a workout, and a rising dismissal rate is the signal that it has become
+    // something to swat away rather than read.
+    case sessionCelebrationShown(kind: String)
+    case sessionCelebrationCTATapped(kind: String)
+    case sessionCelebrationDismissed(kind: String)
+
     // Premium lock states
     case lockedWidgetTapped(feature: String)
 
@@ -115,8 +138,19 @@ enum AppEvent {
     case tutorialClosed(resourceId: String, durationSeconds: Double, watchedToEnd: Bool)
 
     // Premium upsell / purchase funnel
-    case premiumUpsellShown(initialPage: Int)
+    //
+    // `source` is on every upsell event because the paywall is presented from nine places and
+    // four of them open on the same page — post-onboarding (which every new user sees) was
+    // otherwise indistinguishable from a deliberate tap on a locked feature, and those two
+    // convert nothing alike.
+    case premiumUpsellShown(source: String, initialPage: Int, initialFeature: String)
+    case upsellPageViewed(source: String, feature: String, index: Int)
+    case upsellPlanSelected(source: String, plan: String)
+    case upsellDismissed(source: String, feature: String, secondsOnScreen: Double)
     case purchaseStarted(productId: String, plan: String, isFreeTrial: Bool)
+    /// Started but not completed. `reason` is "cancelled" (user backed out of the StoreKit
+    /// sheet), "failed" (StoreKit or the entitlements call threw) or "product_unavailable".
+    case purchaseAbandoned(productId: String, plan: String, reason: String)
     case purchaseCompleted(productId: String, transactionId: String, isRenewal: Bool, isFreeTrial: Bool, price: Double?, currency: String)
 
     /// Amplitude event type (Title-Case "Object Action").
@@ -137,12 +171,12 @@ enum AppEvent {
         case .strengthSampleShown: return "Strength Sample Shown"
         case .strengthSampleUnlockTapped: return "Strength Sample Unlock Tapped"
         case let .tabSwitched(tab): return "Tab Switched - \(tab)"
-        case let .trendsSubtabSwitched(subtab): return "Sub-tab Switched - \(subtab)"
         case .screenViewed: return "Screen Viewed"
         case .buttonTapped: return "Button Tapped"
         case .readyToLiftShown: return "Ready To Lift Shown"
         case .readyToLiftCTATapped: return "Ready To Lift CTA Tapped"
         case .readyToLiftDismissed: return "Ready To Lift Dismissed"
+        case .readyToLiftSessionTapped: return "Ready To Lift Session Tapped"
         case .setsHowItWorksToggled: return "Sets How It Works Toggled"
         case .setsGuideOpened: return "Sets Guide Opened"
         case .setPresetLoaded: return "Set Preset Loaded"
@@ -157,9 +191,19 @@ enum AppEvent {
         case .tutorialShown: return "Tutorial Shown"
         case .tutorialWatchTapped: return "Tutorial Watch Tapped"
         case .tutorialSkipped: return "Tutorial Skipped"
+        case .sessionCelebrationShown: return "Session Celebration Shown"
+        case .sessionCelebrationCTATapped: return "Session Celebration CTA Tapped"
+        case .sessionCelebrationDismissed: return "Session Celebration Dismissed"
+        case .sessionGenerationRequested: return "Session Generation Requested"
+        case .sessionGenerationSucceeded: return "Session Generation Succeeded"
+        case .sessionGenerationFailed: return "Session Generation Failed"
         case .tutorialClosed: return "Tutorial Closed"
         case .premiumUpsellShown: return "Premium Upsell Shown"
+        case .upsellPageViewed: return "Upsell Page Viewed"
+        case .upsellPlanSelected: return "Upsell Plan Selected"
+        case .upsellDismissed: return "Upsell Dismissed"
         case .purchaseStarted: return "Purchase Started"
+        case .purchaseAbandoned: return "Purchase Abandoned"
         case .purchaseCompleted: return "Purchase Completed"
         }
     }
@@ -201,9 +245,6 @@ enum AppEvent {
         case let .tabSwitched(tab):
             return ["tab": tab]
 
-        case let .trendsSubtabSwitched(subtab):
-            return ["subtab": subtab]
-
         case let .screenViewed(name):
             return ["screen_name": name]
 
@@ -214,6 +255,9 @@ enum AppEvent {
 
         case let .readyToLiftShown(focusExercise, trigger):
             return ["focus_exercise": focusExercise, "trigger": trigger]
+
+        case let .readyToLiftSessionTapped(focusExercise, isPremium):
+            return ["focus_exercise": focusExercise, "is_premium": isPremium]
 
         case let .readyToLiftCTATapped(focusExercise),
              let .readyToLiftDismissed(focusExercise):
@@ -263,6 +307,28 @@ enum AppEvent {
              let .tutorialSkipped(resourceId):
             return ["resource_id": resourceId]
 
+        case let .sessionCelebrationShown(kind),
+             let .sessionCelebrationCTATapped(kind),
+             let .sessionCelebrationDismissed(kind):
+            return ["kind": kind]
+
+        case let .sessionGenerationRequested(trigger):
+            return ["trigger": trigger]
+
+        case let .sessionGenerationSucceeded(trigger, durationSeconds, liftCount):
+            return [
+                "trigger": trigger,
+                "duration_seconds": durationSeconds,
+                "lift_count": liftCount,
+            ]
+
+        case let .sessionGenerationFailed(trigger, durationSeconds, reason):
+            return [
+                "trigger": trigger,
+                "duration_seconds": durationSeconds,
+                "reason": reason,
+            ]
+
         case let .tutorialClosed(resourceId, durationSeconds, watchedToEnd):
             return [
                 "resource_id": resourceId,
@@ -270,11 +336,27 @@ enum AppEvent {
                 "watched_to_end": watchedToEnd,
             ]
 
-        case let .premiumUpsellShown(initialPage):
-            return ["initial_page": initialPage]
+        case let .premiumUpsellShown(source, initialPage, initialFeature):
+            // `initial_page` is kept for continuity with existing charts, but it is an INDEX and
+            // the carousel has been reordered — page 1 was Weekly Progress Narratives before it
+            // was Strength Balance. Segment on `initial_feature` for anything spanning that
+            // change; the index is only safe within a single release.
+            return ["source": source, "initial_page": initialPage, "initial_feature": initialFeature]
+
+        case let .upsellPageViewed(source, feature, index):
+            return ["source": source, "feature": feature, "page_index": index]
+
+        case let .upsellPlanSelected(source, plan):
+            return ["source": source, "plan": plan]
+
+        case let .upsellDismissed(source, feature, secondsOnScreen):
+            return ["source": source, "feature": feature, "seconds_on_screen": secondsOnScreen]
 
         case let .purchaseStarted(productId, plan, isFreeTrial):
             return ["product_id": productId, "plan": plan, "is_free_trial": isFreeTrial]
+
+        case let .purchaseAbandoned(productId, plan, reason):
+            return ["product_id": productId, "plan": plan, "reason": reason]
 
         case let .purchaseCompleted(productId, transactionId, isRenewal, isFreeTrial, price, currency):
             var props: [String: Any] = [

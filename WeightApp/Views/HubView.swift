@@ -4,13 +4,11 @@ import SwiftData
 enum HubSection: Int, CaseIterable {
     case groups = 0
     case exercises = 1
-    case setPlans = 2
 
     var label: String {
         switch self {
         case .groups: return "Groups"
         case .exercises: return "Exercises"
-        case .setPlans: return "Set Plans"
         }
     }
 }
@@ -57,8 +55,6 @@ struct HubView: View {
                     onExerciseDeleted: onExerciseDeleted,
                     pendingExerciseSave: $pendingExerciseSave
                 )
-            case .setPlans:
-                SetPlanCatalogView()
             }
 
             // Done / Save button

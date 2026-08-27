@@ -4,28 +4,40 @@
 //
 //  Created by Zach Mitchell on 3/18/26.
 //
+//  Owns the Strength tab's tier-unlock insight — the short generated narrative and its audio clip
+//  that `StrengthInsightWidget` plays after a user reaches a new overall strength tier.
+//
+//  The name is historical. This class used to serve Weekly Progress Narratives as well, which is
+//  where "narrative" and the `narratives_*` UserDefaults keys come from. Narratives were replaced
+//  by Smart Sessions and removed; the keys are left spelled as they are because renaming them
+//  would orphan the cache on every installed device for no benefit.
+//
+//  What that removal left behind, and what to know before touching this:
+//
+//    - `refreshAllFromAPI()` used to fetch weekly insights AND tier unlocks in one pass. Only the
+//      tier-unlock half remains, but the function is still the one the post-unlock poll and app
+//      launch both go through, so it is edited rather than replaced.
+//    - `narratives_last_auto_refreshed_at` throttles that whole function, tier unlocks included.
+//      Its name says narratives; its job is not narratives-specific.
+//    - There is no app-icon badge any more. It was driven solely by unviewed weekly narratives.
+//
 
 import Foundation
 import Observation
-import UserNotifications
 
 @MainActor
 @Observable
 class NarrativeBadgeService {
     static let shared = NarrativeBadgeService()
 
-    var hasNewNarrative: Bool = false
     private(set) var hasUnviewedTierUnlock: Bool = false
-    private(set) var hasUnviewedWeekly: Bool = false
     private(set) var tierUnlocks: [TierUnlockItem] = []
 
-    private static let lastViewedKey = "insights_last_viewed_week"
-    private static let cacheKey = "insights_cached_response"
     private static let tierUnlocksCacheKey = "tierUnlocksCachedResponse"
     private static let lastViewedTierKey = "narratives_last_viewed_tier"
     private static let lastAutoRefreshedKey = "narratives_last_auto_refreshed_at"
 
-    // Legacy keys for migration cleanup
+    // Legacy keys, cleared on first successful fetch and on logout. Predate tier unlocks.
     private static let starterInsightCacheKey = "starterInsightCachedResponse"
     private static let starterInsightViewedKey = "starterInsightViewed"
 
@@ -33,14 +45,12 @@ class NarrativeBadgeService {
         tierUnlocks = cachedTierUnlocks
     }
 
-    // MARK: - Unified Refresh
+    // MARK: - Refresh
 
     /// Called on app open (scenePhase -> .active). Throttled to every 6 hours.
     func refreshOnAppOpen() async {
-        // Always re-evaluate badge from local cache first
         evaluateBadge()
 
-        // Throttle API calls to every 6 hours
         let lastRefreshed = UserDefaults.standard.double(forKey: Self.lastAutoRefreshedKey)
         let hoursSince = lastRefreshed > 0 ? Date().timeIntervalSince1970 - lastRefreshed : .infinity
         guard hoursSince > 6 * 60 * 60 else { return }
@@ -48,21 +58,13 @@ class NarrativeBadgeService {
         await refreshAllFromAPI()
     }
 
-    /// Fetches BOTH tier unlocks and weekly insights from backend, updates caches.
+    /// Fetches tier unlocks from the backend and updates the local cache.
+    ///
+    /// Kept as its own function, and kept named this, because `pollForNewNarrative` calls it in a
+    /// loop after a tier unlock — the poll is the reason the timestamp is written here rather than
+    /// in `refreshOnAppOpen`.
     func refreshAllFromAPI() async {
-        // Fetch tier unlocks
         await fetchAndCacheTierUnlocks()
-
-        // Fetch weekly insights (silently fail for free users who get 403)
-        do {
-            let response = try await APIService.shared.getWeeklyInsights()
-            if let sections = response.sections, !sections.isEmpty,
-               let data = try? JSONEncoder().encode(response) {
-                UserDefaults.standard.set(data, forKey: Self.cacheKey)
-            }
-        } catch { }
-
-        // Update timestamp and re-evaluate badge
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.lastAutoRefreshedKey)
         evaluateBadge()
     }
@@ -71,19 +73,7 @@ class NarrativeBadgeService {
 
     /// Re-evaluate badge state from local caches. No API calls.
     func evaluateBadge() {
-        hasUnviewedWeekly = checkUnviewedWeekly()
         hasUnviewedTierUnlock = checkUnviewedTierUnlock()
-        hasNewNarrative = hasUnviewedWeekly
-        UNUserNotificationCenter.current().setBadgeCount(hasUnviewedWeekly ? 1 : 0)
-    }
-
-    private func checkUnviewedWeekly() -> Bool {
-        guard let data = UserDefaults.standard.data(forKey: Self.cacheKey),
-              let response = try? JSONDecoder().decode(WeeklyInsightsResponse.self, from: data),
-              let weekStart = response.weekStartDate,
-              let sections = response.sections, !sections.isEmpty else { return false }
-        let lastViewed = UserDefaults.standard.string(forKey: Self.lastViewedKey)
-        return lastViewed != weekStart
     }
 
     private func checkUnviewedTierUnlock() -> Bool {
@@ -95,48 +85,32 @@ class NarrativeBadgeService {
 
     // MARK: - Mark Viewed
 
-    /// Called when user opens the tier unlock detail view.
+    /// Called when the user opens the tier unlock detail view.
+    ///
+    /// NOTE: currently has no caller, so `hasUnviewedTierUnlock` only clears on logout. That
+    /// predates the narratives removal and is left alone here rather than fixed in passing.
     func markTierUnlockViewed(tier: String) {
         UserDefaults.standard.set(tier, forKey: Self.lastViewedTierKey)
         hasUnviewedTierUnlock = false
-        updateOverallBadge()
-    }
-
-    /// Called when user opens the weekly insights detail view.
-    func markWeeklyViewed(weekStart: String) {
-        UserDefaults.standard.set(weekStart, forKey: Self.lastViewedKey)
-        hasUnviewedWeekly = false
-        updateOverallBadge()
-    }
-
-    private func updateOverallBadge() {
-        hasNewNarrative = hasUnviewedWeekly
-        UNUserNotificationCenter.current().setBadgeCount(hasUnviewedWeekly ? 1 : 0)
     }
 
     // MARK: - Clear on Logout
 
-    /// Clears all narrative caches and badge state. Call on logout/account switch.
+    /// Clears cached insights and badge state. Call on logout/account switch.
     func clearOnLogout() {
-        UserDefaults.standard.removeObject(forKey: Self.lastViewedKey)
-        UserDefaults.standard.removeObject(forKey: Self.cacheKey)
         UserDefaults.standard.removeObject(forKey: Self.tierUnlocksCacheKey)
         UserDefaults.standard.removeObject(forKey: Self.lastViewedTierKey)
         UserDefaults.standard.removeObject(forKey: Self.lastAutoRefreshedKey)
         UserDefaults.standard.removeObject(forKey: Self.starterInsightCacheKey)
         UserDefaults.standard.removeObject(forKey: Self.starterInsightViewedKey)
-        UserDefaults.standard.removeObject(forKey: "narratives_tab_last_auto_refreshed")
         tierUnlocks = []
-        hasNewNarrative = false
         hasUnviewedTierUnlock = false
-        hasUnviewedWeekly = false
-        UNUserNotificationCenter.current().setBadgeCount(0)
     }
 
-    // MARK: - Tier Unlock Badge
+    // MARK: - Tier Unlock
 
-    /// Called when client detects overall tier-up. POSTs to backend, then polls for generated content.
-    /// Badge is set only once the narrative is actually ready in the cache.
+    /// Called when the client detects an overall tier-up. POSTs to the backend, then polls until
+    /// the generated narrative and its audio are ready.
     func triggerTierUnlock(tier: StrengthTier) async {
         guard tier != .none else { return }
         do {
@@ -146,8 +120,9 @@ class NarrativeBadgeService {
         await pollForNewNarrative(delays: Array(repeating: 5, count: 12))
     }
 
-    /// Poll backend for updated narratives. Stops early if cache changes AND has audio.
-    /// Sets badge once new content is detected.
+    /// Poll the backend for the new tier unlock. Stops early once the cache changes AND the audio
+    /// URL has landed — generation and TTS complete separately, so a body without audio is not
+    /// yet the finished article.
     private func pollForNewNarrative(delays: [Int]) async {
         let beforeTierUnlocks = cachedTierUnlocks
         for delay in delays {
@@ -162,7 +137,7 @@ class NarrativeBadgeService {
 
     // MARK: - Tier Unlock Cache
 
-    /// Fetch all tier unlocks from backend and cache locally.
+    /// Fetch all tier unlocks from the backend and cache locally.
     func fetchAndCacheTierUnlocks() async {
         do {
             let response = try await APIService.shared.getTierUnlocks()

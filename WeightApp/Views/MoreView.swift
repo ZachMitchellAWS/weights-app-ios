@@ -62,6 +62,7 @@ struct MoreView: View {
     @State private var showTierJourneyIntro = false
     @State private var showTrainingSnapshotMock = false
     @State private var showSessionIntentMock = false
+    @State private var showExperimentalUpsell = false
     @State private var showEntitlementDetails = false
     @State private var showLogExportSheet = false
     @State private var exportedLogText = ""
@@ -113,6 +114,11 @@ struct MoreView: View {
     private var isUITestModeEnabled: Bool {
         get { UITestMode.isEnabled }
         nonmutating set { UITestMode.set(newValue) }
+    }
+
+    private var isShowcaseSessionEnabled: Bool {
+        get { ShowcaseSessionOverride.isEnabled }
+        nonmutating set { ShowcaseSessionOverride.set(newValue) }
     }
 
     private var email: String {
@@ -806,6 +812,19 @@ struct MoreView: View {
                             }
                         }
 
+                        // The previous paywall design, kept for comparison. Nothing routes here.
+                        Button {
+                            showExperimentalUpsell = true
+                        } label: {
+                            HStack {
+                                Text("Legacy Upsell (R&D)")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "flask")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
                         // Standalone R&D mock — does NOT touch production onboarding.
                         Button {
                             showSessionIntentMock = true
@@ -910,12 +929,12 @@ struct MoreView: View {
                         }
 
                         HStack {
-                            Text("Force Insight (No Audio)")
+                            Text("Showcase Session")
                                 .foregroundStyle(.primary)
                             Spacer()
                             Toggle("", isOn: Binding(
-                                get: { UserDefaults.standard.bool(forKey: "debugForceInsightNoAudio") },
-                                set: { UserDefaults.standard.set($0, forKey: "debugForceInsightNoAudio") }
+                                get: { isShowcaseSessionEnabled },
+                                set: { isShowcaseSessionEnabled = $0 }
                             ))
                             .labelsHidden()
                             .tint(Color.appAccent)
@@ -1129,15 +1148,15 @@ struct MoreView: View {
                             .tint(.appAccent)
                         }
 
-                        // MARK: Export Narratives Card
+                        // MARK: Export Smart Sessions Card
                         Button {
-                            exportNarrativesCard()
+                            exportSmartSessionsCard()
                         } label: {
                             HStack {
-                                Text("Export Narratives Card")
+                                Text("Export Smart Sessions Card")
                                     .foregroundStyle(.primary)
                                 Spacer()
-                                if isExportingNarrativesCard {
+                                if isExportingSmartSessionsCard {
                                     ProgressView()
                                 } else {
                                     Image(systemName: "square.and.arrow.up")
@@ -1145,7 +1164,7 @@ struct MoreView: View {
                                 }
                             }
                         }
-                        if let result = narrativesCardExportResult {
+                        if let result = smartSessionsCardExportResult {
                             Text(result)
                                 .font(.caption)
                                 .foregroundStyle(.green)
@@ -1448,7 +1467,10 @@ struct MoreView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .fullScreenCover(isPresented: $showUpsellPreview) {
-                UpsellView { _ in
+                // `showUpsellPreview` is also set by a staging-only "Show Premium Upsell"
+                // dev button, so in staging this source covers both. In production the
+                // branding-header tap is the only path to it.
+                UpsellView(source: SubscriptionConfig.UpsellSource.moreTab) { _ in
                     showUpsellPreview = false
                 }
             }
@@ -1473,6 +1495,11 @@ struct MoreView: View {
             // Full-screen so it reads like real onboarding rather than a sheet.
             .fullScreenCover(isPresented: $showSessionIntentMock) {
                 SessionIntentMockFlow()
+            }
+            .fullScreenCover(isPresented: $showExperimentalUpsell) {
+                // Ignores the Bool — a purchase made from the legacy design should not be
+                // treated as a conversion by anything downstream.
+                LegacyUpsellView { _ in showExperimentalUpsell = false }
             }
             .sheet(isPresented: $showAPIValidation) {
                 APIValidationView()
@@ -2129,11 +2156,40 @@ struct MoreView: View {
     @State private var analyticsCardExportResult: String? = nil
     @State private var isExportingAnalyticsCard = false
 
-    @State private var narrativesCardExportResult: String? = nil
-    @State private var isExportingNarrativesCard = false
-
     @State private var setPlanCardExportResult: String? = nil
     @State private var isExportingSetPlanCard = false
+
+    @State private var smartSessionsCardExportResult: String? = nil
+    @State private var isExportingSmartSessionsCard = false
+
+    /// Renders `SmartSessionsCardView` for the Smart Sessions page of the premium upsell.
+    ///
+    /// Same shape as the other four: 360x780 at scale 3 is the 1080x2340 every shipped
+    /// `Display*Card` asset is. The half-second delay is theirs too — the render is kicked off
+    /// after a beat so the row's spinner has actually appeared before the main thread is tied
+    /// up rasterising.
+    private func exportSmartSessionsCard() {
+        isExportingSmartSessionsCard = true
+        smartSessionsCardExportResult = nil
+
+        let view = SmartSessionsCardView()
+            .frame(width: 360, height: 780)
+            .background(Color.black)
+
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 3
+        renderer.proposedSize = .init(width: 360, height: 780)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if let image = renderer.uiImage {
+                UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+                smartSessionsCardExportResult = "Saved to Photos"
+            } else {
+                smartSessionsCardExportResult = "Export failed"
+            }
+            isExportingSmartSessionsCard = false
+        }
+    }
 
     private func exportSetPlanCatalogCard() {
         isExportingSetPlanCard = true
@@ -2155,29 +2211,6 @@ struct MoreView: View {
                 setPlanCardExportResult = "Export failed"
             }
             isExportingSetPlanCard = false
-        }
-    }
-
-    private func exportNarrativesCard() {
-        isExportingNarrativesCard = true
-        narrativesCardExportResult = nil
-
-        let view = NarrativesCardView()
-            .frame(width: 360, height: 780)
-            .background(Color.black)
-
-        let renderer = ImageRenderer(content: view)
-        renderer.scale = 3
-        renderer.proposedSize = .init(width: 360, height: 780)
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            if let image = renderer.uiImage {
-                UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-                narrativesCardExportResult = "Saved to Photos"
-            } else {
-                narrativesCardExportResult = "Export failed"
-            }
-            isExportingNarrativesCard = false
         }
     }
 

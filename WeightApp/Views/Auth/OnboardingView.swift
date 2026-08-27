@@ -10,12 +10,16 @@ import SwiftData
 import Charts
 
 struct OnboardingView: View {
-    let onComplete: () -> Void
     /// Development preview, launched from More → Developer → "Replay Onboarding (Dev)".
     /// Adds Back/Next controls to page through every screen freely, bypassing per-step
     /// gating. "Replay Onboarding (Real)" passes `false` and behaves exactly like
     /// production, which is the point of having both entries.
     var isDevelopmentPreview: Bool = false
+    /// Declared LAST so it is the final parameter of the synthesised memberwise init, which
+    /// is what lets the call site pass it as a trailing closure. With a defaulted property
+    /// after it, Swift can only match the closure by walking backwards — deprecated, and a
+    /// hard error in Swift 6.
+    let onComplete: () -> Void
 
     @State private var currentPage = 0
     @State private var showControls = false
