@@ -368,6 +368,14 @@ final class ProgramSessionStore {
         if let builtIn = SetPlan.builtInPlans.first(where: { $0.name == planItem.planName }) {
             return (builtIn.id, builtIn.name)
         }
+        // A session persisted before a built-in was renamed still carries the old name here.
+        // Checked before giving up, because the fallback below is not a neutral default — it
+        // substitutes Standard, which ends in a progress attempt, for whatever the generator
+        // actually chose.
+        if let legacyId = SetPlan.legacyNameAliases[planItem.planName],
+           let builtIn = SetPlan.builtInPlans.first(where: { $0.id == legacyId }) {
+            return (builtIn.id, builtIn.name)
+        }
         return (SetPlan.standardId, planItem.planName)
     }
 

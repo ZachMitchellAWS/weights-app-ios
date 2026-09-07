@@ -368,6 +368,12 @@ struct GlintingSparkle: View {
 /// give it a visible end.
 struct GeneratingView: View {
     let steps: [String]
+    /// Recency heat per fundamental, 0...1. Passed in rather than computed here: this file
+    /// holds presentation components with no SwiftData access, and the owning view already
+    /// has the queries.
+    var heat: [UUID: Double] = [:]
+    /// Last week's sets, grouped by day, for the timeline. Same reasoning as `heat`.
+    var recentDays: [LiftMomentum.RecentDay] = []
 
     @State private var index = 0
     @State private var pulse = false
@@ -397,12 +403,128 @@ struct GeneratingView: View {
             .frame(height: 20)
             .animation(.easeInOut(duration: Self.fade), value: index)
 
-            liftScanner
+            recentTrainingSection
+
+            // SET HISTORY TIMELINE — COMMENTED OUT, not deleted.
+            //
+            // A dated, day-grouped list of the last week's sets. Real and readable, and too
+            // much: it turned a wait into a page to study, and the screen already says what
+            // it needs to with the recency row above.
+            //
+            // `SetHistoryTimeline` and `LiftMomentum.recentDays` are both still here and
+            // still work. TO RESTORE: uncomment the line below and pass `recentDays:` at the
+            // call site in ProgramMockView.
+            //
+            // setHistoryMarquee
+
+            // LIFT SCANNER — COMMENTED OUT, not deleted.
+            //
+            // A sweep that highlighted each of the five lifts in turn. It was the only moving
+            // thing on this screen and read as "considering your lifts", which was fine when
+            // it was alone. Beside the recency row it became a second amber signal doing a
+            // circuit of the same five icons while that row said something real about them,
+            // and the two competed: the sweep looked like it was rating the lifts.
+            //
+            // TO RESTORE: uncomment the line below and remove `setHistoryMarquee` above, or
+            // find it somewhere the recency row is not.
+            //
+            // liftScanner
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 26)
         .task { await cycle() }
         .task { await scan() }
+    }
+
+    /// The wait's moving part.
+    ///
+    /// This screen can sit for twenty seconds — the generation is one synchronous model call
+    /// with no retry — and a spinner alone makes that feel like a stall. A feed of the user's
+    /// own sets is the cheapest honest thing to put there: it is real data, it scrolls on its own,
+    /// and it rewards looking rather than just occupying the eye.
+    ///
+    /// Deliberately not the History tab's presentation. That view is a tool with dates,
+    /// grouping and tap targets; this is ambient. One line per set, colour-coded by effort,
+    /// no interaction.
+    @ViewBuilder
+    private var setHistoryMarquee: some View {
+        if !recentDays.isEmpty {
+            SetHistoryTimeline(days: recentDays)
+                .padding(.horizontal, 4)
+                .padding(.top, 6)
+        }
+    }
+
+    /// Swatch legend, matching `TrainingRecencyWidget` on the Analytics tab.
+    ///
+    /// A sentence ("brighter means trained more recently") made the reader translate a
+    /// colour into a claim. A ramp shows the mapping directly, and the user has already met
+    /// this exact control — cool-to-warm swatches between two labels — on the Analytics tab.
+    /// Both ends are spelled out rather than the widget's "Less Recent … Recent", because
+    /// here the row above is the only thing giving the scale meaning.
+    ///
+    /// Sampled from `LiftMomentum.tint` rather than hardcoded, so the legend cannot drift
+    /// from the icons it is explaining.
+    private var recencyLegend: some View {
+        HStack(spacing: 5) {
+            Text("Due")
+                .font(.system(size: 9))
+                .foregroundStyle(.white.opacity(0.4))
+
+            ForEach([0.0, 0.2, 0.4, 0.6, 0.8, 1.0], id: \.self) { step in
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(LiftMomentum.tint(step))
+                    .frame(width: 11, height: 11)
+            }
+
+            Text("Worked")
+                .font(.system(size: 9))
+                .foregroundStyle(.white.opacity(0.4))
+        }
+        .padding(.top, 2)
+    }
+
+    /// What the generator is reading, shown while it reads it.
+    ///
+    /// A wait is the one moment the user is looking at the screen with nothing to do, which
+    /// makes it the cheapest place in the app to explain how the thing works. The scanner
+    /// above says "considering your lifts"; this says which ones are cold — and cold lifts
+    /// are exactly what the session is about to pick, so it also quietly previews the answer.
+    ///
+    /// Ruled off and labelled rather than folded into the scanner: the scanner animates and
+    /// means nothing, this is static and means something, and running them together would
+    /// make the sweep look like it was rating the lifts.
+    @ViewBuilder
+    private var recentTrainingSection: some View {
+        if !heat.isEmpty {
+            VStack(spacing: 10) {
+                Divider()
+                    .overlay(Color.white.opacity(0.10))
+                    .padding(.horizontal, 24)
+
+                // Names the subject rather than posing a question about it. "What's been
+                // trained" reads as a heading over a list of sessions; what is actually below
+                // is a recency scale across the five lifts, and it shares its title with the
+                // Analytics widget showing the same thing.
+                Text("TRAINING STATUS")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(1.4)
+                    .foregroundStyle(.white.opacity(0.45))
+
+                LiftMomentumRow(heat: heat, iconSize: 40)
+                    .padding(.horizontal, 14)
+                    // The header is a label for the row, not a line of prose above it; at the
+                    // stack's 10pt they read as two items in a list.
+                    .padding(.top, 8)
+
+                recencyLegend
+                    // The legend is a key, not a caption. Tucked against the icons it read
+                    // as a fourth row of the same thing.
+                    .padding(.top, 10)
+            }
+            .padding(.top, 6)
+            .padding(.bottom, 12)
+        }
     }
 
     // MARK: - Emblem
@@ -511,4 +633,155 @@ struct GeneratingView: View {
     /// moving from one lift to the next. Also not a divisor of `dwell`, so the text and
     /// the scanner drift against each other instead of locking into a repeating pair.
     private static let scanStep: TimeInterval = 1.1
+}
+
+
+
+/// The user's last week of fundamental sets, laid out as a dated timeline.
+///
+/// Shown only on the generating screen. No interaction — it is there to be looked at during a
+/// wait that can run twenty seconds, and to make that wait feel like the app consulting your
+/// training rather than stalling.
+///
+/// THIS REPLACED A SCROLLING MARQUEE. That version looped the rows forever, and looping was
+/// the mistake: a feed that comes back around has no chronology, because the reader cannot
+/// tell where it starts. It also had to move fast enough to feel alive, which made it
+/// unreadable. This does the opposite — it arrives once, staggered, and then holds. The
+/// motion is in the ARRIVAL, and the end state is a still image worth looking at.
+///
+/// Grouped by day with named days ("TODAY", "TUE") rather than a flat list with a date column,
+/// because the question it answers is "what has my week looked like" and days are the unit
+/// that question is asked in.
+struct SetHistoryTimeline: View {
+    let days: [LiftMomentum.RecentDay]
+
+    @State private var revealed = false
+
+    /// Flat index across every row, so the stagger runs continuously down the whole timeline
+    /// instead of restarting at each day header.
+    private var rowIndex: [UUID: Int] {
+        var map: [UUID: Int] = [:]
+        var i = 0
+        for day in days {
+            for set in day.sets {
+                map[set.id] = i
+                i += 1
+            }
+        }
+        return map
+    }
+
+    var body: some View {
+        let indices = rowIndex
+
+        VStack(alignment: .leading, spacing: 16) {
+            header
+
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(days) { day in
+                    VStack(alignment: .leading, spacing: 9) {
+                        dayHeader(day.label)
+
+                        ForEach(day.sets) { set in
+                            SetHistoryLine(row: set)
+                                .opacity(revealed ? 1 : 0)
+                                .offset(y: revealed ? 0 : 10)
+                                .animation(
+                                    .easeOut(duration: 0.45)
+                                        .delay(0.10 + Double(indices[set.id] ?? 0) * 0.07),
+                                    value: revealed
+                                )
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear { revealed = true }
+    }
+
+    /// Rules flanking a tracked caption — the same idiom as the session card's provenance
+    /// footer, so the two read as the same app labelling its own evidence.
+    private var header: some View {
+        HStack(spacing: 10) {
+            rule
+            Text("YOUR LAST \(LiftMomentum.feedDays) DAYS")
+                .font(.system(size: 10, weight: .bold))
+                .tracking(1.6)
+                .foregroundStyle(Color.appAccent.opacity(0.75))
+                .fixedSize()
+            rule
+        }
+    }
+
+    private var rule: some View {
+        Rectangle()
+            .fill(Color.appAccent.opacity(0.18))
+            .frame(height: 1)
+    }
+
+    /// The day marker. An amber dot and a rule running off to the right, so the eye can find
+    /// the day boundaries without reading them.
+    private func dayHeader(_ label: String) -> some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(Color.appAccent.opacity(0.7))
+                .frame(width: 5, height: 5)
+
+            Text(label)
+                .font(.system(size: 10, weight: .bold))
+                .tracking(1.4)
+                .foregroundStyle(.white.opacity(0.5))
+                .fixedSize()
+
+            Rectangle()
+                .fill(Color.white.opacity(0.07))
+                .frame(height: 1)
+        }
+    }
+}
+
+/// One set. Colour carries the effort, at a size that reads as part of the design rather than
+/// as a legend key — a hairline rule was not enough on a screen this empty.
+private struct SetHistoryLine: View {
+    let row: LiftMomentum.RecentSet
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // The icon sits on its own effort-tinted tile. This is where most of the colour
+            // on the screen comes from, and it ties the lift to how hard it went in one mark.
+            Image(row.icon)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 30, height: 30)
+                .foregroundStyle(row.effort.color)
+                .padding(7)
+                .background(row.effort.color.opacity(0.13), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(row.effort.color.opacity(0.32), lineWidth: 1)
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.liftName)
+                    .font(.system(size: 14, weight: .semibold))
+                    .tracking(0.4)
+                    .foregroundStyle(.white.opacity(0.9))
+                Text(row.detail)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.45))
+            }
+
+            Spacer(minLength: 8)
+
+            Text(row.effort.label.uppercased())
+                .font(.system(size: 10, weight: .bold))
+                .tracking(0.8)
+                .foregroundStyle(row.effort.color)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(row.effort.color.opacity(0.15), in: Capsule())
+        }
+        .lineLimit(1)
+    }
 }

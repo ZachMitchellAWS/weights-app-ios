@@ -136,11 +136,13 @@ enum ProgramMockData {
     /// The lift-count options carry "only" because they are exclusive claims, not
     /// preferences — "2 lifts only" says two and not three, which is exactly the
     /// distinction `liftCountChips` enforces below.
+    // "Upper only" / "Lower only" were removed when the lift selector landed: they are
+    // presets of exactly what it does, and keeping both meant two controls competing to set
+    // the same constraint. The backend still understands the chips, so an older client can
+    // keep sending them.
     static let sessionShapeChips = [
         "1 lift only",
         "2 lifts only",
-        "Upper only",
-        "Lower only",
         "Go heavy",
         "Light day",
         "No progress sets",
@@ -163,15 +165,14 @@ enum ProgramMockData {
     /// and how hard, which is the whole reason for adding it.
     static let exclusiveChipGroups: [Set<String>] = [
         ["1 lift only", "2 lifts only"],
-        ["Upper only", "Lower only"],
         ["Go heavy", "Light day"],
         // The mood chips have opposites too, and they are pure contradictions rather than
         // shades — "short on time" and "extra time today" cannot both be true. Grouping
         // them keeps a nonsense pair out of the payload without the user having to notice.
-        // Deliberately NOT grouped: "Legs are sore" and "No squat rack" are facts about
+        // Deliberately NOT grouped: "Legs are sore" and "No rack" are facts about
         // today that combine with anything, including each other.
         ["Short on time", "Extra time today"],
-        ["Well rested", "Didn't sleep well"],
+        ["Well rested", "Poor sleep"],
         ["Feeling strong", "Run down"],
     ]
 
@@ -185,9 +186,9 @@ enum ProgramMockData {
         "Feeling strong",
         "Run down",
         "Well rested",
-        "Didn't sleep well",
+        "Poor sleep",
         "Legs are sore",
-        "No squat rack",
+        "No rack",
     ]
 
     /// Cycled, not stepped through — the request has no progress to report, so these

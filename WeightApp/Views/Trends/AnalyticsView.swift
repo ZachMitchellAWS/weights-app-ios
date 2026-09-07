@@ -74,6 +74,13 @@ struct AnalyticsView: View {
                     LazyVStack(spacing: 16) {
                         reportCardButton
 
+                        // First widget on purpose. Every other one here reports what has
+                        // already happened; this is the only one that answers a question
+                        // about today, and it is the same signal the Session generator picks
+                        // lifts from — so putting it up top makes the app's own reasoning
+                        // visible rather than hidden behind a Generate button.
+                        LiftMomentumWidget(allSets: allSets, allEstimated1RM: allEstimated1RM)
+
                         MonthlySnapshotWidget(allSets: allSets, allEstimated1RM: allEstimated1RM)
 
                         FrequencyCalendarWidget(allSets: allSets, isPremium: isPremium, showUpsell: $showUpsell)

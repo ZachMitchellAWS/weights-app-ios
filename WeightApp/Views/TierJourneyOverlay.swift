@@ -213,8 +213,26 @@ struct TierJourneyOverlay: View {
         Group {
             switch mode {
             case .intro:
-                ctaCapsule(label: "Let's Go", color: .appAccent) {
-                    onDismiss()
+                // `.intro` is not always a blank slate. `evaluateTierJourney` raises it on
+                // `syncComplete || !hasData` — so on a relaunch it can appear BEFORE sync
+                // lands, and `exerciseRow` reads `exerciseTiers` live: data arriving a moment
+                // later leaves the intro headline sitting above a partly-filled row.
+                //
+                // In that state "Let's Go" dismissed onto whatever lift happened to be
+                // selected, frequently one already logged, and read as a button that does
+                // nothing. When there is a lift still to do, say so and go there — same
+                // behaviour as `.progress`, because at that point it IS the progress state.
+                if loggedCount > 0, let next = nextUnloggedExercise {
+                    ctaCapsule(label: "Next Up: \(shortName(for: next.name))", color: .appAccent) {
+                        onDismiss()
+                        onNavigateToExercise(next.id)
+                    }
+                } else {
+                    // Genuinely nothing logged: dismiss, and let `onDismiss` flash the
+                    // log-set inputs, which is the better next move than navigating.
+                    ctaCapsule(label: "Let's Go", color: .appAccent) {
+                        onDismiss()
+                    }
                 }
 
             case .progress:

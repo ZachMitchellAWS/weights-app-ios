@@ -92,13 +92,13 @@ final class SetPlan {
     static let primerId          = UUID(uuidString: "00000000-0000-0000-0000-000000000118")!
     static let openersId         = UUID(uuidString: "00000000-0000-0000-0000-000000000119")!
     static let compactStandardId = UUID(uuidString: "00000000-0000-0000-0000-000000000120")!
-    static let rebuildId         = UUID(uuidString: "00000000-0000-0000-0000-000000000121")!
+    static let groundworkId      = UUID(uuidString: "00000000-0000-0000-0000-000000000121")!
 
     static let builtInIds: Set<UUID> = [
         standardId, greaseId, maintenanceId, deloadId, pyramidId, topSetBackoffId,
         reversePyramidId, waveLoadingId, clusterSetsId, restPauseId, dropSetsId,
         laddersId, pauseRepsId, speedWorkId, emomId, techniqueId,
-        quickAttemptId, primerId, openersId, compactStandardId, rebuildId
+        quickAttemptId, primerId, openersId, compactStandardId, groundworkId
     ]
 
     /// IDs of presets available in free tier
@@ -135,7 +135,26 @@ final class SetPlan {
         (primerId,          "Primer",             ["easy", "moderate", "hard", "redline", "redline"],                          "Heavy exposure without spending an attempt; rehearsal before a future attempt"),
         (openersId,         "Openers",            ["moderate", "hard", "redline"],                                             "Short feel-heavy day at near-max intensity"),
         (compactStandardId, "Compact Standard",   ["easy", "moderate", "moderate", "hard", "pr"],                              "Standard's structure with one less warm-up set"),
-        (rebuildId,         "Rebuild",            ["easy", "moderate", "moderate", "moderate", "hard"],                        "Moderate-volume builder for a stalled lift; accumulate without attempting"),
+        // Was "Rebuild". Renamed because the generator reaches for this plan on a lift that
+        // is stalling or grinding — exactly when the user is already frustrated — and
+        // "Rebuild" added a note of failure to what is really preparation. It is the volume
+        // counterpart to Primer: both are "no attempt today", one heavy, one accumulative.
+        // Old name kept resolvable via `legacyNameAliases`.
+        (groundworkId,      "Groundwork",         ["easy", "moderate", "moderate", "moderate", "hard"],                        "Moderate volume, preparation for a future Progress set"),
+    ]
+
+    /// Former display names for built-in plans, mapped to their (unchanged) ids.
+    ///
+    /// Renaming a plan is safe for anything keyed on the id, which is nearly everything. The
+    /// exception is `ProgramSessionStore.resolveSetPlan`, which falls back to a NAME lookup
+    /// for a persisted session whose item carries no `setPlanId`. Without this, a session
+    /// generated before a rename resolves to `standardId` on restore — swapping a five-set
+    /// volume plan for a six-set plan ending in a progress attempt, silently, on a lift the
+    /// generator had specifically decided not to push.
+    ///
+    /// Entries are permanent. They cost nothing and the sessions they rescue are already rare.
+    static let legacyNameAliases: [String: UUID] = [
+        "Rebuild": groundworkId,
     ]
 
     /// Bump whenever `builtInPlans` changes.
@@ -143,6 +162,9 @@ final class SetPlan {
     /// Existing users already get new plans LOCALLY for free — `SeedService.seedSetPlans`
     /// runs every launch and inserts whatever is missing. This version exists only for the
     /// backend, which is otherwise written to exactly once, at account creation.
-    static let builtInCatalogVersion = 2
+    /// ONE BUMP PER RELEASE, not per edit. `syncBuiltInCatalogIfNeeded` pushes the whole
+    /// catalog whenever the stored version is behind, so every change made before the build
+    /// ships rides on the same increment. v3 = the 1.1.4 round.
+    static let builtInCatalogVersion = 3
 
 }

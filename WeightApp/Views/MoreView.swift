@@ -2713,6 +2713,12 @@ struct AlertPreviewsSheet: View {
         case tierCompletionNovice = "Tier Unlocked (Novice)"
         case tierCompletionIntermediate = "Tier Unlocked (Intermediate)"
         case tierCompletionElite = "Tier Unlocked (Elite)"
+        // Baseline reveal — the live replacement for "Tier Journey (N of 5)" and for the
+        // STARTING tier unlock. The Tier Journey cases above still ship, but only for the
+        // intro, the resumed-on-launch state, and LATER tier-ups.
+        case baselineReveal2 = "Baseline Reveal (2 of 5)"
+        case baselineReveal4 = "Baseline Reveal (4 of 5)"
+        case baselineRevealUnlocked = "Baseline Reveal (Unlocked)"
         // Other
         case cancel = "Not Logged"
         case confirmation = "Confirmation Dialog"
@@ -2729,6 +2735,8 @@ struct AlertPreviewsSheet: View {
             case .tierIntro, .tierProgress1, .tierProgress3,
                  .tierCompletionNovice, .tierCompletionIntermediate, .tierCompletionElite:
                 return "Tier Journey"
+            case .baselineReveal2, .baselineReveal4, .baselineRevealUnlocked:
+                return "Baseline Reveal"
             case .cancel, .confirmation:
                 return "Other"
             }
@@ -2736,7 +2744,7 @@ struct AlertPreviewsSheet: View {
     }
 
     private var sections: [(String, [AlertPreviewType])] {
-        let ordered = ["Set Logged", "Milestone", "Tier Journey", "Other"]
+        let ordered = ["Set Logged", "Milestone", "Baseline Reveal", "Tier Journey", "Other"]
         let grouped = Dictionary(grouping: AlertPreviewType.allCases, by: \.section)
         return ordered.compactMap { key in
             guard let items = grouped[key] else { return nil }
@@ -2876,11 +2884,40 @@ struct AlertPreviewsSheet: View {
                 onNavigateToExercise: { _ in selectedPreview = nil },
                 onNavigateToStrength: { selectedPreview = nil }
             )
+        case .baselineReveal2:
+            baselineRevealPreview(loggedCount: 2)
+        case .baselineReveal4:
+            baselineRevealPreview(loggedCount: 4)
+        case .baselineRevealUnlocked:
+            baselineRevealPreview(loggedCount: 5)
         case .cancel:
             CancelOverlayPreview()
         case .confirmation:
             ConfirmationOverlayPreview(onDismiss: { selectedPreview = nil })
         }
+    }
+
+    /// The reveal at an arbitrary point in the journey. `loggedCount == 5` gives the unlock
+    /// variant, which is the ONLY state it ships in — so unlike the Tier Journey previews
+    /// above (which all render with the tier name because none of them pass `hideTierName`),
+    /// this one shows the real mystery treatment: tier colour, no tier name.
+    @ViewBuilder
+    private func baselineRevealPreview(loggedCount: Int) -> some View {
+        let tiers = tierProgressTiers(loggedCount: loggedCount)
+        let index = max(0, loggedCount - 1)
+        BaselineRevealOverlay(
+            mode: loggedCount >= TrendsCalculator.fundamentalExercises.count
+                ? .unlocked(tier: .beginner)
+                : .progress(nextUp: tiers.first(where: { $0.e1rm == nil })?.exercise),
+            exercise: TrendsCalculator.fundamentalExercises[index],
+            e1rm: 245.0,
+            exerciseTiers: tiers,
+            unit: .lbs,
+            onDismiss: { selectedPreview = nil },
+            onNavigateToExercise: { _ in selectedPreview = nil },
+            onNavigateToStrength: { selectedPreview = nil },
+            onReset: { selectedPreview = nil }
+        )
     }
 
     /// Sample exercise tiers for progress previews — first N exercises logged

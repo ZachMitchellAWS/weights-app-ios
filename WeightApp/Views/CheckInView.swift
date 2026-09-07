@@ -167,6 +167,22 @@ struct CheckInView: View {
     @State private var tierJourneyHideTierName = false
     @State private var suppressTierDisplay = false
 
+    // Baseline reveal overlay: the "this lift now has a number" moment, which replaces the
+    // tier journey's "Nice Work" counter for the just-logged case and for the starting-tier
+    // unlock. See `BaselineRevealOverlay` for what it does and does not take over.
+    //
+    // `baselineRevealSet` is what Undo deletes — captured at the trigger rather than looked
+    // up later, because by then the set is one of several on the exercise and "the newest"
+    // is a guess.
+    @State private var showBaselineReveal = false
+    @State private var baselineRevealMode: BaselineRevealMode = .progress(nextUp: nil)
+    @State private var baselineRevealExercise: TrendsCalculator.FundamentalExercise?
+    /// Analytics only — the card itself deliberately shows no tier. Recorded because "what
+    /// tier do people start at" is the question this popup's data can answer.
+    @State private var baselineRevealTier: StrengthTier = .novice
+    @State private var baselineRevealE1RM: Double = 0
+    @State private var baselineRevealSet: LiftSet?
+
     // One-shot tutorial popup shown the first time the Lift tab appears
     // after the strength tier is unlocked. Cleared on logout so a re-login
     // on the same install can show it again.
@@ -247,6 +263,14 @@ struct CheckInView: View {
     @State private var weightHighlight: Bool = false
     @State private var repsHighlight: Bool = false
     @State private var focusedPanelVisible: Bool = true
+    /// Whether the session rail at the very top of the tab is still on screen.
+    ///
+    /// Tracked separately from `focusedPanelVisible` because the two banners are replacing
+    /// two different things. The default banner stands in for the focused lift panel, so it
+    /// waits until that panel leaves. The session banner stands in for the RAIL — which sits
+    /// three widgets higher — and made you scroll past the lift panel before it appeared,
+    /// leaving the session invisible for most of a screen's worth of scrolling.
+    @State private var sessionRailVisible: Bool = true
     @State private var showE1RMPopup: Bool = false
     @State private var showE1RMUpsell: Bool = false
     /// Raised by "Plan my whole session" on the Ready to Lift card for a free user.
@@ -473,6 +497,26 @@ struct CheckInView: View {
                 VStack(spacing: 16) {
                     strengthHeader
                         .id("checkInTop")
+                        // Same measurement as the focused panel below, on the widget the
+                        // session banner actually replaces.
+                        .background(
+                            GeometryReader { geo in
+                                Color.clear
+                                    .onChange(of: geo.frame(in: .global).maxY) { _, newMaxY in
+                                        // maxY, not minY: the rail has been scrolled away
+                                        // once its BOTTOM edge passes under the safe area,
+                                        // where the panel below is judged by its top. Using
+                                        // minY here would fire while the rail was still
+                                        // fully readable.
+                                        let visible = newMaxY > safeAreaTopInset
+                                        if visible != sessionRailVisible {
+                                            withAnimation(.easeInOut(duration: 0.2)) {
+                                                sessionRailVisible = visible
+                                            }
+                                        }
+                                    }
+                            }
+                        )
                     groupSelector
                     focusedLiftPanel
                         .background(
@@ -546,7 +590,13 @@ struct CheckInView: View {
             }
 
             // Sticky exercise banner — session form while one is running.
-            if !focusedPanelVisible {
+            //
+            // Two thresholds, because each banner is standing in for a different widget.
+            // The session form takes over as soon as the RAIL leaves the top of the screen;
+            // the default form waits for the focused lift panel, which is three widgets
+            // further down. Sharing one threshold meant the session disappeared from view
+            // for most of a screen of scrolling before its banner arrived.
+            if sessionVisible ? !sessionRailVisible : !focusedPanelVisible {
                 VStack {
                     if sessionVisible {
                         stickySessionBanner
@@ -618,6 +668,54 @@ struct CheckInView: View {
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 .zIndex(21)
+            }
+
+            // Asked once per fundamental, and the reveal below answers it in the same frame.
+            if showCalibrationAlert, let pending = pendingCalibrationSet {
+                CalibrationEffortPrompt(
+                    exerciseName: pending.exercise?.name ?? "this lift",
+                    weight: pending.weight,
+                    reps: pending.reps,
+                    unit: userProperties.preferredWeightUnit,
+                    onSelect: { mode, fraction in
+                        showCalibrationAlert = false
+                        if let mode {
+                            applyCalibration(effort: mode)
+                        } else if let fraction {
+                            applyCalibration(effortFraction: fraction)
+                        }
+                    },
+                    onCancel: {
+                        showCalibrationAlert = false
+                        discardPendingCalibration()
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.94)))
+                .zIndex(22)
+            }
+
+            if showBaselineReveal, let revealExercise = baselineRevealExercise {
+                BaselineRevealOverlay(
+                    mode: baselineRevealMode,
+                    exercise: revealExercise,
+                    e1rm: baselineRevealE1RM,
+                    exerciseTiers: strengthTierResult.exerciseTiers,
+                    unit: userProperties.preferredWeightUnit,
+                    onDismiss: { dismissBaselineReveal() },
+                    onNavigateToExercise: { exerciseId in
+                        AmplitudeService.shared.track(.baselineRevealNextUpTapped(
+                            exercise: revealExercise.name, liftsLogged: baselineRevealLoggedCount
+                        ))
+                        navigateToTierExercise(exerciseId)
+                    },
+                    onNavigateToStrength: {
+                        selectedSetData.pendingScrollToStrengthTop = true
+                        selectedTab = .strength
+                    },
+                    onReset: { undoBaselineReveal() }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.94)))
+                .zIndex(23)
             }
 
             // e1RM progression popup
@@ -858,12 +956,19 @@ struct CheckInView: View {
             guard !isShowing else { return }
             _ = consumeSessionCelebration()
         }
+        // Same reasoning for the baseline reveal, which now takes the just-logged and
+        // starting-unlock paths the tier overlay used to handle.
+        .onChange(of: showBaselineReveal) { _, isShowing in
+            guard !isShowing else { return }
+            _ = consumeSessionCelebration()
+        }
         // First-time trigger: the resources-hint alert (which follows the tutorial
         // popup) was just dismissed — mark the intro complete and show Ready to Lift.
         .onChange(of: tutorialPresenter.showResourcesHint) { wasShowing, isShowing in
             guard wasShowing, !isShowing else { return }
             hasSeenResourcesHint = true
             maybeShowReadyToLift()
+            maybeShowSessionStatus()
         }
         // Late-data recovery ONLY: if next-focus wasn't computed yet when the tab
         // appeared (first launch, sync still landing), fire once it first becomes
@@ -892,6 +997,13 @@ struct CheckInView: View {
         .onChange(of: nextFocus?.id) { oldValue, newValue in
             guard oldValue == nil, newValue != nil else { return }
             maybeShowReadyToLift()
+        }
+        // The session equivalent of the late-data recovery above: a session restored from
+        // disk is not live at the moment the tab first appears, so the launch-time call
+        // below can fire before there is anything to report.
+        .onChange(of: sessionStore.isActive) { wasActive, isActive in
+            guard !wasActive, isActive else { return }
+            maybeShowSessionStatus()
         }
         .alert("Sync Failed", isPresented: $showSyncFailedAlert) {
             Button("Retry") {
@@ -996,6 +1108,7 @@ struct CheckInView: View {
             // next-focus data, and gating would skip the show without the nil →
             // non-nil onChange below ever firing to recover it.
             maybeShowReadyToLift()
+            maybeShowSessionStatus()
 
             // A card left over from a session that has since ended. Reachable: finish a
             // lift, switch to the Session tab, End Session there, come back — the card is
@@ -1013,7 +1126,8 @@ struct CheckInView: View {
             // but an app backgrounded mid-overlay can miss that edge, and a celebration
             // left in the store would then never be seen. Fires only when nothing else is
             // on screen, and is a no-op when there is nothing pending.
-            if sessionCelebration == nil, !showSubmitOverlay, !showTierJourneyOverlay {
+            if sessionCelebration == nil, !showSubmitOverlay, !showTierJourneyOverlay,
+               !showBaselineReveal {
                 consumeSessionCelebration()
             }
 
@@ -1170,19 +1284,6 @@ struct CheckInView: View {
             repsPickerSheet
                 .presentationDetents([.height(480)])
                 .presentationDragIndicator(.visible)
-        }
-        .alert("How did that feel?", isPresented: $showCalibrationAlert) {
-            Button("Easy") { applyCalibration(effort: .easy) }
-            Button("Moderate") { applyCalibration(effort: .moderate) }
-            Button("Hard") { applyCalibration(effort: .hard) }
-            Button("Near Max") { applyCalibration(effort: .progress) }
-            Button("Max Effort") { applyCalibration(effortFraction: 1.0) }
-            // .cancel role claims the cancel slot so iOS doesn't inject a
-            // phantom Cancel button. Labeled "Cancel" so the system styling
-            // matches what users expect from that label.
-            Button("Cancel", role: .cancel) { discardPendingCalibration() }
-        } message: {
-            Text("This helps estimate your 1RM for better suggestions.")
         }
         .fullScreenCover(isPresented: $showSessionUpsell) {
             // Opens on Smart Sessions, which is what the button just offered.
@@ -1786,6 +1887,45 @@ struct CheckInView: View {
     /// subscriber, and reliably via the Free override with a session in the store.
     private var canAutoShowReadyToLift: Bool {
         canShowReadyToLift && !sessionStore.ownsTodaysRecommendation
+    }
+
+    /// The premium mirror of `maybeShowReadyToLift`.
+    ///
+    /// Same touchpoints, same once-per-launch budget, opposite audience: that popup answers
+    /// "what should I do next" for free users from next-focus, and this answers it for a
+    /// premium user who has a session already running. A user is never in both states —
+    /// `canAutoShowReadyToLift` requires `!isPremium`, and this requires a live session — but
+    /// the guards are written independently rather than relying on that, because the two
+    /// conditions are set in different files and nothing enforces that they stay disjoint.
+    ///
+    /// No delay before showing, unlike its counterpart. The 0.45s there exists to let the
+    /// Lift tab settle before a popup about a lift the user has not chosen; this one is about
+    /// work already in progress, and the pause reads as a stutter rather than as composure.
+    private func maybeShowSessionStatus() {
+        guard !tutorialPresenter.sessionStatusShownThisLaunch,
+              sessionStore.isActive,
+              // Nothing to continue to. A finished session is the `.session` card's job, and
+              // it arrives through the pending-celebration path.
+              let next = sessionStore.nextIncomplete,
+              // Never stack. A pending celebration means a set was just logged and the real
+              // card is a moment away; the intro flow and the tier journey both own the
+              // screen outright when they are up.
+              sessionCelebration == nil,
+              sessionStore.pendingLiftCelebration == nil,
+              !sessionStore.pendingSessionCelebration,
+              !showReadyToLift,
+              !showBaselineReveal,
+              !showTierJourneyOverlay,
+              !tutorialPresenter.showLiftTutorial,
+              !tutorialPresenter.showResourcesHint
+        else { return }
+
+        tutorialPresenter.sessionStatusShownThisLaunch = true
+        AmplitudeService.shared.track(.sessionCelebrationShown(kind: "status"))
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
+            sessionCelebration = SessionCelebrationState(kind: .status(next: next),
+                                                         items: sessionStore.items)
+        }
     }
 
     private func maybeShowReadyToLift() {
@@ -2544,6 +2684,12 @@ struct CheckInView: View {
 
     private func evaluateTierJourney() {
         if userProperties.hasMetStrengthTierConditions { return }
+        // The baseline reveal owns the just-logged moment. Without this, writing the first
+        // e1RM trips the `oldCount == 0 && newCount > 0` watcher on the next render pass and
+        // raises the journey overlay UNDER the reveal — the old code was protected only
+        // because it set `showTierJourneyOverlay` synchronously in the same function.
+        // Guarded here rather than at the three call sites so a fourth cannot miss it.
+        if showBaselineReveal { return }
 
         // Don't show journey if sync hasn't populated data yet for a returning user
         let syncComplete = syncService.initialSyncComplete
@@ -2885,6 +3031,13 @@ struct CheckInView: View {
     // sits just under the Today row as a group — distinct from the full-width rows.
     @ViewBuilder
     private var verticalPlanSelector: some View {
+        // Nothing to choose between yet. Until the baseline is logged the widget shows a
+        // single pending row rather than a plan sequence, so a chip offering to swap plans
+        // points at something that is not on screen — and picking one changes the user's
+        // global default as a side effect of exploring.
+        if isAwaitingBaseline {
+            EmptyView()
+        }
         // PROGRAM SESSION: for a lift the session covers, this now OPENS — it was locked
         // while the only outcome of tapping it was wrong (desync the rail, or quietly
         // rewrite the user's global default). The catalog is session-aware now, so a
@@ -2893,7 +3046,7 @@ struct CheckInView: View {
         // The PLAN badge stays. It no longer means "you cannot change this"; it means this
         // lift belongs to today's session, which is still worth saying — and it is how the
         // user knows the change they are about to make is scoped to the session.
-        if let item = sessionPlanItem {
+        else if let item = sessionPlanItem {
             Button {
                 showSetPlanCatalog = true
             } label: {
@@ -3197,6 +3350,67 @@ struct CheckInView: View {
             }
     }
 
+    /// The default "How this works" body: what the plan sequence is, what NEXT means, and
+    /// the effort bands. Extracted so the awaiting-baseline branch beside it stays readable —
+    /// this is ~40 lines and it was burying the one-line alternative.
+    private var generalSetsExplainer: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("The set sequence above serves as a guide based on your selected set plan.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                // The badge is an image inside the Text run, so the sentence wraps
+                // underneath it as a normal paragraph rather than hanging to its right.
+                Group {
+                    if let badge = nextBadgeRendered {
+                        Text(badge).baselineOffset(-2) + Text(nextBadgeSentence)
+                    } else {
+                        Text("NEXT")
+                            .font(.system(size: 11, weight: .heavy))
+                            .foregroundColor(.appAccent)
+                        + Text(nextBadgeSentence)
+                    }
+                }
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.75))
+                .fixedSize(horizontal: false, vertical: true)
+
+                Text("The categories below show what percent of your e1RM each effort level covers.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .multilineTextAlignment(.leading)
+            .onAppear {
+                // Rasterize once, the first time the explainer is opened.
+                if nextBadgeRendered == nil {
+                    nextBadgeRendered = renderNextBadge()
+                }
+            }
+
+            SetsEffortRangesCard()
+        }
+    }
+
+    /// This lift is sitting on an unlogged baseline: nothing recorded today, and no e1RM
+    /// ever established.
+    ///
+    /// Deliberately keyed on "has this lift ever been trained" rather than "has an e1RM":
+    /// an exercise logged only at bodyweight never calibrates (`isFirstWeightedSet` requires
+    /// weight > 0) and would otherwise show a pending baseline forever.
+    ///
+    /// Three surfaces read this and must agree — the pending-baseline row, the plan chip
+    /// (hidden, since there is no plan running yet), and "How this works" (which shows only
+    /// the baseline explainer). It was inline in `verticalSetRows`; hoisted so the other two
+    /// cannot drift from it.
+    private var isAwaitingBaseline: Bool {
+        isViewingToday
+            && setsForExercise.isEmpty
+            && selectedExercise?.currentE1RMLocalCache == nil
+    }
+
     @ViewBuilder
     private func verticalSetRows(sortedSets: [LiftSet]) -> some View {
         // The baseline is calibration, not a planned set, so it never occupies a
@@ -3205,13 +3419,8 @@ struct CheckInView: View {
         // render twice: once as its own row and again as SET 1.
         let baselineSet = sortedSets.first(where: { $0.isBaselineSet })
         let planSets = sortedSets.filter { !$0.isBaselineSet }
-        // Matches the gate the retired `setsWidgetEmptyState` used. Deliberately
-        // keyed on "has this lift ever been trained" rather than "has an e1RM":
-        // an exercise logged only at bodyweight never calibrates (isFirstWeightedSet
-        // requires weight > 0), and would otherwise show a pending baseline forever.
-        let hasE1RM = selectedExercise?.currentE1RMLocalCache != nil
 
-        if isViewingToday && setsForExercise.isEmpty && !hasE1RM {
+        if isAwaitingBaseline {
             pendingBaselineRow
         } else if isViewingToday, let plan = activeSetPlan {
             let sequence = plan.effortSequence
@@ -3805,43 +4014,14 @@ struct CheckInView: View {
 
             if isSetsRangesExpanded {
                 VStack(alignment: .leading, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("The set sequence above serves as a guide based on your selected set plan.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(0.75))
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        // The badge is an image inside the Text run, so the sentence
-                        // wraps underneath it as a normal paragraph rather than
-                        // hanging to its right.
-                        Group {
-                            if let badge = nextBadgeRendered {
-                                Text(badge).baselineOffset(-2) + Text(nextBadgeSentence)
-                            } else {
-                                Text("NEXT")
-                                    .font(.system(size: 11, weight: .heavy))
-                                    .foregroundColor(.appAccent)
-                                + Text(nextBadgeSentence)
-                            }
-                        }
-                        .font(.system(size: 12))
-                        .foregroundStyle(.white.opacity(0.75))
-                        .fixedSize(horizontal: false, vertical: true)
-
-                        Text("The categories below show what percent of your e1RM each effort level covers.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(0.75))
-                            .fixedSize(horizontal: false, vertical: true)
+                    if isAwaitingBaseline {
+                        // Everything in the general explainer — the plan sequence, the NEXT
+                        // badge, the effort bands — describes a widget the user is not looking
+                        // at yet. The full Sets Guide below still has all of it, unchanged.
+                        BaselineGuideSection()
+                    } else {
+                        generalSetsExplainer
                     }
-                    .multilineTextAlignment(.leading)
-                    .onAppear {
-                        // Rasterize once, the first time the explainer is opened.
-                        if nextBadgeRendered == nil {
-                            nextBadgeRendered = renderNextBadge()
-                        }
-                    }
-
-                    SetsEffortRangesCard()
 
                     // Gateway to the full Sets Guide — centered pill at the
                     // foot of the expansion. Replaces the top-right info icon
@@ -3871,7 +4051,7 @@ struct CheckInView: View {
                         .buttonStyle(.plain)
                         Spacer(minLength: 0)
                     }
-                    .padding(.top, 4)
+                    .padding(.top, 12)
                 }
                 .padding(.top, 6)
                 .transition(.opacity)
@@ -5538,6 +5718,12 @@ struct CheckInView: View {
             sessionStore.pendingSelection = next.exerciseId
             consumeSessionSelection()
 
+        case let .status(next):
+            AmplitudeService.shared.track(.sessionCelebrationCTATapped(kind: "status"))
+            mediumHaptic.impactOccurred()
+            sessionStore.pendingSelection = next.exerciseId
+            consumeSessionSelection()
+
         case .session:
             AmplitudeService.shared.track(.sessionCelebrationCTATapped(kind: "session"))
             mediumHaptic.impactOccurred()
@@ -5753,16 +5939,14 @@ struct CheckInView: View {
             )
             let loggedAfterThis = tierResult.exerciseTiers.filter { $0.e1rm != nil }.count
             if loggedAfterThis >= 5 {
-                tierJourneyMode = .completion(tier: tierResult.overallTier)
-                tierJourneyHideTierName = !(userPropertiesItems.first?.hasMetStrengthTierConditions ?? false)
                 tierToUnlock = tierResult.overallTier
                 markStartingTierUnlocked(tier: tierResult.overallTier)
-            } else {
-                tierJourneyMode = .progress(justLoggedId: ex.id)
             }
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                showTierJourneyOverlay = true
-            }
+            // Reaches here for a first-ever tier crossing that is NOT a calibrated baseline —
+            // `logSet` returns early on those, so this is the path where a set lands on a lift
+            // that somehow had no e1RM yet. Still "this lift's first number", so it gets the
+            // same reveal; Undo works the same way on an ordinary set.
+            presentBaselineReveal(exerciseId: ex.id, set: set, e1rm: after, tierResult: tierResult)
 
             // Sync data, then trigger tier unlock after backend has the e1RM
             Task {
@@ -6023,16 +6207,11 @@ struct CheckInView: View {
             )
             let loggedAfterThis = tierResult.exerciseTiers.filter { $0.e1rm != nil }.count
             if loggedAfterThis >= 5 {
-                tierJourneyMode = .completion(tier: tierResult.overallTier)
-                tierJourneyHideTierName = !(userPropertiesItems.first?.hasMetStrengthTierConditions ?? false)
                 calibrationTierToUnlock = tierResult.overallTier
                 markStartingTierUnlocked(tier: tierResult.overallTier)
-            } else {
-                tierJourneyMode = .progress(justLoggedId: exerciseForJourney.id)
             }
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                showTierJourneyOverlay = true
-            }
+            presentBaselineReveal(exerciseId: exerciseForJourney.id, set: set,
+                                  e1rm: calibratedValue, tierResult: tierResult)
 
             Task {
                 await SyncService.shared.syncLiftSet(set, isPremiumOnClient: isPremium)
@@ -6213,6 +6392,103 @@ struct CheckInView: View {
     /// requires logging sets in the app, so the app is guaranteed to be running at
     /// this moment — which is why a local notification can simply be cancelled rather
     /// than needing a condition evaluated at fire time.
+    // MARK: - Baseline reveal
+
+    private var baselineRevealLoggedCount: Int {
+        strengthTierResult.exerciseTiers.filter { $0.e1rm != nil }.count
+    }
+
+    /// Raise the reveal for a lift that just got its first estimated 1RM.
+    ///
+    /// One entry point for both callers — `logSet`'s first-tier-log branch and
+    /// `applyCalibration`'s baseline branch — because the overlay setup they replaced was
+    /// copy-pasted between them and had already drifted once.
+    private func presentBaselineReveal(exerciseId: UUID,
+                                       set: LiftSet,
+                                       e1rm: Double,
+                                       tierResult: TrendsCalculator.StrengthTierResult) {
+        guard let entry = tierResult.exerciseTiers.first(where: { $0.exercise.id == exerciseId })
+        else { return }
+
+        baselineRevealExercise = entry.exercise
+        baselineRevealE1RM = e1rm
+        // The exercise's OWN tier, recomputed from the value just written rather than taken
+        // from `entry.tier`. On the calibration path the assessment above was built from
+        // `allEstimated1RM`, which may still hold the pre-calibration estimate — the number on
+        // the card and the tier beneath it must come from the same figure.
+        baselineRevealTier = StrengthTierData.tierForExercise(
+            name: entry.exercise.name, e1rm: e1rm, bodyweight: bodyweight, sex: sex
+        )
+        baselineRevealSet = set
+
+        let logged = tierResult.exerciseTiers.filter { $0.e1rm != nil }.count
+        if logged >= TrendsCalculator.fundamentalExercises.count {
+            baselineRevealMode = .unlocked(tier: tierResult.overallTier)
+        } else {
+            baselineRevealMode = .progress(
+                nextUp: tierResult.exerciseTiers.first(where: { $0.e1rm == nil })?.exercise
+            )
+        }
+
+        AmplitudeService.shared.track(.baselineRevealShown(
+            exercise: entry.exercise.name,
+            tier: baselineRevealTier.title,
+            liftsLogged: logged
+        ))
+
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
+            showBaselineReveal = true
+        }
+    }
+
+    /// Every exit routes through here.
+    ///
+    /// `suppressTierDisplay` blanks the Lift-tab header tier so the unlock is not spoiled
+    /// behind the scrim. Leaving it set strands the header empty until the next launch, which
+    /// is why `discardPendingCalibration` clears it too.
+    private func dismissBaselineReveal() {
+        suppressTierDisplay = false
+        withAnimation(.easeOut(duration: 0.18)) {
+            showBaselineReveal = false
+        }
+    }
+
+    /// Delete the set that produced this reveal.
+    ///
+    /// `deleteSet` does the substantive work: soft-delete, the associated `Estimated1RM`,
+    /// recomputing `currentE1RMLocalCache` back to nil when nothing remains, and both syncs.
+    /// `strengthTierResult` re-derives on its own — the `.task(id:)` driving it keys on
+    /// `allEstimated1RM.count`, and that `@Query` filters deleted rows.
+    ///
+    /// What it cannot do is un-fire what already happened. `Baseline Set Logged - <lift>` is
+    /// in Amplitude and stays there, so the undo is recorded as its own event rather than
+    /// pretending the log never occurred; the pair is the actual signal about people entering
+    /// junk numbers to see what the app does.
+    ///
+    /// Only reachable from `.progress`. The overlay omits the button on `.unlocked`, where
+    /// `hasMetStrengthTierConditions` has already been written to the backend and has no
+    /// un-set path anywhere in the app.
+    private func undoBaselineReveal() {
+        guard let set = baselineRevealSet else {
+            dismissBaselineReveal()
+            return
+        }
+        let exerciseId = set.exercise?.id
+
+        AmplitudeService.shared.track(.baselineRevealUndone(
+            exercise: baselineRevealExercise?.name ?? "unknown",
+            estimated1RM: baselineRevealE1RM
+        ))
+
+        deleteSet(set)
+        baselineRevealSet = nil
+
+        if let exerciseId {
+            loadDataForExercise(exerciseId, preserveInputs: true)
+        }
+        dismissBaselineReveal()
+    }
+
     private func markStartingTierUnlocked(tier: StrengthTier) {
         guard let props = userPropertiesItems.first, !props.hasMetStrengthTierConditions else { return }
         props.hasMetStrengthTierConditions = true
@@ -6450,15 +6726,7 @@ private struct SetsGuideContent: View {
             }
 
             // Baseline set
-            VStack(alignment: .leading, spacing: 6) {
-                sectionLabel("YOUR BASELINE SET")
-                (
-                    run("The first set you log for an exercise is its baseline. Right after you log it we ask how hard it felt. That answer is what determines your starting ")
-                    + term("e1RM")
-                    + run(". The suggestions the app makes afterwards build from that starting point.")
-                )
-                .fixedSize(horizontal: false, vertical: true)
-            }
+            BaselineGuideSection()
 
             // Effort categories
             VStack(alignment: .leading, spacing: 10) {
@@ -6573,6 +6841,44 @@ private struct SetsGuideContent: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.white.opacity(0.82))
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// The Sets Guide's "YOUR BASELINE SET" section, on its own.
+///
+/// Extracted because it is the WHOLE explainer in one state: on a lift with no baseline yet,
+/// the Sets widget's "How this works" shows this and nothing else. The general explainer talks
+/// about the plan sequence, the NEXT badge and effort bands — none of which has appeared on
+/// screen yet, and all of which is answering a question the user has not reached. The one
+/// thing they are about to do is log a first set, so that is the one thing explained.
+///
+/// Lives in one place so the two surfaces cannot drift: this text is also the section the
+/// full guide shows.
+private struct BaselineGuideSection: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("YOUR BASELINE SET")
+                .font(.system(size: 10, weight: .bold))
+                .tracking(1.4)
+                .foregroundStyle(Color.appAccent.opacity(0.85))
+
+            (
+                Text("The first set you log for an exercise is its baseline. Right after you log it we ask how hard it felt. That answer is what determines your starting ")
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.8))
+                // Spelled out, not just the initialism. In the full Sets Guide this section
+                // follows one that defines e1RM, but the Sets widget shows it ALONE on a lift
+                // awaiting its baseline — with no preceding context, "your starting e1RM"
+                // names the output of the question using a term the user has not met.
+                + Text("estimated 1-rep max (e1RM)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.appAccent)
+                + Text(". The suggestions the app makes afterwards build from that starting point.")
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.8))
+            )
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

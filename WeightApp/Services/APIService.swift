@@ -560,11 +560,12 @@ class APIService {
     func generateSession(
         catalog: [SetPlanCatalogEntry],
         chips: [String],
-        note: String
+        note: String,
+        excludedLifts: [String]
     ) async throws -> GeneratedSessionResponse {
         let body = GeneratedSessionRequest(
             setPlanCatalog: catalog,
-            userContext: SessionUserContext(chips: chips, note: note)
+            userContext: SessionUserContext(chips: chips, note: note, excludedLifts: excludedLifts)
         )
 
         // The whole response, not just `session` — `nothing_to_recommend` sits beside it

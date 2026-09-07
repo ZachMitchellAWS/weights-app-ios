@@ -676,7 +676,7 @@ private struct OnboardingProgressConcept: View {
                     .opacity(showHeader ? 1 : 0)
                     .offset(y: showHeader ? 0 : 16)
 
-                Text("Choose \(Text("Progress Sets").foregroundColor(.appAccent)) built to\nmove your strength forward.")
+                Text("Every \(Text("Progress Set").foregroundColor(.appAccent)) moves your number up.")
                     .font(.inter(size: 17))
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
@@ -1424,26 +1424,39 @@ private struct OnboardingMilestonesConcept: View {
 
     private let badgeSize: CGFloat = 48
 
-    private var tierLegend: some View {
-        let topRow = Array(tiers.prefix(3))
-        let bottomRow = Array(tiers.suffix(3))
-        return VStack(spacing: 8) {
-            HStack(spacing: 16) {
-                ForEach(topRow, id: \.rawValue) { tierLegendItem($0) }
-            }
-            HStack(spacing: 16) {
-                ForEach(bottomRow, id: \.rawValue) { tierLegendItem($0) }
-            }
-        }
-    }
-
-    private func tierLegendItem(_ tier: StrengthTier) -> some View {
+    /// The six tiers as a single chain, Novice through Legend.
+    ///
+    /// Was a legend: two rows of three, each a colour dot beside a label. It read as a KEY —
+    /// six unordered things that happen to have colours — when the point of this screen is
+    /// that they are a sequence you climb. Wrapping to a second row made it worse: the jump
+    /// from "Intermediate" back to the left edge for "Advanced" is exactly where the ordering
+    /// stops being visible.
+    ///
+    /// So: one line, chevrons between, each paired with the tier on its left.
+    ///
+    /// THE DOTS ARE GONE, and that is what makes one line fit. Each label is already drawn in
+    /// its own `tier.color` — the dot beside it was the same information a second time, and
+    /// dropping all six frees roughly 70pt, which is the difference between wrapping and not.
+    ///
+    /// `minimumScaleFactor` for the narrowest devices. Applied to the labels rather than the
+    /// row so the chevrons keep their size and the chain stays legible as it shrinks.
+    private var tierProgression: some View {
         HStack(spacing: 5) {
-            Circle().fill(tier.color).frame(width: 7, height: 7)
-            Text(tier.title)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(tier.color)
+            ForEach(Array(tiers.enumerated()), id: \.element.rawValue) { index, tier in
+                Text(tier.title)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(tier.color)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+
+                if index < tiers.count - 1 {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.28))
+                }
+            }
         }
+        .padding(.horizontal, 10)
     }
 
     var body: some View {
@@ -1517,7 +1530,7 @@ private struct OnboardingMilestonesConcept: View {
                     .padding(.horizontal, 16)
 
                 // Strength tier legend (inside the card)
-                tierLegend
+                tierProgression
                     .padding(.vertical, 16)
             }
             .background(Color(white: 0.12))

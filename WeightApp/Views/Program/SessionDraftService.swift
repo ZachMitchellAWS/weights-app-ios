@@ -32,8 +32,21 @@ struct DraftContext {
     var chips: Set<String> = []
     var note: String = ""
 
+    /// Lifts the user has switched OFF, by `TrendsCalculator.fundamentalExercises` name.
+    ///
+    /// Stored as exclusions rather than inclusions so the default — every lift eligible —
+    /// is the empty set. An inclusion list would have to be seeded with all five, and then
+    /// "untouched" and "deliberately picked all five" would be indistinguishable, both to
+    /// `isEmpty` and to anything reading this later.
+    ///
+    /// NOT YET SENT. Nothing in the request carries this; see `liftSelector` in
+    /// ProgramMockView.
+    var excludedLifts: Set<String> = []
+
     var isEmpty: Bool {
-        chips.isEmpty && note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        chips.isEmpty
+            && excludedLifts.isEmpty
+            && note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Characters remaining; negative once over.
@@ -119,7 +132,7 @@ final class MockSessionDraftService: SessionDraftService {
         let text = context.note.lowercased()
 
         let mentionsLegs = context.chips.contains("Legs are sore")
-            || context.chips.contains("No squat rack")
+            || context.chips.contains("No rack")
             || text.contains("leg") || text.contains("squat") || text.contains("knee")
 
         let feelingGood = context.chips.contains("Feeling strong")
@@ -172,7 +185,10 @@ final class LiveSessionDraftService: SessionDraftService {
                 catalog: catalog,
                 // A Set has no order, so sorting keeps the request stable across taps.
                 chips: Array(context.chips.sorted().prefix(SessionContextLimits.maxChips)),
-                note: context.truncatedNote
+                note: context.truncatedNote,
+                // Same reasoning. The backend drops names it does not recognise and ignores
+                // the field entirely if it would leave no lifts, so no clamping here.
+                excludedLifts: context.excludedLifts.sorted()
             )
         } catch let error as APIError {
             throw Self.draftError(for: error)
@@ -187,7 +203,9 @@ final class LiveSessionDraftService: SessionDraftService {
             throw DraftError.nothingToRecommend(summary: session.summary)
         }
 
-        let items = session.items.compactMap { Self.planItem(from: $0, catalog: catalog) }
+        let items = Self.progressFirst(
+            session.items.compactMap { Self.planItem(from: $0, catalog: catalog) }
+        )
 
         // Distinct from the above: the backend DID send lifts and none of them resolved
         // locally. The backend guarantees every id it returns is one we sent, so this
@@ -205,6 +223,47 @@ final class LiveSessionDraftService: SessionDraftService {
     }
 
     // MARK: Mapping
+
+    /// Move the lifts carrying a progress attempt to the front, leaving everything else
+    /// where it was.
+    ///
+    /// A STABLE PARTITION, not a sort. Swift's `sorted(by:)` is not guaranteed stable, so
+    /// sorting on a boolean could reshuffle lifts *within* each group — and the incoming
+    /// order is meaningful. The generator emits lifts least-recently-trained first (Step 1
+    /// of the session prompt), so scrambling it would throw away the rotation the backend
+    /// just computed. Two filters concatenated is stable by construction and needs no
+    /// reasoning about the sort algorithm.
+    ///
+    /// The attempt goes first because it is the one set in the session that only lands when
+    /// the lifter is fresh; burying it behind two lifts of volume is how a real bid at a
+    /// ceiling turns into a failed one.
+    ///
+    /// Applied ONCE, here, to the API response only:
+    ///   - the hand-authored plans in `ProgramMockData` and `SessionShowcase` keep the order
+    ///     they were written in, which is the point of authoring them;
+    ///   - a lift the user adds by hand, or re-plans onto a progress plan mid-session, is
+    ///     never moved under their hands — `ProgramSessionStore` mutates in place and this
+    ///     is not in that path.
+    ///
+    /// Everything downstream inherits it for free: `MockDayPlan.items` feeds both the
+    /// Session tab card and `ProgramSessionStore.start(from:)`, and the Lift-tab rail,
+    /// celebration chain and receipt all read that same array.
+    private static func progressFirst(_ items: [MockPlanItem]) -> [MockPlanItem] {
+        let attempts = items.filter(Self.hasProgressSet)
+        // Nothing to move, or nothing to move it past. Returning the original array rather
+        // than a rebuilt one keeps "no progress set" a genuine no-op.
+        guard !attempts.isEmpty, attempts.count < items.count else { return items }
+        return attempts + items.filter { !Self.hasProgressSet($0) }
+    }
+
+    /// `sequence` holds the app's PERSISTED effort keys, where a progress set is `"pr"` —
+    /// not the `"progress"` spelling the backend payload and prompt use. `SetPlanCatalogEntry`
+    /// documents that split; matching only the backend spelling here would compile, read
+    /// correctly, and silently never fire. Both are accepted so it cannot break if the
+    /// catalog is ever normalised on the way out.
+    private static func hasProgressSet(_ item: MockPlanItem) -> Bool {
+        item.sequence.contains { $0 == "pr" || $0 == "progress" }
+    }
 
     private static func planItem(
         from item: GeneratedSessionItem,

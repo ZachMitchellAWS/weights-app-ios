@@ -36,6 +36,14 @@ enum AppEvent {
     /// lifts so each gets its own event name ("Baseline Set Logged - Deadlifts");
     /// nil for any other exercise → generic "Baseline Set Logged".
     case baselineSetLogged(fundamentalName: String?, properties: SetLogProperties)
+    /// The popup that reveals a lift's first estimated 1RM. Replaces the tier journey's
+    /// silent "Nice Work" counter, which fired no analytics at all.
+    case baselineRevealShown(exercise: String, tier: String, liftsLogged: Int)
+    case baselineRevealNextUpTapped(exercise: String, liftsLogged: Int)
+    /// The undo. Pairs with `baselineSetLogged`, which has already fired and cannot be
+    /// retracted — the ratio between the two is the measurement of how often people are
+    /// entering a number to see what happens rather than logging real work.
+    case baselineRevealUndone(exercise: String, estimated1RM: Double)
     /// The one-time starting-tier unlock (generic — tier is a property, not in the name).
     case startingStrengthTierUnlocked(tier: String)
     /// A subsequent overall-tier rise after the starting tier (tier-specific event name).
@@ -164,6 +172,9 @@ enum AppEvent {
         case let .baselineSetLogged(fundamentalName, _):
             if let fundamentalName { return "Baseline Set Logged - \(fundamentalName)" }
             return "Baseline Set Logged"
+        case .baselineRevealShown: return "Baseline Reveal Shown"
+        case .baselineRevealNextUpTapped: return "Baseline Reveal Next Up Tapped"
+        case .baselineRevealUndone: return "Baseline Reveal Undone"
         case .startingStrengthTierUnlocked: return "Strength Tier Unlocked - Starting"
         case let .strengthTierAchieved(tier, _, _): return "Strength Tier Unlocked - \(tier)"
         case let .strengthMilestoneAchieved(exercise, tier, _): return "Strength Milestone Achieved - \(exercise) \(tier)"
@@ -277,6 +288,15 @@ enum AppEvent {
 
         case let .notificationPermissionSkipped(source, intent):
             return ["source": source, "intent": intent]
+
+        case let .baselineRevealShown(exercise, tier, liftsLogged):
+            return ["exercise": exercise, "tier": tier, "lifts_logged": liftsLogged]
+
+        case let .baselineRevealNextUpTapped(exercise, liftsLogged):
+            return ["exercise": exercise, "lifts_logged": liftsLogged]
+
+        case let .baselineRevealUndone(exercise, estimated1RM):
+            return ["exercise": exercise, "estimated_1rm": estimated1RM]
 
         case let .strengthSampleShown(widget, liftsLogged):
             return ["widget": widget, "lifts_logged": liftsLogged]

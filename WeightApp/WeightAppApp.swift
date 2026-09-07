@@ -43,11 +43,34 @@ struct WeightAppApp: App {
             options.environment = APIConfig.environment
         }
 
-        // Initialize Firebase for Google Ads conversion tracking.
-        // Every event automatically carries `environment` so Google Ads
-        // conversion actions can filter staging vs production cleanly.
-        FirebaseApp.configure()
-        Analytics.setDefaultEventParameters(["environment": APIConfig.environment])
+        // Initialize Firebase for Google Ads conversion tracking — PRODUCTION ONLY.
+        //
+        // Not configuring it at all is the only thing that stops `first_open`.
+        // `first_open` is an AUTOMATIC Firebase event: the SDK emits it during startup,
+        // the app never logs it, and so `AnalyticsService.envName()`'s `_staging` suffix —
+        // which keeps every event we DO log out of the production conversion actions —
+        // cannot touch it. `Analytics.setAnalyticsCollectionEnabled(false)` after
+        // `configure()` is likewise too late; it is racing the event it means to suppress.
+        //
+        // That mattered because staging and production are indistinguishable to Firebase:
+        // one project, one GoogleService-Info.plist, and `APP_BUNDLE_ID_SUFFIX` is empty in
+        // BOTH xcconfigs, so both resolve to `io.anthroverse.WeightApp`. Every simulator run,
+        // device build and TestFlight install was firing an unsuffixed `first_open` into the
+        // property Google Ads optimises against — and every delete-and-reinstall fired
+        // another, since a reinstall mints a new app instance id.
+        //
+        // Nothing is lost by going dark on staging. Firebase here is *only* Google Ads
+        // conversion tracking (see AnalyticsService); product analytics is Amplitude, which
+        // is already keyed per build config. Push is APNs via AppDelegate, not FCM, so it is
+        // unaffected — FirebaseMessaging is not even a dependency.
+        //
+        // The alternative — a staging bundle-id suffix and a second Firebase app — is
+        // cleaner in the abstract and costs new provisioning profiles plus an App Store
+        // Connect entry, to preserve data that has no reader.
+        if AnalyticsService.isEnabled {
+            FirebaseApp.configure()
+            Analytics.setDefaultEventParameters(["environment": APIConfig.environment])
+        }
 
         // Initialize Amplitude product analytics. Key is injected per build config
         // (AMPLITUDE_API_KEY → Info.plist), so staging/production hit separate
