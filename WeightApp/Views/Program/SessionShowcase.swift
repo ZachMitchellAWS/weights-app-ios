@@ -18,7 +18,7 @@
 //  The fiction has to hold together under inspection. Someone reading the screenshot sees
 //  the context and the plan side by side, so every clause of the plan must trace back to
 //  something the user said: "Short on time" is why three of the five lifts are there at all,
-//  "No squat rack" is why Squats specifically is one of the two that sat out, and the note's
+//  "No rack" is why Squats specifically is one of the two that sat out, and the note's
 //  cranky shoulder is why Overhead Press is on a deload rather than simply absent. Read in
 //  that order the card is cause, reasoning, effect — a plausible session that ignored the
 //  context would advertise the opposite of the feature.
@@ -52,7 +52,7 @@ enum SessionShowcase {
     /// not canned — and an ellipsis throws that away at exactly the size where it has to land
     /// in a glance. Re-measure before lengthening it.
     static let context = DraftContext(
-        chips: ["Short on time", "No squat rack"],
+        chips: ["Short on time", "No rack"],
         note: "I only have 45 minutes. Shoulder's still cranky."
     )
 

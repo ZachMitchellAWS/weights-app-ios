@@ -23,13 +23,22 @@ struct SessionCelebrationCard: View {
         case lift(completed: ProgramSessionStore.Item, next: ProgramSessionStore.Item)
         /// Every lift finished.
         case session
+        /// A session already underway, shown on re-entry rather than on a completion —
+        /// the same touchpoints "Ready to lift?" uses for free users.
+        ///
+        /// Carries no `completed` lift, and that is the whole distinction. `.lift` says
+        /// "you just finished this", which would be a lie an hour later, and it has nothing
+        /// to say at all before the first lift is done. This one only reports where the
+        /// session stands.
+        case status(next: ProgramSessionStore.Item)
 
-        /// Stable analytics discriminator. Kept on the type so the two call sites that
-        /// report it cannot disagree about the spelling.
+        /// Stable analytics discriminator. Kept on the type so the call sites that report
+        /// it cannot disagree about the spelling.
         var analyticsKind: String {
             switch self {
             case .lift: return "lift"
             case .session: return "session"
+            case .status: return "status"
             }
         }
     }
@@ -115,11 +124,12 @@ struct SessionCelebrationCard: View {
             }
             .buttonStyle(.plain)
 
-            // Only the per-lift card offers a quiet exit. Someone may want extra sets on
-            // the lift they just finished, and trapping them behind a single CTA would make
-            // this an obstacle. The session card needs no such escape — the scrim dismisses
-            // it, and there is nothing left to stay for.
-            if case .lift = kind {
+            // The per-lift and status cards offer a quiet exit; the session card does not.
+            // Someone may want extra sets on the lift they just finished, and the status
+            // card appears UNBIDDEN on launch — both need a way out that is not the CTA.
+            // The session card needs no such escape: the scrim dismisses it and there is
+            // nothing left to stay for.
+            if case .session = kind {} else {
                 Button(action: onDismiss) {
                     Text("Not right now")
                         .font(.inter(size: 13))
@@ -252,8 +262,11 @@ struct SessionCelebrationCard: View {
     }
 
     private func isNext(_ item: ProgramSessionStore.Item) -> Bool {
-        if case let .lift(_, next) = kind { return item.id == next.id }
-        return false
+        switch kind {
+        case let .lift(_, next): return item.id == next.id
+        case let .status(next): return item.id == next.id
+        case .session: return false
+        }
     }
 
     private func fill(for item: ProgramSessionStore.Item) -> Color {
@@ -282,11 +295,14 @@ struct SessionCelebrationCard: View {
 
     private var eyebrow: String {
         switch kind {
-        // "SESSION PROGRESS", not "LIFT COMPLETE". The card's job here is to place you
+        // "SESSION STATUS", not "LIFT COMPLETE". The card's job here is to place you
         // inside the session — the chain below is the point — and leading with COMPLETE
         // framed it as an ending when the session is still running. The completion itself
         // is carried by the title and the checked icon.
-        case .lift: return "SESSION PROGRESS"
+        //
+        // `.status` shares it deliberately: same card, same badge, different reason for
+        // appearing. Two labels would suggest two features.
+        case .lift, .status: return "SESSION STATUS"
         case .session: return "SESSION COMPLETE"
         }
     }
@@ -295,19 +311,26 @@ struct SessionCelebrationCard: View {
         switch kind {
         case let .lift(completed, _): return completed.exerciseName
         case .session: return sessionTitle
+        // The count, because there is no single lift to name. Before anything is logged it
+        // would read "0 OF 3 DONE", which is technically true and reads as a scolding — so
+        // that case names the session instead.
+        case .status:
+            let done = items.filter(\.isComplete).count
+            return done > 0 ? "\(done) OF \(items.count) DONE" : "TODAY'S SESSION"
         }
     }
 
     private var primaryLabel: String {
         switch kind {
         case let .lift(_, next): return "Continue to \(next.shortName)"
+        case let .status(next): return "Continue to \(next.shortName)"
         case .session: return "See your session"
         }
     }
 
     private var primaryIcon: String {
         switch kind {
-        case .lift: return "arrow.right"
+        case .lift, .status: return "arrow.right"
         case .session: return "checkmark.circle.fill"
         }
     }

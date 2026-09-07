@@ -6,13 +6,19 @@
 //  Centralizes event names + parameter shapes so call sites stay clean and
 //  schema doesn't drift.
 //
-//  Environment isolation strategy: production fires the standard Firebase
-//  event names; staging suffixes them with `_staging`. This keeps Google Ads
-//  conversion actions (which target the unsuffixed names) from ever counting
-//  staging signups/purchases — the App-campaign Firebase flow doesn't expose
-//  parameter-level filters, so name-level separation is the workaround.
-//  The `environment` default parameter set in WeightAppApp.init() still rides
-//  on every event for cross-reference in Firebase reports.
+//  ENVIRONMENT ISOLATION. Firebase is not configured at all outside production
+//  (`WeightAppApp.init()` gates it on `isEnabled`), so on staging every function here is a
+//  no-op and nothing reaches Firebase.
+//
+//  That gate replaced the `_staging` suffixing below as the primary defence, because
+//  suffixing could never cover the event that actually mattered. `first_open` — the metric
+//  Google Ads optimises against — is emitted by the SDK itself, not logged by us, so
+//  `envName()` never sees it. With one Firebase project and an empty `APP_BUNDLE_ID_SUFFIX`
+//  in both xcconfigs, every staging install was counted as a production install.
+//
+//  The suffixing is KEPT anyway, as belt-and-braces: if anyone ever configures Firebase on
+//  staging again, the events we log ourselves still land in separate buckets rather than
+//  silently polluting live conversion actions. It is no longer the thing doing the work.
 //
 
 import Foundation
@@ -26,6 +32,14 @@ enum AnalyticsService {
         APIConfig.environment == "production"
     }
 
+    /// Whether Firebase is live at all this launch.
+    ///
+    /// Read by `WeightAppApp.init()` to decide whether to call `FirebaseApp.configure()`, and
+    /// by every log function here to bail before touching the SDK. Both matter: the first
+    /// suppresses the automatic events (`first_open`, `session_start`, `app_remove`), the
+    /// second stops our own calls logging "Firebase not configured" errors on every action.
+    static var isEnabled: Bool { isProduction }
+
     /// Returns the event name as-is on production, suffixed `_staging` otherwise.
     /// Production events keep Firebase's recognized standard names (which feed
     /// built-in funnels, retention reports, and Google Ads conversion-action
@@ -38,6 +52,7 @@ enum AnalyticsService {
     /// New account created. Maps to Google Ads "sign_up" conversion action.
     /// `method` is "email" or "apple" depending on the auth path.
     static func logSignUp(userId: String, method: String = "email") {
+        guard isEnabled else { return }
         Analytics.logEvent(envName(AnalyticsEventSignUp), parameters: [
             AnalyticsParameterMethod: method,
             "user_id": userId,
@@ -46,6 +61,7 @@ enum AnalyticsService {
 
     /// Returning user logged in.
     static func logLogin(userId: String, method: String = "email") {
+        guard isEnabled else { return }
         Analytics.logEvent(envName(AnalyticsEventLogin), parameters: [
             AnalyticsParameterMethod: method,
             "user_id": userId,
@@ -58,6 +74,7 @@ enum AnalyticsService {
     /// (price/currency will fall back to 0 / USD, which Google Ads can
     /// override with a default value if configured).
     static func logPurchase(transaction: Transaction, product: Product?) {
+        guard isEnabled else { return }
         let value = product.map { NSDecimalNumber(decimal: $0.price).doubleValue } ?? 0.0
         let currency = product?.priceFormatStyle.currencyCode ?? "USD"
 
@@ -73,6 +90,7 @@ enum AnalyticsService {
     /// User finished the 7-page onboarding flow. Custom event (not a Firebase
     /// standard event) — useful as a higher-funnel signal in Google Ads.
     static func logOnboardingComplete() {
+        guard isEnabled else { return }
         Analytics.logEvent(envName("onboarding_complete"), parameters: nil)
     }
 
@@ -81,6 +99,7 @@ enum AnalyticsService {
     /// standard `tutorial_begin` event name so Google Ads recognizes it as an
     /// engagement event if promoted to a conversion later.
     static func logTutorialBegin(resourceId: String) {
+        guard isEnabled else { return }
         Analytics.logEvent(envName(AnalyticsEventTutorialBegin), parameters: [
             "resource_id": resourceId,
         ])
@@ -90,6 +109,7 @@ enum AnalyticsService {
     /// the player was open; `watchedToEnd` is true if duration covers the
     /// full video length (with a 1s slack for the swipe-down dismiss gesture).
     static func logTutorialEnded(resourceId: String, durationSeconds: Double, watchedToEnd: Bool) {
+        guard isEnabled else { return }
         Analytics.logEvent(envName("tutorial_ended"), parameters: [
             "resource_id": resourceId,
             "duration_seconds": durationSeconds,
@@ -100,6 +120,7 @@ enum AnalyticsService {
     /// User dismissed the tutorial popup without ever opening the player
     /// (tapped "Maybe later" or the X close button).
     static func logTutorialSkipped(resourceId: String) {
+        guard isEnabled else { return }
         Analytics.logEvent(envName("tutorial_skipped"), parameters: [
             "resource_id": resourceId,
         ])

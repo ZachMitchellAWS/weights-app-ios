@@ -43,6 +43,22 @@ struct SetPlanCatalogEntry: Encodable {
 struct SessionUserContext: Encodable {
     let chips: [String]
     let note: String
+    /// Fundamentals the user switched OFF in the context panel, by name.
+    ///
+    /// NAMES, not ids. The backend keys its own `strength.lifts` by lift name and resolves
+    /// `exerciseItemId` itself; sending ids would mean the client choosing a key the backend
+    /// does not use.
+    ///
+    /// Exclusions rather than inclusions, matching `DraftContext`: the default — every lift
+    /// eligible — is then the empty array, and an older client that omits the field entirely
+    /// means the same thing.
+    let excludedLifts: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case chips
+        case note
+        case excludedLifts = "excluded_lifts"
+    }
 }
 
 // MARK: - Response

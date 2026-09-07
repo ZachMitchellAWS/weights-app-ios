@@ -394,7 +394,16 @@ struct ProgramMockView: View {
         //
         // Applying the overlay AFTER the height frame is what fixes it: the button aligns
         // to the full-height card, while the spinner still centres itself inside it.
-        GeneratingView(steps: ProgramMockData.generatingSteps)
+        GeneratingView(
+            steps: ProgramMockData.generatingSteps,
+            heat: liftHeat
+            // TIMELINE PARKED: see `setHistoryMarquee` in GeneratingView. To restore, add
+            //   recentDays: LiftMomentum.recentDays(
+            //       sets: allLiftSets,
+            //       estimated1RMs: allEstimated1RM,
+            //       unit: userPropertiesItems.first?.preferredWeightUnit ?? .lbs
+            //   )
+        )
             .frame(maxWidth: .infinity)
             .frame(minHeight: collapsedCardHeight ?? 0)
             .overlay(alignment: .topTrailing) {
@@ -1325,6 +1334,110 @@ struct ProgramMockView: View {
 
     /// One labelled row of chips. Both groups feed the same `context.chips` set — the
     /// split is presentational, and the backend receives one flat list either way.
+    /// The five fundamentals, tappable, all on by default.
+    ///
+    /// Built to the Lift tab's tier-strip card spec — 84pt-tall rounded rects at radius 10,
+    /// icon over short name, `Color(white: 0.12)` fill with a hairline border — so the two
+    /// read as the same control in two places. Squarer cells looked like a different widget
+    /// that happened to contain the same icons.
+    ///
+    /// Deliberately NOT a horizontal ScrollView like that one: five cells fit the card
+    /// width, and a scroll view here would hide lifts behind a gesture in a panel whose
+    /// whole job is to show what is on the table.
+    ///
+    /// "CONSIDER", NOT "INCLUDE". Include reads as a promise that every ticked lift will be
+    /// in the session, which is false — the generator still picks one to three from these
+    /// under its own rules. What the control actually sets is eligibility.
+    ///
+    /// NOT WIRED TO THE BACKEND YET. `DraftContext.excludedLifts` is real state and this
+    /// really toggles it, but nothing sends it: the request carries `chips` and `note` only.
+    /// Making it work needs a field on `SessionGenerateRequest`, validation in the sessions
+    /// handler, a line in the payload's `user_context`, and a rule in the prompt — none of
+    /// which is worth building until the layout is settled.
+    ///
+    /// The chip group below lost "Upper only" and "Lower only" to pay for this row. They
+    /// were presets of the same constraint, and two controls setting one thing is worse
+    /// than either alone.
+    /// How warm each fundamental is, 0...1. Feeds the generating screen's recap only — the
+    /// selector deliberately shows eligibility and nothing else. See `LiftMomentum`.
+    private var liftHeat: [UUID: Double] {
+        LiftMomentum.heatByExercise(sets: allLiftSets, estimated1RMs: allEstimated1RM)
+    }
+
+    private var liftSelector: some View {
+        let excluded = context.excludedLifts
+        let includedCount = TrendsCalculator.fundamentalExercises.count - excluded.count
+
+        return VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 6) {
+                Text("LIFTS TO CONSIDER")
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.3)
+                    .foregroundStyle(.white.opacity(0.55))
+
+                // Silent at five of five. Announcing the default would make an untouched
+                // control look like a decision the user had already made.
+                if !excluded.isEmpty {
+                    Text("\(includedCount) of \(TrendsCalculator.fundamentalExercises.count)")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.appAccent.opacity(0.8))
+                }
+            }
+
+            HStack(spacing: 7) {
+                ForEach(TrendsCalculator.fundamentalExercises, id: \.id) { lift in
+                    let isOn = !excluded.contains(lift.name)
+                    Button {
+                        // Never let the last one go. An empty selection asks for a session
+                        // with nothing in it, and the honest response would be an error —
+                        // so the control simply does not offer that state.
+                        if isOn {
+                            guard includedCount > 1 else { return }
+                            context.excludedLifts.insert(lift.name)
+                        } else {
+                            context.excludedLifts.remove(lift.name)
+                        }
+                    } label: {
+                        VStack(spacing: 5) {
+                            // One signal per cell: eligible or not. Recency lives on the
+                            // generating screen instead — here it competed with selection
+                            // for the same amber, and a cell has one thing to say.
+                            Image(lift.icon)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 34, height: 34)
+                                .foregroundStyle(isOn ? Color.appAccent : .white.opacity(0.22))
+
+                            Text(ProgramSessionStore.shortName(for: lift.name))
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(isOn ? Color.appAccent.opacity(0.9) : .white.opacity(0.3))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        // Taller than wide, matching the Lift tab strip's proportion. The
+                        // border is 0.45 rather than that strip's 0.6: there one card is
+                        // selected among many, here four or five usually are, and at 0.6
+                        // the whole row reads as a solid amber block.
+                        .frame(minHeight: 76)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(isOn ? Color.appAccent.opacity(0.10) : Color(white: 0.12))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10).strokeBorder(
+                                isOn ? Color.appAccent.opacity(0.45) : Color.white.opacity(0.08),
+                                lineWidth: 1
+                            )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
     private func chipGroup(title: String, chips: [String]) -> some View {
         VStack(alignment: .leading, spacing: 9) {
             // Bumped from 10pt/35% — legible at arm's length, and now unambiguously one
@@ -1462,10 +1575,11 @@ struct ProgramMockView: View {
     }
 
     private var contextEditor: some View {
-        // 16, not 10. With a section title, two labelled chip groups and a text field in
-        // one panel, tight spacing made the whole thing read as a single dense block —
-        // the groups have to be visibly separate to be scannable.
-        VStack(alignment: .leading, spacing: 16) {
+        // Was 16. Pulled in to 13 when the lift selector was added: the panel now has a
+        // section title, a lift row, two chip groups and a text field, and the idle card
+        // has a hard constraint that Start Session stays above the fold. 13 still reads as
+        // separated groups; below about 11 they start merging into one block again.
+        VStack(alignment: .leading, spacing: 13) {
             // The editor used to open flush against the card header, so "Ready to train?"
             // and "Anything to know today?" ran together as one block of centred-then-left
             // text. A rule plus real space makes the card read as two parts: what this is,
@@ -1499,6 +1613,8 @@ struct ProgramMockView: View {
                 .buttonStyle(.plain)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            liftSelector
 
             chipGroup(title: "How you're feeling", chips: ProgramMockData.contextChips)
 
