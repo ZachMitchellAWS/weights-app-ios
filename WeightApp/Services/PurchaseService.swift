@@ -29,6 +29,29 @@ class PurchaseService: ObservableObject {
 
     private init() {}
 
+    /// The paywall design on screen when a purchase was started, and how far the reader had
+    /// scrolled through it.
+    ///
+    /// Lives here rather than on the view because `purchaseCompleted` is fired from
+    /// `logPurchaseIfNew` below — a shared choke point that also catches renewals and
+    /// foreground restores, where no paywall was involved. Those report nil, which is the
+    /// honest answer rather than attributing a background renewal to whatever was last seen.
+    ///
+    /// Set when a variant paywall appears; cleared once a purchase has been attributed, so a
+    /// renewal arriving later in the same session cannot inherit it.
+    private(set) var activePaywallVariant: String?
+    private(set) var activePaywallScrollDepth: Int?
+
+    func setActivePaywall(variant: String?, scrollDepth: Int? = nil) {
+        activePaywallVariant = variant
+        activePaywallScrollDepth = scrollDepth
+    }
+
+    func clearActivePaywall() {
+        activePaywallVariant = nil
+        activePaywallScrollDepth = nil
+    }
+
     /// Log a purchase to Analytics if we haven't already logged this transaction
     /// this session. Looks up the matching Product for price/currency.
     private func logPurchaseIfNew(transaction: Transaction) {
@@ -45,8 +68,14 @@ class PurchaseService: ObservableObject {
             isRenewal: transaction.originalID != transaction.id,
             isFreeTrial: transaction.offer?.paymentMode == .freeTrial,
             price: price,
-            currency: currency
+            currency: currency,
+            paywallVariant: activePaywallVariant,
+            maxScrollDepthPct: activePaywallScrollDepth
         ))
+
+        // Attribution is single-use. Leaving it set would tag the next renewal with a paywall
+        // the user never saw.
+        clearActivePaywall()
     }
 
     // MARK: - Product Loading

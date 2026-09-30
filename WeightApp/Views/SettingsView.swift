@@ -16,6 +16,8 @@ struct SettingsView: View {
 
     @State private var showPlateSelection = false
     @State private var notificationStatus: UNAuthorizationStatus?
+    @State private var isSendingTestPush = false
+    @State private var testPushResult: String?
     @State private var showSavedConfirmation = false
     @State private var isSaving = false
 
@@ -51,6 +53,9 @@ struct SettingsView: View {
                 profileSection
                 progressSection
                 notificationsSection
+                if DeveloperOptions.showsNotificationTools {
+                    developerSection
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -267,6 +272,71 @@ struct SettingsView: View {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color.white.opacity(0.05))
             )
+        }
+    }
+
+    // MARK: - Developer Section (staging only)
+
+    /// Push-notification tooling, staging builds only.
+    ///
+    /// Gated three deep on purpose: `DeveloperOptions.showsNotificationTools` hard-returns
+    /// false off staging, this view is not rendered at all in production, and the backend does
+    /// not create `POST /notifications/test` as an API Gateway resource outside staging — so
+    /// even a build that ignored both client gates would get a 403.
+    private var developerSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("DEVELOPER · STAGING")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.4))
+                .padding(.leading, 16)
+                .padding(.bottom, 8)
+
+            Button {
+                sendTestPush()
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "paperplane")
+                        .foregroundStyle(Color.appAccent)
+                        .font(.system(size: 20))
+                    Text("Send test notification")
+                        .foregroundStyle(.white)
+                    Spacer()
+                    if isSendingTestPush {
+                        ProgressView().tint(.white.opacity(0.6))
+                    } else if let result = testPushResult {
+                        Text(result)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+                }
+                .padding(16)
+            }
+            .disabled(isSendingTestPush)
+            .background(Color.white.opacity(0.05))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+
+            // A 202 means QUEUED, not delivered. The push can still be cancelled by the
+            // type's precondition — and it will be, if this account has already unlocked its
+            // strength tier, which is the most likely reason nothing arrives.
+            Text("Backgrounds the app to see it. Nothing arrives if your tier is already unlocked.")
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.35))
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+        }
+    }
+
+    private func sendTestPush() {
+        isSendingTestPush = true
+        testPushResult = nil
+        Task {
+            do {
+                _ = try await APIService.shared.postTestNotification()
+                testPushResult = "queued · 5s"
+            } catch {
+                testPushResult = "failed"
+            }
+            isSendingTestPush = false
         }
     }
 

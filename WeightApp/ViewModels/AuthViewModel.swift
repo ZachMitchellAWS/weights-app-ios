@@ -197,6 +197,7 @@ class AuthViewModel: ObservableObject {
 
             AnalyticsService.logSignUp(userId: response.userId)
             AmplitudeService.shared.identify(userId: response.userId)
+            AmplitudeService.shared.setStartingVersion()
             AmplitudeService.shared.track(.signedUp(method: "email"))
 
             // Perform initial sync for new user (includes user properties sync)
@@ -293,6 +294,9 @@ class AuthViewModel: ObservableObject {
             AnalyticsService.logLogin(userId: response.userId, method: "apple")
         }
         AmplitudeService.shared.identify(userId: response.userId)
+        if isNewUser {
+            AmplitudeService.shared.setStartingVersion()
+        }
         AmplitudeService.shared.track(isNewUser ? .signedUp(method: "apple") : .signedIn(method: "apple"))
 
         await SyncService.shared.performInitialSync(isNewUser: isNewUser)
@@ -307,6 +311,16 @@ class AuthViewModel: ObservableObject {
     func logout(onDataCleanup: @escaping () -> Void) async {
         isLoading = true
         errorMessage = nil
+
+        // Detach this device's APNs token from the account BEFORE anything clears the
+        // Keychain. It has to be here rather than alongside the other `clearOnLogout()` calls
+        // below, because those run after `KeychainService.clearTokens()` and this request needs
+        // a valid JWT — from there it would 401 and the token would stay attached to the
+        // account that just left, still receiving its notifications.
+        //
+        // Best-effort: a failed deregistration must never block logout. The backend also
+        // retires tokens on Apple's 410, so the worst case is a delay, not a permanent leak.
+        try? await APIService.shared.deregisterDeviceToken()
 
         do {
             try await APIService.shared.logout()

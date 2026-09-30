@@ -155,7 +155,8 @@ class APIService {
     // MARK: - Auth Endpoints
 
     func createUser(email: String, password: String) async throws -> AuthResponse {
-        let body = CreateUserRequest(emailAddress: email, password: password)
+        let body = CreateUserRequest(emailAddress: email, password: password,
+                                     appVersion: APIConfig.appVersion)
         let response: AuthResponse = try await request(
             endpoint: "/auth/create-user",
             method: "POST",
@@ -251,7 +252,7 @@ class APIService {
     }
 
     func authenticateWithApple(identityToken: String, authorizationCode: String, email: String?, fullName: String?) async throws -> AuthResponse {
-        let body = AppleSignInRequest(identityToken: identityToken, authorizationCode: authorizationCode, email: email, fullName: fullName)
+        let body = AppleSignInRequest(identityToken: identityToken, authorizationCode: authorizationCode, email: email, fullName: fullName, appVersion: APIConfig.appVersion)
         let response: AuthResponse = try await request(
             endpoint: "/auth/apple-signin",
             method: "POST",
@@ -511,8 +512,20 @@ class APIService {
 
     // MARK: - Push Notification Endpoints
 
+    /// Register (or re-register) this device's APNs token.
+    ///
+    /// `apnsEnvironment` is a property of the BUILD, not of which backend we talk to: Xcode
+    /// rewrites the `aps-environment` entitlement to `production` for App Store *and
+    /// TestFlight* distribution, so only an Xcode-installed build produces a sandbox token.
+    /// The backend files the token under whichever we send and picks the APNs host per token;
+    /// a wrong value self-corrects on the first `BadDeviceToken`.
     func registerDeviceToken(_ token: String) async throws -> UserPropertiesResponse {
-        let body = ["apnsDeviceToken": token]
+        #if DEBUG
+        let environment = "sandbox"
+        #else
+        let environment = "production"
+        #endif
+        let body = ["apnsDeviceToken": token, "apnsEnvironment": environment]
         return try await request(
             endpoint: "/user/properties",
             method: "POST",
@@ -520,6 +533,52 @@ class APIService {
             headers: APIConfig.commonHeaders,
             requiresAuth: true
         )
+    }
+
+    /// Tell the backend this device's token is no longer bound to the signed-in account.
+    ///
+    /// Must be called while the JWT is still valid — i.e. BEFORE auth credentials are cleared,
+    /// or this 401s and the token stays attached to the account that just left.
+    func deregisterDeviceToken() async throws -> UserPropertiesResponse {
+        return try await request(
+            endpoint: "/user/properties",
+            method: "POST",
+            body: DeregisterTokenRequest(),
+            headers: APIConfig.commonHeaders,
+            requiresAuth: true
+        )
+    }
+
+    /// Staging-only: ask the backend to push to this account after a short delay.
+    /// The route does not exist in production, so this 403s there.
+    func postTestNotification(type: String = "unlock-strength-tier-nudge",
+                              delaySeconds: Int = 5) async throws -> MessageResponse {
+        return try await request(
+            endpoint: "/notifications/test",
+            method: "POST",
+            body: TestNotificationRequest(notificationType: type, delaySeconds: delaySeconds),
+            requiresAuth: true
+        )
+    }
+
+    /// Body for `deregisterDeviceToken`.
+    ///
+    /// Emits `{"apnsDeviceToken": null}` — an explicit null, never an omitted key. User
+    /// properties use key-presence semantics: present means update, absent means leave alone,
+    /// null means remove. `UserPropertiesRequest` deliberately OMITS nil fields, which is the
+    /// opposite of what deregistering needs, so this cannot reuse it.
+    private struct DeregisterTokenRequest: Encodable {
+        enum CodingKeys: String, CodingKey { case apnsDeviceToken }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encodeNil(forKey: .apnsDeviceToken)
+        }
+    }
+
+    private struct TestNotificationRequest: Encodable {
+        let notificationType: String
+        let delaySeconds: Int
     }
 
     // MARK: - Insights Endpoints

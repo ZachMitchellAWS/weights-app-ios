@@ -34,6 +34,32 @@ enum NextSessionIntent: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    // MARK: Declared intent
+
+    /// The answer the user gave during onboarding, remembered past the flow.
+    ///
+    /// Stored here rather than reusing `PushNotificationService`'s reminder key, which is
+    /// written only inside the notification-scheduling success callback and cleared whenever
+    /// the reminder is cancelled or consumed. Both are wrong for this: a user who DECLINED
+    /// notifications still answered the question, and their answer should outlive the
+    /// reminder it was collected for.
+    private static let declaredKey = "onboardingSessionIntent"
+
+    /// What they said, or nil if they never reached the step (every account created before
+    /// it shipped).
+    static var declared: NextSessionIntent? {
+        guard let raw = UserDefaults.standard.string(forKey: declaredKey) else { return nil }
+        return NextSessionIntent(rawValue: raw)
+    }
+
+    static func recordDeclared(_ intent: NextSessionIntent) {
+        UserDefaults.standard.set(intent.rawValue, forKey: declaredKey)
+    }
+
+    static func clearDeclared() {
+        UserDefaults.standard.removeObject(forKey: declaredKey)
+    }
+
     /// The single anchor hour for every scheduled reminder. "Today" is the only rule
     /// expressed as an offset, and even it falls back to this hour when clamped.
     static let anchorHour = 11

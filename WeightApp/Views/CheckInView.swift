@@ -147,6 +147,13 @@ struct CheckInView: View {
     @State private var overlayIntensityColor: Color = .setEasy
     @State private var overlayIntensityLabel: String = "Easy"
     @State private var overlayIsMilestone = false
+    /// Third overlay state: the first post-unlock progress set on a fundamental. Once ever.
+    @State private var overlayIsFirstProgress = false
+    @State private var overlayFirstProgressIcon = ""
+    @State private var overlayFirstProgressName = ""
+    /// ANALYTICS ONLY. The card is deliberately tier-agnostic and never displays this, but
+    /// which tier a user is on when they first progress is worth knowing.
+    @State private var overlayFirstProgressTier: StrengthTier = .none
     @State private var overlayMilestoneTier: StrengthTier = .novice
     @State private var overlayMilestoneExerciseIcon: String = ""
     @State private var overlayMilestoneExerciseName: String = ""
@@ -191,6 +198,7 @@ struct CheckInView: View {
     // App Store review prompt: requested once, ever, after the user's first e1RM progress on a
     // fundamental lift once their starting tier is already unlocked. Survives logout (device-lifetime).
     @AppStorage("hasRequestedAppStoreReview") private var hasRequestedAppStoreReview = false
+    @AppStorage("hasSeenFirstProgressCelebration") private var hasSeenFirstProgressCelebration = false
     @Environment(\.requestReview) private var requestReview
     @State private var pendingReviewAfterProgress = false
 
@@ -438,6 +446,14 @@ struct CheckInView: View {
     // PROGRAM SESSION (prototype): the live session, if any.
     private var sessionStore: ProgramSessionStore { ProgramSessionStore.shared }
 
+    /// Content signature of the live plan. `Item` cannot be compared directly — its `id` is a
+    /// fresh UUID per instance, so two Items describing the same lift never match — and
+    /// `exerciseId` alone would miss a set-plan swap, which changes the chain the status card
+    /// draws without changing which lifts are in it.
+    private var sessionPlanSignature: [String] {
+        sessionStore.items.map { "\($0.exerciseId)|\($0.setPlanId)|\($0.sequence.count)" }
+    }
+
     /// The set plan owned by the session for the selected exercise, if the session
     /// covers it. Non-nil is what puts the plan selector into its locked state.
     /// Whether this tab should surface the session at all.
@@ -626,8 +642,15 @@ struct CheckInView: View {
 
             // Overlays
             if showSubmitOverlay {
+                // Milestone first: a tier-up outranks a first gain. `!isMilestone` is already
+                // in the first-progress trigger so both can never be set, but the ordering
+                // states the precedence rather than leaving it to that invariant.
                 if overlayIsMilestone {
                     milestoneOverlay
+                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                        .zIndex(20)
+                } else if overlayIsFirstProgress {
+                    firstProgressOverlay
                         .transition(.opacity.combined(with: .scale(scale: 0.95)))
                         .zIndex(20)
                 } else {
@@ -859,6 +882,20 @@ struct CheckInView: View {
                     onPrimary: { actOnSessionCelebration(celebration.kind) },
                     onDismiss: { dismissSessionCelebration(kind: celebration.kind.analyticsKind) }
                 )
+                // The status card holds a SNAPSHOT of the plan, and it is the only celebration
+                // created during `.planning` — precisely the phase where the plan is still
+                // negotiable. Generating ACTIVATES the session, so the card is built at
+                // generation, usually while the user is still on the Session tab and cannot
+                // see it. Revise then mutates `items` without touching `isActive`, so nothing
+                // rebuilds it, and Start Lifting renders a plan that no longer exists. Later
+                // cards are built after the edit, which is why only the FIRST is ever wrong.
+                //
+                // Watched here rather than on the outer chain for two reasons: that chain is
+                // already at the type checker's ceiling, and this only needs to observe while
+                // a card is actually on screen.
+                .onChange(of: sessionPlanSignature) { _, _ in
+                    resyncStatusCardToPlan()
+                }
                 .transition(.opacity.combined(with: .scale(scale: 0.94)))
                 .zIndex(29)
             }
@@ -920,6 +957,18 @@ struct CheckInView: View {
                 // Now safe to evaluate tier journey (user properties are synced)
                 evaluateTierJourney()
                 evaluateLiftTutorialTrigger()
+                // ...and now safe to nominate a next focus. The appear-time call is
+                // deliberately ungated (a returning user already has local data and would
+                // otherwise be skipped with nothing to recover it), so this covers the other
+                // case: a fresh login, where the tab appeared before any history existed.
+                //
+                // Ordered after the two above on purpose — both can raise a popup, and
+                // `maybeShowReadyToLift` bails when one is up rather than stacking on it.
+                //
+                // If SwiftData has not finished committing at this instant, `nextFocus` is
+                // still nil and this bails; the nil → non-nil handler below then catches it,
+                // and its sync gate is now satisfied. The two form the complete chain.
+                maybeShowReadyToLift()
             }
         }
         .onChange(of: syncService.syncFailed) { _, failed in
@@ -932,10 +981,10 @@ struct CheckInView: View {
             }
             guard !isShowing else { return }
 
-            // The celebration takes this slot ahead of the review request. Both want the
-            // moment after the overlay clears, and a system rating alert stacked on top of
-            // a celebration is the worst of the available orderings — the review prompt has
-            // other chances, this moment does not.
+            // The celebration owns this slot. It no longer competes with the review request:
+            // nothing is queued while a session is live (see `logSet()`), so by the time a
+            // celebration can appear there is no pending review for it to displace. Session
+            // users are asked on session completion instead.
             if consumeSessionCelebration() { return }
 
             // After the "Increased 1RM" dialog dismisses (auto-dismiss or tap), request an App Store
@@ -996,6 +1045,13 @@ struct CheckInView: View {
         }
         .onChange(of: nextFocus?.id) { oldValue, newValue in
             guard oldValue == nil, newValue != nil else { return }
+            // Only once the sync has actually finished. Sets arrive progressively, so during
+            // an initial sync `nextFocus` goes nil → Squats → Deadlifts → Bench as more
+            // history lands. Firing on the FIRST non-nil put the popup up on partial data and
+            // the card — which reads `nextFocus` live — then churned through lifts before
+            // settling or vanishing. The `initialSyncComplete` handler above re-attempts this
+            // once the data is whole, so nothing is lost by waiting.
+            guard syncService.initialSyncComplete else { return }
             maybeShowReadyToLift()
         }
         // The session equivalent of the late-data recovery above: a session restored from
@@ -1901,6 +1957,20 @@ struct CheckInView: View {
     /// No delay before showing, unlike its counterpart. The 0.45s there exists to let the
     /// Lift tab settle before a popup about a lift the user has not chosen; this one is about
     /// work already in progress, and the pause reads as a stutter rather than as composure.
+    /// Rebuild a showing `.status` card against the current plan. See the `onChange` that
+    /// calls this for why only this kind can go stale.
+    private func resyncStatusCardToPlan() {
+        guard let current = sessionCelebration, case .status = current.kind else { return }
+        guard let next = sessionStore.nextIncomplete else {
+            sessionCelebration = nil
+            return
+        }
+        sessionCelebration = SessionCelebrationState(
+            kind: .status(next: next),
+            items: sessionStore.items
+        )
+    }
+
     private func maybeShowSessionStatus() {
         guard !tutorialPresenter.sessionStatusShownThisLaunch,
               sessionStore.isActive,
@@ -5534,6 +5604,25 @@ struct CheckInView: View {
         }
     }
 
+    /// The first post-unlock progress set on a fundamental lift. Manually dismissed, like
+    /// `milestoneOverlay` and unlike the 2s `submitOverlay`: it is read, not glanced at.
+    ///
+    /// It goes nowhere. This is a special state of the ordinary e1RM dialog, not a tier
+    /// screen, so the button acknowledges and closes rather than navigating. Dismissing
+    /// clears `showSubmitOverlay`, so the App Store review request hanging off that change
+    /// (see the `onChange` handler above) still fires behind it.
+    private var firstProgressOverlay: some View {
+        FirstProgressCelebrationCard(
+            exerciseName: overlayFirstProgressName,
+            exerciseIcon: overlayFirstProgressIcon,
+            deltaText: "+\(userProperties.preferredWeightUnit.formatWeight2dp(overlayDelta)) "
+                + userProperties.preferredWeightUnit.label,
+            onDismiss: {
+                withAnimation(.easeOut(duration: 0.18)) { showSubmitOverlay = false }
+            }
+        )
+    }
+
     private func deleteSet(_ set: LiftSet) {
         let setId = set.id
         let exercise = set.exercise
@@ -6042,13 +6131,51 @@ struct CheckInView: View {
 
         // Queue a one-time App Store review request: fires after this increase dialog dismisses,
         // on the user's first e1RM progress on a fundamental lift once the starting tier is unlocked.
-        let isFundamentalLift = TrendsCalculator.fundamentalExercises.contains { $0.id == ex.id }
-        if startingTierWasUnlocked, increased, !isMilestone, isFundamentalLift, !hasRequestedAppStoreReview {
+        //
+        // NOT while a session is live. Session users get asked on completing a session instead
+        // (`ProgramMockView.maybeRequestReviewAfterSession`), which is a better moment and the
+        // only one they reliably reach — every set inside a session ends in a celebration, and
+        // a celebration takes this slot. The two triggers share one once-ever flag, so leaving
+        // both armed would just race for it.
+        //
+        // `sessionVisible`, not `sessionStore.isActive`: the store persists across launches, so
+        // a lapsed subscription can leave a live session behind an account that cannot have one.
+        // Gating on the raw flag would mute this prompt forever for a user who can never reach
+        // the session trigger either.
+        // `first`, not `contains`: the same lookup yields the icon and display name the
+        // first-progress card needs.
+        let fundamental = TrendsCalculator.fundamentalExercises.first { $0.id == ex.id }
+        if startingTierWasUnlocked, increased, !isMilestone, fundamental != nil,
+           !hasRequestedAppStoreReview, !sessionVisible {
             pendingReviewAfterProgress = true
         }
 
-        // Auto-dismiss after 2s if not milestone
-        if !isMilestone {
+        // The first e1RM gain on a fundamental after the starting tier is unlocked gets its own
+        // card instead of the generic dialog. Once ever, and deliberately WITHOUT the
+        // `!sessionVisible` gate the review has: a session-first user's first post-unlock PR is
+        // likely to happen inside a session, and they are exactly who this is for.
+        //
+        // Assigned unconditionally, like `overlayIsMilestone` above — a left-over `true` would
+        // decorate the next set's dialog with a celebration that has already been spent.
+        overlayIsFirstProgress = startingTierWasUnlocked && increased && !isMilestone
+            && fundamental != nil && !hasSeenFirstProgressCelebration
+        if overlayIsFirstProgress, let fundamental {
+            overlayFirstProgressIcon = fundamental.icon
+            overlayFirstProgressName = fundamental.name
+            // Read before `strengthTierResult` reflects this set, which is safe only because
+            // `!isMilestone` means the set did not move the tier. Relax that condition and this
+            // value becomes wrong rather than merely stale.
+            overlayFirstProgressTier = strengthTierResult.exerciseTiers
+                .first { $0.exercise.id == ex.id }?.tier ?? .none
+            hasSeenFirstProgressCelebration = true
+            AmplitudeService.shared.track(.firstProgressCelebrationShown(
+                exercise: fundamental.name, tier: overlayFirstProgressTier.title))
+        }
+
+        // Auto-dismiss after 2s — but not for the milestone or first-progress cards, which are
+        // read rather than glanced at and carry a CTA. Dropping this condition would make the
+        // once-ever celebration vanish before it could be acted on.
+        if !isMilestone, !overlayIsFirstProgress {
             Task {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 await MainActor.run {

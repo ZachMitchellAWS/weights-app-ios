@@ -148,9 +148,14 @@ struct WeightAppApp: App {
                                     }
                                     .transition(.opacity)
                                 } else {
-                                    // Opens on whatever `premiumFeatures` leads with, which
-                                    // is Smart Sessions.
-                                    UpsellView(source: SubscriptionConfig.UpsellSource.postOnboarding) { _ in
+                                    // POST-ONBOARDING ONLY. Every other entry point still uses
+                                    // `UpsellView`, because those are reached by tapping a
+                                    // specific locked feature and its carousel opens on that
+                                    // feature via `initialPage`. There is nothing to deep-link
+                                    // to here — a user arriving straight out of onboarding has
+                                    // not tapped anything — which is exactly why this screen
+                                    // can be a single scrolling story instead.
+                                    FirstWeekPaywallView(source: SubscriptionConfig.UpsellSource.postOnboarding) { _ in
                                         withAnimation(.easeInOut(duration: 0.4)) {
                                             authViewModel.completePostAuthFlow()
                                         }

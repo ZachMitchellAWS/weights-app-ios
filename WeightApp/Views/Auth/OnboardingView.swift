@@ -154,6 +154,10 @@ struct OnboardingView: View {
                         // everyone who said no is invisible, which is the segment most
                         // worth analysing.
                         AmplitudeService.shared.setNextSessionIntent(sessionIntent.rawValue)
+                        // Also kept locally, for the same reason and on the same path: the
+                        // post-onboarding paywall labels its first timeline step with this
+                        // answer, and must do so whether or not notifications were allowed.
+                        NextSessionIntent.recordDeclared(sessionIntent)
                         // Every answer advances now, including "Not sure yet" — the
                         // reminder screen has its own state for that case.
                         withAnimation(.easeInOut(duration: 0.3)) { currentPage += 1 }

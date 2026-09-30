@@ -132,6 +132,10 @@ enum AppEvent {
     // The ratio of CTA-tapped to dismissed is the number that matters: this is a popup in
     // the middle of a workout, and a rising dismissal rate is the signal that it has become
     // something to swat away rather than read.
+    /// The once-ever card for a user's first e1RM gain on a fundamental after unlocking their
+    /// starting tier. Fires at most once per user, so it doubles as a funnel marker for the
+    /// App Store review prompt that follows it outside a session.
+    case firstProgressCelebrationShown(exercise: String, tier: String)
     case sessionCelebrationShown(kind: String)
     case sessionCelebrationCTATapped(kind: String)
     case sessionCelebrationDismissed(kind: String)
@@ -151,15 +155,27 @@ enum AppEvent {
     // four of them open on the same page — post-onboarding (which every new user sees) was
     // otherwise indistinguishable from a deliberate tap on a locked feature, and those two
     // convert nothing alike.
-    case premiumUpsellShown(source: String, initialPage: Int, initialFeature: String)
+    // `paywallVariant` identifies the DESIGN, not the trigger — `source` already carries the
+    // trigger. Nil for the two carousel paywalls, so a null in Amplitude means "the original",
+    // and any variant added later is opt-in rather than retroactively mislabelling history.
+    case premiumUpsellShown(source: String, initialPage: Int, initialFeature: String,
+                            paywallVariant: String? = nil)
+    /// Carousel swipe. Not fired by scrolling paywalls, which have no pages.
     case upsellPageViewed(source: String, feature: String, index: Int)
     case upsellPlanSelected(source: String, plan: String)
-    case upsellDismissed(source: String, feature: String, secondsOnScreen: Double)
+    case upsellDismissed(source: String, feature: String, secondsOnScreen: Double,
+                         paywallVariant: String? = nil, maxScrollDepthPct: Int? = nil)
+    /// A section of a scrolling paywall reached 50% visibility. Once per section per
+    /// presentation — scrolling back up does not re-fire it.
+    case upsellSectionViewed(source: String, section: String, paywallVariant: String)
     case purchaseStarted(productId: String, plan: String, isFreeTrial: Bool)
     /// Started but not completed. `reason` is "cancelled" (user backed out of the StoreKit
     /// sheet), "failed" (StoreKit or the entitlements call threw) or "product_unavailable".
     case purchaseAbandoned(productId: String, plan: String, reason: String)
-    case purchaseCompleted(productId: String, transactionId: String, isRenewal: Bool, isFreeTrial: Bool, price: Double?, currency: String)
+    /// `paywallVariant` and `maxScrollDepthPct` are nil for renewals and foreground restores,
+    /// which genuinely had no paywall on screen — see `PurchaseService.activePaywall`.
+    case purchaseCompleted(productId: String, transactionId: String, isRenewal: Bool, isFreeTrial: Bool, price: Double?, currency: String,
+                           paywallVariant: String? = nil, maxScrollDepthPct: Int? = nil)
 
     /// Amplitude event type (Title-Case "Object Action").
     var name: String {
@@ -202,6 +218,7 @@ enum AppEvent {
         case .tutorialShown: return "Tutorial Shown"
         case .tutorialWatchTapped: return "Tutorial Watch Tapped"
         case .tutorialSkipped: return "Tutorial Skipped"
+        case .firstProgressCelebrationShown: return "First Progress Celebration Shown"
         case .sessionCelebrationShown: return "Session Celebration Shown"
         case .sessionCelebrationCTATapped: return "Session Celebration CTA Tapped"
         case .sessionCelebrationDismissed: return "Session Celebration Dismissed"
@@ -213,6 +230,7 @@ enum AppEvent {
         case .upsellPageViewed: return "Upsell Page Viewed"
         case .upsellPlanSelected: return "Upsell Plan Selected"
         case .upsellDismissed: return "Upsell Dismissed"
+        case .upsellSectionViewed: return "Upsell Section Viewed"
         case .purchaseStarted: return "Purchase Started"
         case .purchaseAbandoned: return "Purchase Abandoned"
         case .purchaseCompleted: return "Purchase Completed"
@@ -327,6 +345,9 @@ enum AppEvent {
              let .tutorialSkipped(resourceId):
             return ["resource_id": resourceId]
 
+        case let .firstProgressCelebrationShown(exercise, tier):
+            return ["exercise": exercise, "tier": tier]
+
         case let .sessionCelebrationShown(kind),
              let .sessionCelebrationCTATapped(kind),
              let .sessionCelebrationDismissed(kind):
@@ -356,12 +377,16 @@ enum AppEvent {
                 "watched_to_end": watchedToEnd,
             ]
 
-        case let .premiumUpsellShown(source, initialPage, initialFeature):
+        case let .premiumUpsellShown(source, initialPage, initialFeature, paywallVariant):
             // `initial_page` is kept for continuity with existing charts, but it is an INDEX and
             // the carousel has been reordered — page 1 was Weekly Progress Narratives before it
             // was Strength Balance. Segment on `initial_feature` for anything spanning that
             // change; the index is only safe within a single release.
-            return ["source": source, "initial_page": initialPage, "initial_feature": initialFeature]
+            var props: [String: Any] = [
+                "source": source, "initial_page": initialPage, "initial_feature": initialFeature,
+            ]
+            if let paywallVariant { props["paywall_variant"] = paywallVariant }
+            return props
 
         case let .upsellPageViewed(source, feature, index):
             return ["source": source, "feature": feature, "page_index": index]
@@ -369,8 +394,16 @@ enum AppEvent {
         case let .upsellPlanSelected(source, plan):
             return ["source": source, "plan": plan]
 
-        case let .upsellDismissed(source, feature, secondsOnScreen):
-            return ["source": source, "feature": feature, "seconds_on_screen": secondsOnScreen]
+        case let .upsellDismissed(source, feature, secondsOnScreen, paywallVariant, maxScrollDepthPct):
+            var props: [String: Any] = [
+                "source": source, "feature": feature, "seconds_on_screen": secondsOnScreen,
+            ]
+            if let paywallVariant { props["paywall_variant"] = paywallVariant }
+            if let maxScrollDepthPct { props["max_scroll_depth_pct"] = maxScrollDepthPct }
+            return props
+
+        case let .upsellSectionViewed(source, section, paywallVariant):
+            return ["source": source, "section": section, "paywall_variant": paywallVariant]
 
         case let .purchaseStarted(productId, plan, isFreeTrial):
             return ["product_id": productId, "plan": plan, "is_free_trial": isFreeTrial]
@@ -378,7 +411,8 @@ enum AppEvent {
         case let .purchaseAbandoned(productId, plan, reason):
             return ["product_id": productId, "plan": plan, "reason": reason]
 
-        case let .purchaseCompleted(productId, transactionId, isRenewal, isFreeTrial, price, currency):
+        case let .purchaseCompleted(productId, transactionId, isRenewal, isFreeTrial, price, currency,
+                                    paywallVariant, maxScrollDepthPct):
             var props: [String: Any] = [
                 "product_id": productId,
                 "transaction_id": transactionId,
@@ -387,6 +421,8 @@ enum AppEvent {
                 "currency": currency,
             ]
             if let price { props["price"] = price }
+            if let paywallVariant { props["paywall_variant"] = paywallVariant }
+            if let maxScrollDepthPct { props["max_scroll_depth_pct"] = maxScrollDepthPct }
             return props
         }
     }

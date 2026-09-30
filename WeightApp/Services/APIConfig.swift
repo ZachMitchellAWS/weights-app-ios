@@ -20,6 +20,14 @@ struct APIConfig {
     nonisolated static let apiKey: String = Bundle.main.infoDictionary?["APIKey"] as? String ?? ""
     nonisolated static let amplitudeAPIKey: String = Bundle.main.infoDictionary?["AmplitudeAPIKey"] as? String ?? ""
 
+    /// Marketing version (`CFBundleShortVersionString`), e.g. "1.1.6".
+    ///
+    /// Optional rather than defaulted to "unknown" like the reads it replaces: this feeds
+    /// `firstAppVersion`, where a literal "unknown" in the record would be worse than an absent
+    /// attribute — absence already reads as "never recorded".
+    nonisolated static let appVersion: String? =
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+
     static var commonHeaders: [String: String] {
         [
             "x-api-key": apiKey,
@@ -44,6 +52,19 @@ enum PremiumOverride {
 
     static func set(_ value: Bool) {
         UserDefaults.standard.set(value, forKey: key)
+    }
+}
+
+/// Staging-only developer affordances.
+///
+/// Same hard guard as `PremiumOverride`: returns false on production regardless of what is in
+/// UserDefaults, so a stray flag cannot switch anything on in a shipped build. The backend
+/// enforces this independently — `POST /notifications/test` is not created as an API Gateway
+/// resource outside staging at all, so even a build that ignored this would get a 403.
+enum DeveloperOptions {
+    /// Whether to show the push-notification test controls in Settings.
+    static var showsNotificationTools: Bool {
+        APIConfig.environment == "staging"
     }
 }
 

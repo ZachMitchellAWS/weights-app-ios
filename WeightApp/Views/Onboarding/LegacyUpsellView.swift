@@ -89,8 +89,8 @@ struct LegacyUpsellView: View {
 
                 // Plan-specific subtitle
                 Text(selectedPlan == .yearly
-                     ? "7-day free trial, then \(SubscriptionConfig.yearlyDisplayPrice)/year. Cancel anytime."
-                     : "\(SubscriptionConfig.monthlyDisplayPrice)/month. Cancel anytime.")
+                     ? "7-day free trial, then \(SubscriptionConfig.yearlyPrice(purchaseService.yearlyProduct))/year. Cancel anytime."
+                     : "\(SubscriptionConfig.monthlyPrice(purchaseService.monthlyProduct))/month. Cancel anytime.")
                     .font(.inter(size: 12))
                     .foregroundStyle(.white.opacity(0.5))
                     .multilineTextAlignment(.center)
@@ -335,8 +335,8 @@ struct LegacyUpsellView: View {
                 PlanCard(
                     isSelected: selectedPlan == .yearly,
                     title: "Yearly",
-                    price: SubscriptionConfig.yearlyDisplayPrice,
-                    priceSubtitle: "(\(SubscriptionConfig.yearlyPerMonthPrice)/mo)",
+                    price: SubscriptionConfig.yearlyPrice(purchaseService.yearlyProduct),
+                    priceSubtitle: "(\(SubscriptionConfig.yearlyPerMonth(purchaseService.yearlyProduct))/mo)",
                     badge: SubscriptionConfig.bestValueBadge,
                     onTap: { selectedPlan = .yearly }
                 )
@@ -346,7 +346,7 @@ struct LegacyUpsellView: View {
             PlanCard(
                 isSelected: selectedPlan == .monthly,
                 title: "Monthly",
-                price: SubscriptionConfig.monthlyDisplayPrice,
+                price: SubscriptionConfig.monthlyPrice(purchaseService.monthlyProduct),
                 priceSubtitle: nil,
                 badge: nil,
                 onTap: { selectedPlan = .monthly }
