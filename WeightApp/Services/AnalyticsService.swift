@@ -84,6 +84,10 @@ enum AnalyticsService {
             AnalyticsParameterTransactionID: String(transaction.id),
             "product_id": transaction.productID,
             "is_renewal": transaction.originalID != transaction.id,
+            // Google Ads cannot filter on this, but Firebase and the BigQuery export can, and
+            // without it there is no way to separate a trial start from a monthly purchase
+            // after the fact. Both are intended conversions here; only their value differs.
+            "is_free_trial": transaction.offer?.paymentMode == .freeTrial,
         ])
     }
 
