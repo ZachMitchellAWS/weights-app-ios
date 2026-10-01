@@ -7,16 +7,52 @@
 
 import Foundation
 import SwiftUI
+import StoreKit
 
 enum SubscriptionConfig {
     // MARK: - Product IDs (configure in App Store Connect)
     static let monthlyProductId = "com.weightapp.premium.monthly.499"
     static let yearlyProductId = "com.weightapp.premium.yearly.3999"
 
-    // MARK: - Display Prices (fallback when StoreKit unavailable)
+    // MARK: - Display Prices
+    //
+    // FALLBACKS ONLY. Read prices through the resolvers below, never these constants directly:
+    // they are US English literals, so on any other storefront they show the wrong currency AND
+    // the wrong number, and an App Store Connect price change silently desyncs every screen
+    // from what StoreKit will actually charge. They exist for the window before
+    // `loadProducts()` returns, and for the case where it fails.
     static let monthlyDisplayPrice = "$4.99"
     static let yearlyDisplayPrice = "$39.99"
     static let yearlyPerMonthPrice = "$3.33"  // For "per month" display
+
+    /// Localized yearly price, falling back to the constant until StoreKit has loaded.
+    static func yearlyPrice(_ product: Product?) -> String {
+        product?.displayPrice ?? yearlyDisplayPrice
+    }
+
+    /// Localized monthly price, same fallback.
+    static func monthlyPrice(_ product: Product?) -> String {
+        product?.displayPrice ?? monthlyDisplayPrice
+    }
+
+    /// The yearly plan expressed per month, formatted in the product's own currency.
+    ///
+    /// ROUNDED DOWN, deliberately: this number sits next to the real yearly price, so rounding
+    /// up would advertise a monthly figure whose twelve-fold is more than we charge. $39.99/12
+    /// is $3.3325 — down gives $3.33, up would give $3.34.
+    ///
+    /// `priceFormatStyle` comes from the product, so currency symbol, separator and placement
+    /// all follow the storefront rather than the device locale.
+    static func yearlyPerMonth(_ product: Product?) -> String {
+        guard let product else { return yearlyPerMonthPrice }
+        let perMonth = product.price / 12
+        let rounded = NSDecimalNumber(decimal: perMonth)
+            .rounding(accordingToBehavior: NSDecimalNumberHandler(
+                roundingMode: .down, scale: 2,
+                raiseOnExactness: false, raiseOnOverflow: false,
+                raiseOnUnderflow: false, raiseOnDivideByZero: false))
+        return (rounded as Decimal).formatted(product.priceFormatStyle)
+    }
 
     // MARK: - Trial Configuration
     static let freeTrialDays = 7
@@ -70,6 +106,9 @@ enum SubscriptionConfig {
         case lockedE1RM = "locked_e1rm"
         case readyToLift = "ready_to_lift"
         case legacyDevPreview = "legacy_dev_preview"
+        /// Opened from More -> Developer. Its own case so dev opens never land in the real
+        /// funnel, the same reason `legacyDevPreview` exists.
+        case firstWeekDevPreview = "first_week_dev_preview"
     }
 
     /// Carousel page for a feature, by title.

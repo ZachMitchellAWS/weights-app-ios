@@ -182,5 +182,7 @@ class PushNotificationService {
         cancelSessionReminder(reason: "logout")
         UserDefaults.standard.removeObject(forKey: lastSentTokenKey)
         UserDefaults.standard.removeObject(forKey: hasRequestedKey)
+        // The declared session intent belongs to the account that answered, not the device.
+        NextSessionIntent.clearDeclared()
     }
 }

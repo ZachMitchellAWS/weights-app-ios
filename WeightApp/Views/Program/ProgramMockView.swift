@@ -25,6 +25,7 @@
 
 import SwiftUI
 import SwiftData
+import StoreKit   // `\.requestReview`
 
 struct ProgramMockView: View {
     @Binding var selectedTab: AppTab
@@ -48,6 +49,11 @@ struct ProgramMockView: View {
     /// Only for `activeSetPlanId`, so a lift added by hand starts on the plan the user
     /// already chose rather than an arbitrary one.
     @Query private var userPropertiesItems: [UserProperties]
+
+    @Environment(\.requestReview) private var requestReview
+    /// SAME KEY as `CheckInView`. That is what makes the once-ever budget shared: whichever
+    /// surface asks first spends it, and the other stands down permanently.
+    @AppStorage("hasRequestedAppStoreReview") private var hasRequestedAppStoreReview = false
 
     /// Which of the five fundamentals have a baseline, in `fundamentalExercises` order.
     ///
@@ -232,6 +238,7 @@ struct ProgramMockView: View {
             guard !active else { return }
             if sessionStore.lastOutcome == .completed {
                 withAnimation(.easeInOut(duration: 0.3)) { phase = .receipt }
+                maybeRequestReviewAfterSession()
             } else {
                 withAnimation(.easeInOut(duration: 0.3)) { resetToIdle() }
             }
@@ -1695,7 +1702,10 @@ struct ProgramMockView: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        // Large only. The sheet opens with a text editor the user is expected to type
+        // into, and `.medium` put the field near the fold — you had to drag the sheet up
+        // before you could see what you were writing.
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         // Same treatment as the weight and reps pickers (`CheckInView:962`). Solid black
         // read as a void with no edge — the sheet had no visible boundary against the dark
@@ -1905,6 +1915,28 @@ struct ProgramMockView: View {
     ///
     /// `discardSession()` is still the leave-no-trace path, which is the distinction that
     /// actually matters: End Session records what happened, Discard says it did not count.
+    /// Ask for an App Store review once the receipt is up.
+    ///
+    /// Mirrors the progress-set trigger in `CheckInView`: same shared `@AppStorage` flag, same
+    /// tier precondition, same 500ms beat after the moment lands.
+    ///
+    /// Hung off the `isActive` transition rather than `phase == .receipt` on purpose. Three
+    /// paths reach `.receipt` and two of them must stay silent — a tab appearance showing
+    /// today's existing receipt, and the idle finaliser closing an abandoned session. Only a
+    /// live session ending flips `isActive`.
+    private func maybeRequestReviewAfterSession() {
+        // `consumePendingReviewRequest()` is LAST: if the tier check fails we want the store
+        // flag left armed rather than silently burned on a user we chose not to ask.
+        guard !hasRequestedAppStoreReview,
+              userPropertiesItems.first?.hasMetStrengthTierConditions == true,
+              sessionStore.consumePendingReviewRequest() else { return }
+        hasRequestedAppStoreReview = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            requestReview()
+        }
+    }
+
     private func endSession() {
         withAnimation(.easeInOut(duration: 0.3)) {
             sessionStore.finish()

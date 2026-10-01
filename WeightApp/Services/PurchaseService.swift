@@ -29,12 +29,50 @@ class PurchaseService: ObservableObject {
 
     private init() {}
 
-    /// Log a purchase to Analytics if we haven't already logged this transaction
-    /// this session. Looks up the matching Product for price/currency.
-    private func logPurchaseIfNew(transaction: Transaction) {
+    /// The paywall design on screen when a purchase was started, and how far the reader had
+    /// scrolled through it.
+    ///
+    /// Lives here rather than on the view because `purchaseCompleted` is fired from
+    /// `logPurchaseIfNew` below — a shared choke point that also catches renewals and
+    /// foreground restores, where no paywall was involved. Those report nil, which is the
+    /// honest answer rather than attributing a background renewal to whatever was last seen.
+    ///
+    /// Set when a variant paywall appears; cleared once a purchase has been attributed, so a
+    /// renewal arriving later in the same session cannot inherit it.
+    private(set) var activePaywallVariant: String?
+    private(set) var activePaywallScrollDepth: Int?
+
+    func setActivePaywall(variant: String?, scrollDepth: Int? = nil) {
+        activePaywallVariant = variant
+        activePaywallScrollDepth = scrollDepth
+    }
+
+    func clearActivePaywall() {
+        activePaywallVariant = nil
+        activePaywallScrollDepth = nil
+    }
+
+    /// Log a purchase if we haven't already logged this transaction this session.
+    ///
+    /// - Parameter userInitiated: true only for a transaction the user just completed at the
+    ///   paywall. The `Transaction.updates` listener passes false.
+    ///
+    /// THE TWO DESTINATIONS DELIBERATELY DIFFER.
+    ///
+    /// Firebase fires ONLY when `userInitiated`. That event is wired to a Google Ads
+    /// conversion action, and Ads cannot filter on an event parameter — so anything it
+    /// receives counts. Renewals, restores and late-arriving approvals are all real
+    /// transactions, but none of them is an acquisition, and letting them through inflates
+    /// the conversion Ads is optimising against.
+    ///
+    /// Amplitude gets everything, because it CAN filter: `isRenewal` and `isFreeTrial` are on
+    /// the event, so renewal behaviour stays analysable without corrupting ad spend.
+    private func logPurchaseIfNew(transaction: Transaction, userInitiated: Bool) {
         guard loggedTransactionIds.insert(transaction.id).inserted else { return }
         let product = products.first(where: { $0.id == transaction.productID })
-        AnalyticsService.logPurchase(transaction: transaction, product: product)
+        if userInitiated {
+            AnalyticsService.logPurchase(transaction: transaction, product: product)
+        }
 
         // Mirror to Amplitude (single deduped choke point → covers foreground + renewal listener).
         let price = product.map { NSDecimalNumber(decimal: $0.price).doubleValue }
@@ -45,8 +83,14 @@ class PurchaseService: ObservableObject {
             isRenewal: transaction.originalID != transaction.id,
             isFreeTrial: transaction.offer?.paymentMode == .freeTrial,
             price: price,
-            currency: currency
+            currency: currency,
+            paywallVariant: activePaywallVariant,
+            maxScrollDepthPct: activePaywallScrollDepth
         ))
+
+        // Attribution is single-use. Leaving it set would tag the next renewal with a paywall
+        // the user never saw.
+        clearActivePaywall()
     }
 
     // MARK: - Product Loading
@@ -104,7 +148,7 @@ class PurchaseService: ObservableObject {
             switch result {
             case .success(let verification):
                 let transaction = try checkVerified(verification)
-                logPurchaseIfNew(transaction: transaction)
+                logPurchaseIfNew(transaction: transaction, userInitiated: true)
                 await transaction.finish()
                 return transaction
 
@@ -161,10 +205,13 @@ class PurchaseService: ObservableObject {
                     let originalId = String(transaction.originalID)
                     let environment: String? = transaction.environment == .sandbox ? "Sandbox" : nil
 
-                    // Log to Firebase Analytics (deduped against the foreground
-                    // purchase() path via the in-session set). Hop to MainActor
-                    // since the dedupe set + products array live there.
-                    await self.logPurchaseIfNew(transaction: transaction)
+                    // Amplitude only — `userInitiated: false` keeps this off the Firebase
+                    // conversion. Everything arriving here is either a renewal, a restore, a
+                    // purchase made elsewhere, or an Ask-to-Buy approval landing after the
+                    // fact; none is a paywall conversion. Still deduped against the
+                    // foreground path, which replays the same transaction here. Hop to
+                    // MainActor since the dedupe set + products array live there.
+                    await self.logPurchaseIfNew(transaction: transaction, userInitiated: false)
 
                     // Sync with backend
                     do {

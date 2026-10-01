@@ -60,6 +60,21 @@ final class AmplitudeService {
         amplitude?.setUserId(userId: userId)
     }
 
+    /// Stamp the app version this account signed up on.
+    ///
+    /// Uses `Identify().setOnce` rather than `identify(userProperties:)` — the latter is a `$set`
+    /// convenience and would overwrite the value on a later build. Call sites are signup-only
+    /// (see `AuthViewModel`); `setOnce` is the second lock, not the first. Deliberately *not*
+    /// called on launch: that would stamp every existing account with whatever version it
+    /// happened to be running when this shipped, which is exactly the fact we are trying to
+    /// avoid fabricating. Mirrors `firstAppVersion` in user-properties.
+    func setStartingVersion() {
+        guard let amplitude, let version = APIConfig.appVersion else { return }
+        let identify = Identify()
+        identify.setOnce(property: "starting_version", value: version)
+        amplitude.identify(identify: identify)
+    }
+
     /// Clear identity on logout so the next user on a shared device isn't merged
     /// into the previous user's stream (regenerates the anonymous device id too).
     func reset() {

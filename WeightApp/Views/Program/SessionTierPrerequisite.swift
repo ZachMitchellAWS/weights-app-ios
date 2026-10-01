@@ -45,10 +45,12 @@ struct SessionTierPrerequisite: View {
             StrengthUnlockFooter(
                 loggedFlags: loggedFlags,
                 widget: "session_tab",
-                // No "your starting" lead-in here — Smart Sessions is the whole payoff, and
-                // the shorter line lets the amber term carry the sentence.
+                // No "Your starting" lead-in here: Smart Sessions is the whole payoff, and
+                // the shorter line lets the amber term carry the sentence. Plural verb to
+                // match.
                 unlockPrefix: "",
-                unlockHighlight: "Smart Sessions"
+                unlockHighlight: "Smart Sessions",
+                unlockVerb: "need"
             )
         }
     }
@@ -67,11 +69,14 @@ struct SessionTierPrerequisite: View {
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundStyle(Color.appAccent)
             }
-            .onAppear {
-                withAnimation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true)) {
-                    shimmer = true
-                }
-            }
+            // Scoped to `shimmer` with `.animation(_:value:)` rather than started inside a
+            // bare `withAnimation`. That form applies the repeating animation to the whole
+            // transaction, so anything else changing in the same frame inherits it — and on
+            // this screen the hierarchy IS changing, because `canTrustTierState` flips as
+            // sync lands and swaps the top-level branch underneath us. The symptom was a
+            // ghosted second copy of the card, offset and pulsing forever.
+            .animation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true), value: shimmer)
+            .onAppear { shimmer = true }
 
             Text("Smart Sessions start where you do.")
                 .font(.title2.weight(.bold))

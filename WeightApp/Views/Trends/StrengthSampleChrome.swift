@@ -79,10 +79,17 @@ struct StrengthUnlockFooter: View {
     /// a cosmetic error — it tells the user to go do something for a feature they were not
     /// looking at.
     ///
-    /// Split in two so the highlight can be the accent-coloured payoff term while any
-    /// lead-in ("your starting ") stays plain.
-    var unlockPrefix: String = "your starting "
+    /// Split so the highlight can be the accent-coloured payoff term while the lead-in
+    /// ("Your starting ") stays plain.
+    ///
+    /// The payoff LEADS the sentence rather than following "to unlock". Nothing here is
+    /// locked: on the Strength tab the tier is earned by training and is not paywalled, and
+    /// on the Session tab the user is already premium and is only missing a baseline.
+    /// Telling a paying customer to "unlock" what they bought reads as a bug.
+    var unlockPrefix: String = "Your starting "
     var unlockHighlight: String = "Strength Tier"
+    /// Agrees with `unlockHighlight`. "Strength Tier needs" but "Smart Sessions need".
+    var unlockVerb: String = "needs"
 
     private var loggedCount: Int { loggedFlags.filter { $0 }.count }
 
@@ -153,14 +160,15 @@ struct StrengthUnlockFooter: View {
                 }
             }
 
-            // Two authored lines rather than one wrapping string: the break belongs
-            // after "unlock" so the payoff term lands whole on its own line, which
-            // free wrapping would not guarantee across dynamic type sizes.
+            // Two authored lines rather than one wrapping string: the break belongs after
+            // the verb, so the accented payoff term and the ask each land whole on their
+            // own line, which free wrapping would not guarantee across dynamic type sizes.
             VStack(spacing: 1) {
-                Text("Log one set of each lift to unlock")
-
                 Text(unlockPrefix)
                 + Text(unlockHighlight).foregroundColor(.appAccent)
+                + Text(" \(unlockVerb)")
+
+                Text("one set of each lift")
             }
             .font(.caption2)
             .foregroundStyle(.white.opacity(0.5))

@@ -26,6 +26,7 @@ struct MoreView: View {
 
     @State private var showAccount = false
     @State private var showDeveloper = false
+    @State private var showFirstProgressCelebration = false
     @State private var showAbout = false
     // FEATURE FLAG: SETS-widget style variant (see SetsWidgetStyle / CheckInView).
     @AppStorage("setsWidgetStyle") private var setsWidgetStyleRaw = SetsWidgetStyle.verticalRows.rawValue
@@ -57,6 +58,7 @@ struct MoreView: View {
     @State private var showMemberSince = false
     @State private var showTokenExpiry = false
     @State private var showUpsellPreview = false
+    @State private var showFirstWeekPaywall = false
     @State private var showExerciseIcons = false
     @State private var showAlertPreviews = false
     @State private var showTierJourneyIntro = false
@@ -864,6 +866,18 @@ struct MoreView: View {
                         }
 
                         Button {
+                            showFirstWeekPaywall = true
+                        } label: {
+                            HStack {
+                                Text("Show First Week Paywall")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "calendar.badge.clock")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        Button {
                             showAlertPreviews = true
                         } label: {
                             HStack {
@@ -1107,6 +1121,30 @@ struct MoreView: View {
                                     .foregroundStyle(.primary)
                                 Spacer()
                                 Image(systemName: "arrow.counterclockwise")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        Button {
+                            UserDefaults.standard.removeObject(forKey: "hasSeenFirstProgressCelebration")
+                        } label: {
+                            HStack {
+                                Text("Reset First Progress Celebration")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "arrow.counterclockwise")
+                                    .foregroundStyle(Color.appAccent)
+                            }
+                        }
+
+                        Button {
+                            showFirstProgressCelebration = true
+                        } label: {
+                            HStack {
+                                Text("Show First Progress Celebration")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "trophy")
                                     .foregroundStyle(Color.appAccent)
                             }
                         }
@@ -1474,6 +1512,17 @@ struct MoreView: View {
                     showUpsellPreview = false
                 }
             }
+            // The card carries its own scrim, so it is presented over a transparent background
+            // rather than in a sheet chrome — same as it appears on the Lift tab.
+            .fullScreenCover(isPresented: $showFirstProgressCelebration) {
+                FirstProgressCelebrationCard(
+                    exerciseName: "Bench Press",
+                    exerciseIcon: "BenchPressIcon",
+                    deltaText: "+2.5 lb",
+                    onDismiss: { showFirstProgressCelebration = false }
+                )
+                .presentationBackground(.clear)
+            }
             .fullScreenCover(isPresented: $showTierJourneyIntro) {
                 TierJourneyOverlay(
                     mode: .intro,
@@ -1495,6 +1544,13 @@ struct MoreView: View {
             // Full-screen so it reads like real onboarding rather than a sheet.
             .fullScreenCover(isPresented: $showSessionIntentMock) {
                 SessionIntentMockFlow()
+            }
+            // Unlike the legacy cover below, this one HONOURS its Bool: the first-week design
+            // is a live candidate, so a purchase made from it should complete like any other.
+            .fullScreenCover(isPresented: $showFirstWeekPaywall) {
+                FirstWeekPaywallView(source: SubscriptionConfig.UpsellSource.firstWeekDevPreview) { _ in
+                    showFirstWeekPaywall = false
+                }
             }
             .fullScreenCover(isPresented: $showExperimentalUpsell) {
                 // Ignores the Bool — a purchase made from the legacy design should not be

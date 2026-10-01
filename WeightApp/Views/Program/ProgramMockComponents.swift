@@ -555,16 +555,20 @@ struct GeneratingView: View {
                 .scaleEffect(pulse ? 1.10 : 0.94)
                 .opacity(pulse ? 1 : 0.65)
         }
+        // Two independent rhythms on purpose. Matched durations made the whole emblem beat
+        // as one object; deliberately unrelated periods keep it alive for the fifteen-plus
+        // seconds a real generation can take.
+        //
+        // Scoped with `.animation(_:value:)` rather than started inside a bare
+        // `withAnimation`: that form attaches the repeat to the whole transaction, and this
+        // emblem is torn down at exactly the moment `.generating` swaps to `.active` or
+        // `.failed`. A repeating animation escaping into that swap leaves a ghost copy
+        // pulsing over the new card.
+        .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: pulse)
+        .animation(.linear(duration: 1.6).repeatForever(autoreverses: false), value: sweep)
         .onAppear {
-            // Two independent rhythms on purpose. Matched durations made the whole emblem
-            // beat as one object; deliberately unrelated periods keep it alive for the
-            // fifteen-plus seconds a real generation can take.
-            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
-                pulse = true
-            }
-            withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) {
-                sweep = true
-            }
+            pulse = true
+            sweep = true
         }
     }
 

@@ -69,11 +69,14 @@ struct SessionPremiumPlaceholder: View {
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundStyle(Color.appAccent)
             }
-            .onAppear {
-                withAnimation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true)) {
-                    shimmer = true
-                }
-            }
+            // Scoped to `shimmer` with `.animation(_:value:)` rather than started inside a
+            // bare `withAnimation`. That form applies the repeating animation to the whole
+            // transaction, so anything else changing in the same frame inherits it — and on
+            // this screen the hierarchy IS changing, because `canTrustTierState` flips as
+            // sync lands and swaps the top-level branch underneath us. The symptom was a
+            // ghosted second copy of the card, offset and pulsing forever.
+            .animation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true), value: shimmer)
+            .onAppear { shimmer = true }
 
             Text("Show up. We'll pick.")
                 .font(.title2.weight(.bold))

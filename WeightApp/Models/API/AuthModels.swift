@@ -12,6 +12,9 @@ import Foundation
 struct CreateUserRequest: Codable {
     let emailAddress: String
     let password: String
+    /// Recorded once as `firstAppVersion` when the account is created. No custom `encode(to:)`
+    /// here, so nil goes over the wire as JSON null — which the backend treats as not provided.
+    let appVersion: String?
 }
 
 struct LoginRequest: Codable {
@@ -38,6 +41,9 @@ struct AppleSignInRequest: Codable {
     let authorizationCode: String
     let email: String?
     let fullName: String?
+    /// Sent on every Apple request, sign-up or sign-in. Only the new-user branch of the handler
+    /// creates a user-properties row, so a returning user cannot have theirs re-seeded.
+    let appVersion: String?
 }
 
 // MARK: - Response Models

@@ -129,6 +129,17 @@ final class ProgramSessionStore {
     /// `logSet()` already raised.
     var pendingLiftCelebration: UUID?
     var pendingSessionCelebration = false
+
+    /// Set when a session ends in a state worth asking for an App Store review about: every
+    /// prescribed lift finished, ended by an explicit user action. Consumed once by the
+    /// Session tab.
+    ///
+    /// Armed HERE rather than inferred from `receipt`/`lastOutcome` after the fact, for the
+    /// same reason `pendingSessionCelebration` is. By the time the receipt is on screen,
+    /// "the user just finished a session" is indistinguishable from "the tab reopened on
+    /// today's receipt" and from "the idle finaliser closed a session abandoned four hours
+    /// ago" — and only the first of those deserves a rating alert.
+    private(set) var pendingReviewRequest = false
     private(set) var activePhase: ActivePhase = .planning
     /// When the session went Underway — the Start Lifting tap or the first credited set,
     /// whichever fired. Shown as "Started 10:02 AM".
@@ -193,6 +204,8 @@ final class ProgramSessionStore {
         var lastOutcome: Outcome?
         var receipt: [Item]
         var lastActivityAt: Date?
+        // Defaulted so a snapshot written before this field existed still decodes.
+        var pendingReviewRequest: Bool = false
     }
 
     /// Called at the end of every mutation. Cheap enough to be unconditional: the blob is
@@ -212,7 +225,8 @@ final class ProgramSessionStore {
             receiptDay: receiptDay,
             lastOutcome: lastOutcome,
             receipt: receipt,
-            lastActivityAt: lastActivityAt
+            lastActivityAt: lastActivityAt,
+            pendingReviewRequest: pendingReviewRequest
         )
         do {
             let data = try JSONEncoder().encode(snapshot)
@@ -248,6 +262,7 @@ final class ProgramSessionStore {
         lastOutcome = snapshot.lastOutcome
         receipt = snapshot.receipt
         lastActivityAt = snapshot.lastActivityAt
+        pendingReviewRequest = snapshot.pendingReviewRequest
 
         pruneAfterRestore()
     }
@@ -300,6 +315,23 @@ final class ProgramSessionStore {
         startedOnDay = Calendar.current.startOfDay(for: Date())
         activePhase = .planning
         startedLiftingAt = nil
+
+        // Celebration state belongs to the plan that produced it, and this function replaces
+        // that plan wholesale. `replacePlan(from:)` routes regeneration through here on a LIVE
+        // session, so without these three the previous generation's state leaks into the new
+        // one and produces three distinct misbehaviours:
+        //
+        //   pendingLiftCelebration    a card naming a lift the user did not just finish,
+        //                             carried over from the plan that is gone
+        //   pendingSessionCelebration "session complete" on the new session's first set
+        //   celebratedLiftIds         the quiet one: any lift celebrated under the old plan is
+        //                             permanently suppressed under the new one
+        //
+        // `clear()` resets all three, but regeneration never goes through `clear()` — that is
+        // teardown, and a regenerated session is not torn down.
+        celebratedLiftIds = []
+        pendingLiftCelebration = nil
+        pendingSessionCelebration = false
 
         // The first lift that still needs work, NOT simply the first lift — same rule
         // the rail's Next and the Session tab's Back to Lifting use. Falls back to the
@@ -425,7 +457,14 @@ final class ProgramSessionStore {
 
     /// All planned lifts done. Snapshots the items so the Program tab can draw a receipt
     /// after the live session is gone.
-    func finish() {
+    /// - Parameter userInitiated: false only for the idle finaliser. A session closed by a
+    ///   timer four hours after the user walked away is still a real receipt, but it is not a
+    ///   moment to ask anything of them.
+    func finish(userInitiated: Bool = true) {
+        // Evaluate BEFORE `clear()`: `allComplete` reads `items`, which is about to be
+        // emptied. Reading it afterwards is always false — a silent no-op that would look
+        // exactly like the review trigger being broken.
+        pendingReviewRequest = userInitiated && allComplete
         receipt = items
         receiptDay = startedOnDay
         lastOutcome = .completed
@@ -437,9 +476,21 @@ final class ProgramSessionStore {
     /// separate "incomplete" state, because ending early is not a failure mode.
     func end() {
         receipt = []
+        // Ending early is never a review moment. `finish()` overwrites this anyway, but
+        // leaving a stale `true` here would arm the next completed session's prompt on
+        // evidence from a session the user walked out of.
+        pendingReviewRequest = false
         lastOutcome = .ended
         clear()
         persist()
+    }
+
+    /// Consume-and-clear. Returns true exactly once per qualifying session.
+    func consumePendingReviewRequest() -> Bool {
+        guard pendingReviewRequest else { return false }
+        pendingReviewRequest = false
+        persist()
+        return true
     }
 
     /// Consumed by the Program tab once it has shown the outcome.
@@ -533,7 +584,7 @@ final class ProgramSessionStore {
     /// mid-set at 11:59pm.
     func finalizeIfIdle4h() {
         guard isActive, isIdle4h else { return }
-        finish()
+        finish(userInitiated: false)
     }
 
     /// A session that never saw a set leaves no trace. Dissolved silently at rollover —
