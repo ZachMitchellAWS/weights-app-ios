@@ -148,14 +148,15 @@ struct WeightAppApp: App {
                                     }
                                     .transition(.opacity)
                                 } else {
-                                    // POST-ONBOARDING ONLY. Every other entry point still uses
-                                    // `UpsellView`, because those are reached by tapping a
-                                    // specific locked feature and its carousel opens on that
-                                    // feature via `initialPage`. There is nothing to deep-link
-                                    // to here — a user arriving straight out of onboarding has
-                                    // not tapped anything — which is exactly why this screen
-                                    // can be a single scrolling story instead.
-                                    FirstWeekPaywallView(source: SubscriptionConfig.UpsellSource.postOnboarding) { _ in
+                                    // Same upsell as every other entry point. No `initialPage`:
+                                    // a user arriving straight out of onboarding has not tapped
+                                    // a locked feature, so the carousel opens on page 0, Smart
+                                    // Sessions.
+                                    //
+                                    // This briefly ran `FirstWeekPaywallView` instead (shipped
+                                    // in 1.1.5 on 2026-10-01, reverted here). That view still
+                                    // exists and is reachable from More -> Developer.
+                                    UpsellView(source: SubscriptionConfig.UpsellSource.postOnboarding) { _ in
                                         withAnimation(.easeInOut(duration: 0.4)) {
                                             authViewModel.completePostAuthFlow()
                                         }
