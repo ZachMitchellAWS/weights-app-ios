@@ -62,6 +62,14 @@ struct UpsellView: View {
     @State private var isProcessing = false
     @State private var errorMessage: String?
     @State private var currentPage: Int
+
+    /// Identifies this paywall design on purchase and dismissal events.
+    ///
+    /// Without it, a purchase from here reports `paywallVariant: nil` — indistinguishable from
+    /// a call site that simply forgot to tag itself. Naming it makes "the carousel" a thing
+    /// that can be compared against any future design rather than the absence of one.
+    static let variant = "carousel_v1"
+
     @State private var safariURL: URL?
 
     // Entrance stagger. Carried over from `LegacyUpsellView`, minus the two stages that animated
@@ -146,10 +154,15 @@ struct UpsellView: View {
         .sheet(item: $safariURL) { SafariView(url: $0).ignoresSafeArea() }
         .onAppear {
             shownAt = Date()
+            // No scroll depth: this is a carousel, and `maxScrollDepthPct` describes a
+            // vertical scroll. Left nil rather than mapped onto page index — the page events
+            // already say where the user got to.
+            purchaseService.setActivePaywall(variant: Self.variant)
             AmplitudeService.shared.track(.premiumUpsellShown(
                 source: source.rawValue,
                 initialPage: initialPage,
-                initialFeature: featureTitle(at: initialPage)
+                initialFeature: featureTitle(at: initialPage),
+                paywallVariant: Self.variant
             ))
 
             // 0.0s — the carousel. First here, where the legacy design ran a title and badge
@@ -328,8 +341,12 @@ struct UpsellView: View {
         AmplitudeService.shared.track(.upsellDismissed(
             source: source.rawValue,
             feature: featureTitle(at: currentPage),
-            secondsOnScreen: Date().timeIntervalSince(shownAt)
+            secondsOnScreen: Date().timeIntervalSince(shownAt),
+            paywallVariant: Self.variant
         ))
+        // Leaving it armed would tag the next purchase — a renewal, or a buy from somewhere
+        // else entirely — with a paywall this user walked away from.
+        purchaseService.clearActivePaywall()
         onComplete(false)
     }
 
