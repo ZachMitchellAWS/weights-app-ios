@@ -98,6 +98,39 @@ enum AnalyticsService {
         Analytics.logEvent(envName("onboarding_complete"), parameters: nil)
     }
 
+    /// Starting strength tier unlocked, as TWO events: one unfiltered, one gated on
+    /// `qualified`.
+    ///
+    /// Exists because purchases are too rare to drive Smart Bidding — 25 paid against 530
+    /// users all-time, far below the ~30/month Google needs. Tier unlock fires at ~16.8% of
+    /// users and predicts trial start at 4.6x the base rate (18% vs 3.9%, p=1.19e-05), so it
+    /// is a defensible proxy conversion.
+    ///
+    /// TWO EVENTS, NOT ONE WITH A PARAMETER. A Google Ads conversion action cannot filter on
+    /// an event parameter, so a single event carrying `qualified: false` would still count
+    /// toward it. Emitting the strict variant separately is the only way to make it
+    /// selectable later without shipping a new client.
+    ///
+    /// Both are CUSTOM events — Ads will not suggest them automatically, and each needs a
+    /// conversion action created by hand in the console.
+    static func logStartingTierUnlocked(tier: String,
+                                        spanSeconds: TimeInterval?,
+                                        minGapSeconds: TimeInterval?,
+                                        qualified: Bool) {
+        guard isEnabled else { return }
+        var params: [String: Any] = ["tier": tier, "qualified": qualified]
+        // Carried on BOTH events so the threshold can be re-derived from history in the
+        // BigQuery export. Omitted rather than zeroed when unknown: a real 0-second span and
+        // "we could not measure it" must not look alike.
+        if let spanSeconds { params["baseline_span_seconds"] = Int(spanSeconds.rounded()) }
+        if let minGapSeconds { params["min_gap_seconds"] = Int(minGapSeconds.rounded()) }
+
+        Analytics.logEvent(envName("starting_tier_unlocked"), parameters: params)
+        if qualified {
+            Analytics.logEvent(envName("starting_tier_unlocked_qualified"), parameters: params)
+        }
+    }
+
     /// User started watching the onboarding tutorial video (tapped "Watch Now"
     /// or the poster area, opening the fullscreen player). Uses Firebase's
     /// standard `tutorial_begin` event name so Google Ads recognizes it as an

@@ -46,6 +46,12 @@ enum AppEvent {
     case baselineRevealUndone(exercise: String, estimated1RM: Double)
     /// The one-time starting-tier unlock (generic — tier is a property, not in the name).
     case startingStrengthTierUnlocked(tier: String)
+    /// The same unlock, fired ONLY when the five baselines were spread over enough time to
+    /// look like real training. Mirrors the Firebase `starting_tier_unlocked_qualified`
+    /// event, which exists so a Google Ads conversion action can select the stricter
+    /// definition later — Ads cannot filter on an event parameter, so the split has to be
+    /// two events rather than one with a flag.
+    case startingTierUnlockedQualified(tier: String, spanSeconds: Double, minGapSeconds: Double)
     /// A subsequent overall-tier rise after the starting tier (tier-specific event name).
     case strengthTierAchieved(tier: String, previousTier: String, drivingExercise: String)
     /// A per-exercise tier crossing after the starting tier (exercise+tier in the name).
@@ -192,6 +198,7 @@ enum AppEvent {
         case .baselineRevealNextUpTapped: return "Baseline Reveal Next Up Tapped"
         case .baselineRevealUndone: return "Baseline Reveal Undone"
         case .startingStrengthTierUnlocked: return "Strength Tier Unlocked - Starting"
+        case .startingTierUnlockedQualified: return "Strength Tier Unlocked - Qualified"
         case let .strengthTierAchieved(tier, _, _): return "Strength Tier Unlocked - \(tier)"
         case let .strengthMilestoneAchieved(exercise, tier, _): return "Strength Milestone Achieved - \(exercise) \(tier)"
         case .exerciseCreated: return "Exercise Created"
@@ -257,6 +264,14 @@ enum AppEvent {
 
         case let .startingStrengthTierUnlocked(tier):
             return ["tier": tier]
+
+        case let .startingTierUnlockedQualified(tier, spanSeconds, minGapSeconds):
+            // The raw timings ride along so the 90s threshold can be re-derived from history
+            // if it turns out to be wrong. Without them a future re-tune has nothing to
+            // tune against.
+            return ["tier": tier,
+                    "baseline_span_seconds": Int(spanSeconds.rounded()),
+                    "min_gap_seconds": Int(minGapSeconds.rounded())]
 
         case let .strengthTierAchieved(tier, previousTier, drivingExercise):
             return ["tier": tier, "previous_tier": previousTier, "driving_exercise": drivingExercise]

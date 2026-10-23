@@ -194,25 +194,39 @@ struct FirstWeekPaywallView: View {
                     .padding(.top, 4)
                     .opacity(ctaOpacity)
 
-                // Replaces the X. The flanking rules do the work the padding used to: they
-                // separate it from the CTA above and the legal text below without spending
-                // vertical space, which the carousel needs more than this does. Both rules take
-                // the same expansion, so they stay symmetrical at any width.
-                // The visible row shrinks to 36 to buy back what the guarantee line costs, but
-                // the TAP TARGET stays 44 — `contentShape` extends it invisibly past the text,
-                // so the row reads tighter without becoming harder to hit.
-                HStack(spacing: 12) {
-                    rule
-                    Button("Not now") { dismiss() }
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.5))
-                        .frame(minHeight: 44)
+                // Replaces the X, and carries the only way off this screen — so it has to READ
+                // as a control, not as a caption.
+                //
+                // It used to be 15pt text at 50% white between two hairlines. Directly beneath
+                // a solid amber CTA that reads as a divider label: someone scanning for an exit
+                // finds nothing shaped like a button and concludes there isn't one. Matches
+                // `UpsellView`, which was changed first and for the same reason.
+                //
+                // Same 6pt radius, width, height and type as the CTA, so the pair reads as two
+                // options. Outlined rather than filled is the only thing keeping it secondary,
+                // and that carries the hierarchy on its own. The flanking rules are gone — the
+                // border does their separating job and keeping both reads as busy.
+                Button { dismiss() } label: {
+                    Text("Not now")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 40)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(Color.white.opacity(0.30), lineWidth: 1)
+                        )
+                        // Keeps the 44pt tap target the old row went out of its way to
+                        // preserve: 2pt either side of the visible 40pt border, invisible.
+                        .padding(.vertical, 2)
                         .contentShape(Rectangle())
-                        .disabled(isProcessing)
-                    rule
                 }
-                .padding(.horizontal, 44)
-                .frame(height: 36)
+                .buttonStyle(.plain)
+                .disabled(isProcessing)
+                // 32 = the CTA's effective inset (24 at its call site, 8 inside
+                // `subscribeButton`), so the two edges line up.
+                .padding(.horizontal, 32)
+                .padding(.vertical, 10)
                 .opacity(ctaOpacity)
 
                 footerLinks
@@ -450,12 +464,6 @@ struct FirstWeekPaywallView: View {
                     .multilineTextAlignment(.center)
             }
         }
-    }
-
-    private var rule: some View {
-        Rectangle()
-            .fill(Color.white.opacity(0.14))
-            .frame(height: 1)
     }
 
     private var footerLinks: some View {

@@ -148,15 +148,24 @@ struct WeightAppApp: App {
                                     }
                                     .transition(.opacity)
                                 } else {
-                                    // Same upsell as every other entry point. No `initialPage`:
-                                    // a user arriving straight out of onboarding has not tapped
-                                    // a locked feature, so the carousel opens on page 0, Smart
-                                    // Sessions.
+                                    // POST-ONBOARDING ONLY. Every other entry point uses
+                                    // `UpsellView`, because those are reached by tapping a
+                                    // specific locked feature and its carousel opens on that
+                                    // feature via `initialPage`. There is nothing to deep-link
+                                    // to here — a user arriving straight out of onboarding has
+                                    // not tapped anything — which is why this screen can be a
+                                    // single scrolling story instead.
                                     //
-                                    // This briefly ran `FirstWeekPaywallView` instead (shipped
-                                    // in 1.1.5 on 2026-10-01, reverted here). That view still
-                                    // exists and is reachable from More -> Developer.
-                                    UpsellView(source: SubscriptionConfig.UpsellSource.postOnboarding) { _ in
+                                    // Third state for this slot. It shipped in 1.1.5
+                                    // (2026-10-01), was reverted to `UpsellView` on 2026-10-09
+                                    // because ~60% of users were reaching the paywall and
+                                    // neither converting nor dismissing, and is restored here
+                                    // now that the dismissal has been rebuilt: "Not now" was a
+                                    // 15pt label between two hairlines and is now a full-width
+                                    // outlined button matching the CTA. Both paywalls carry
+                                    // that change, so this is the design question on its own
+                                    // rather than the design plus a missing exit.
+                                    FirstWeekPaywallView(source: SubscriptionConfig.UpsellSource.postOnboarding) { _ in
                                         withAnimation(.easeInOut(duration: 0.4)) {
                                             authViewModel.completePostAuthFlow()
                                         }

@@ -129,20 +129,40 @@ struct UpsellView: View {
                     .padding(.top, 8)
                     .opacity(ctaOpacity)
 
-                // Replaces the X. The flanking rules do the work the padding used to: they
-                // separate it from the CTA above and the legal text below without spending
-                // vertical space, which the carousel needs more than this does. Both rules take
-                // the same expansion, so they stay symmetrical at any width.
-                HStack(spacing: 12) {
-                    rule
-                    Button("Not now") { dismiss() }
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.5))
-                        .disabled(isProcessing)
-                    rule
+                // Replaces the X, and carries the only way out of this screen — so it has to
+                // READ as a control, not as a caption.
+                //
+                // It used to be 15pt text at 50% white between two hairlines. On a #0A0A0A
+                // field directly beneath a solid amber CTA, that reads as a divider label: a
+                // user scanning for an exit finds nothing shaped like a button and concludes
+                // there isn't one. Roughly 60% of users were reaching this screen and neither
+                // converting nor dismissing, which is the shape that failure takes.
+                //
+                // Now it borrows the CTA's shape — same 6pt radius, same width, same height,
+                // same type size and weight — so the pair reads as two options rather than a
+                // button and a footnote. Outlined rather than filled is the only thing keeping
+                // it secondary, and that carries the hierarchy on its own. The flanking rules
+                // are gone because the border does their separating job, and keeping both read
+                // as busy.
+                Button { dismiss() } label: {
+                    Text("Not now")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 40)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(Color.white.opacity(0.30), lineWidth: 1)
+                        )
                 }
-                .padding(.horizontal, 44)
-                .padding(.vertical, 16)
+                .buttonStyle(.plain)
+                .disabled(isProcessing)
+                // 32 = the CTA's effective inset: 24 at its call site plus 8 inside
+                // `subscribeButton`. Matched deliberately so the two edges line up — unequal
+                // widths on stacked buttons read as a mistake rather than as hierarchy.
+                // Filled-vs-outlined is what keeps this one secondary.
+                .padding(.horizontal, 32)
+                .padding(.vertical, 12)
                 .opacity(ctaOpacity)
 
                 footerLinks
@@ -312,12 +332,6 @@ struct UpsellView: View {
     private func featureTitle(at index: Int) -> String {
         guard pages.indices.contains(index) else { return "unknown" }
         return pages[index].title.replacingOccurrences(of: "\n", with: " ")
-    }
-
-    private var rule: some View {
-        Rectangle()
-            .fill(Color.white.opacity(0.14))
-            .frame(height: 1)
     }
 
     private var footerLinks: some View {

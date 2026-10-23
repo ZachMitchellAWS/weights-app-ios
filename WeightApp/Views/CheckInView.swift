@@ -6616,11 +6616,70 @@ struct CheckInView: View {
         dismissBaselineReveal()
     }
 
+    /// Minimum elapsed seconds across the five baselines for an unlock to count as
+    /// `qualified` — the stricter of the two conversion events sent to Firebase.
+    ///
+    /// 90s keeps 67 of 89 historical unlockers: 12.6% of all users, and twice the trial
+    /// volume this proxy is meant to replace. The fastest observed unlock is 39s with 5-15s
+    /// between five DIFFERENT lifts, which is not physically a workout; this excludes that
+    /// group and little else. Return-to-train separates 18% vs 43%, p=0.043.
+    ///
+    /// Deliberately permissive. Raising it to 300s separates paid more cleanly (p=0.009) but
+    /// leaves fewer events than there are trials, defeating the purpose. NOT significant
+    /// against paid at this value (p=0.174), nor against trial start at ANY value — this is
+    /// justified by engagement, not revenue, and is built for future optionality rather than
+    /// present evidence.
+    static let qualifiedUnlockMinSpanSeconds: TimeInterval = 90
+
+    /// Elapsed seconds across the five fundamental baseline sets, and the tightest gap
+    /// between any consecutive pair. Nil when fewer than five exist.
+    ///
+    /// Computed at the unlock moment because that is the only time the answer is both
+    /// knowable and stable: baselines can later be deleted or re-logged, so reconstructing
+    /// this from history afterwards would report a number the user did not actually earn.
+    ///
+    /// Nil is treated as "cannot qualify" rather than defaulted to zero, so a logic change
+    /// upstream surfaces as missing events rather than as silently qualified ones.
+    private func baselineTiming() -> (span: TimeInterval, minGap: TimeInterval)? {
+        let fundamentalIds = Set(TrendsCalculator.fundamentalExercises.map(\.id))
+        // First baseline PER LIFT. A re-logged baseline would otherwise contribute twice and
+        // stretch the span — which would make a click-through look deliberate, the one
+        // direction this must not fail in.
+        var firstPerLift: [UUID: Date] = [:]
+        for set in allLiftSets where set.isBaselineSet {
+            guard let id = set.exercise?.id, fundamentalIds.contains(id) else { continue }
+            if let existing = firstPerLift[id], existing <= set.createdAt { continue }
+            firstPerLift[id] = set.createdAt
+        }
+        guard firstPerLift.count >= 5 else { return nil }
+        let times = firstPerLift.values.sorted()
+        let gaps = zip(times, times.dropFirst()).map { $1.timeIntervalSince($0) }
+        return (times.last!.timeIntervalSince(times.first!), gaps.min() ?? 0)
+    }
+
     private func markStartingTierUnlocked(tier: StrengthTier) {
         guard let props = userPropertiesItems.first, !props.hasMetStrengthTierConditions else { return }
         props.hasMetStrengthTierConditions = true
         try? modelContext.save()
         AmplitudeService.shared.track(.startingStrengthTierUnlocked(tier: tier.title))
+
+        // Google Ads conversion proxy. Sits inside the guard above, which is what makes it
+        // once-ever: `hasMetStrengthTierConditions` has no un-set path anywhere in the app.
+        let timing = baselineTiming()
+        let qualified = (timing?.span ?? 0) >= Self.qualifiedUnlockMinSpanSeconds
+        AnalyticsService.logStartingTierUnlocked(
+            tier: tier.title,
+            spanSeconds: timing?.span,
+            minGapSeconds: timing?.minGap,
+            qualified: qualified
+        )
+        if qualified, let timing {
+            AmplitudeService.shared.track(.startingTierUnlockedQualified(
+                tier: tier.title,
+                spanSeconds: timing.span,
+                minGapSeconds: timing.minGap
+            ))
+        }
         PushNotificationService.shared.cancelSessionReminder(reason: "tier_unlocked")
         Task {
             let request = UserPropertiesRequest(hasMetStrengthTierConditions: true)
