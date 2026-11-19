@@ -59,6 +59,11 @@ struct MoreView: View {
     @State private var showTokenExpiry = false
     @State private var showUpsellPreview = false
     @State private var showFirstWeekPaywall = false
+    @State private var showIntroOfferPaywall = false
+    /// Developer-menu preview of the carousel paywall. Separate from `showUpsellPreview`, which
+    /// is the real More-tab header CTA and now opens the intro-offer screen.
+    @State private var showCarouselPreview = false
+    @State private var showPricingDebug = false
     @State private var showExerciseIcons = false
     @State private var showAlertPreviews = false
     @State private var showTierJourneyIntro = false
@@ -602,914 +607,33 @@ struct MoreView: View {
                     .padding(.top, 8)
                 }
 
-                if APIConfig.environment == "staging" {
-                // Developer Section (Bottom, Expandable)
-                Section {
-                    Button {
-                        withAnimation {
-                            showDeveloper.toggle()
-                        }
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "hammer")
-                                .foregroundStyle(Color.appAccent)
-                                .font(.system(size: 20))
-                            Text("Developer")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Image(systemName: showDeveloper ? "chevron.down" : "chevron.right")
-                                .foregroundStyle(.white.opacity(0.3))
-                                .font(.system(size: 14))
-                        }
-                        .padding(.horizontal, 4)
-                    }
-
-                    if showDeveloper {
-                        // MARK: Test Data
-                        Text("Test Data")
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.5))
-
-                        Button {
-                            Task {
-                                await populateSimulatedData()
-                            }
-                        } label: {
-                            HStack {
-                                Text("Populate 90 Days of Data")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                if isPopulating28Days {
-                                    ProgressView()
-                                } else {
-                                    Image(systemName: "wand.and.stars")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-                        }
-                        .disabled(isPopulating28Days)
-
-                        Button {
-                            Task {
-                                await populateTodayData()
-                            }
-                        } label: {
-                            HStack {
-                                Text("Populate Today Data")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                if isPopulatingToday {
-                                    ProgressView()
-                                } else {
-                                    Image(systemName: "calendar.badge.plus")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-                        }
-                        .disabled(isPopulatingToday)
-
-                        Button {
-                            Task {
-                                await populateYesterdayData()
-                            }
-                        } label: {
-                            HStack {
-                                Text("Populate Yesterday (Last Set Test)")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                if isPopulatingYesterday {
-                                    ProgressView()
-                                } else {
-                                    Image(systemName: "arrow.counterclockwise")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-                        }
-                        .disabled(isPopulatingYesterday)
-
-                        Button {
-                            isSeedingMissing = true
-                            seedMissingCount = SeedService.seedExercises(context: modelContext).count
-                            isSeedingMissing = false
-                            showSeedMissingAlert = true
-                        } label: {
-                            HStack {
-                                Text("Seed Missing Exercises")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                if isSeedingMissing {
-                                    ProgressView()
-                                } else {
-                                    Image(systemName: "plus.circle")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-                        }
-                        .disabled(isSeedingMissing)
-
-
-                        Button {
-                            isSeedingSetPlans = true
-                            SeedService.seedSetPlans(context: modelContext)
-                            isSeedingSetPlans = false
-                            showSeedSetPlansAlert = true
-                        } label: {
-                            HStack {
-                                Text("Seed Missing Set Plans")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                if isSeedingSetPlans {
-                                    ProgressView()
-                                } else {
-                                    Image(systemName: "plus.circle")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-                        }
-                        .disabled(isSeedingSetPlans)
-
-                        Button {
-                            isSeedingGroups = true
-                            SeedService.seedGroups(context: modelContext)
-                            isSeedingGroups = false
-                            showSeedGroupsAlert = true
-                        } label: {
-                            HStack {
-                                Text("Seed Missing Groups")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                if isSeedingGroups {
-                                    ProgressView()
-                                } else {
-                                    Image(systemName: "plus.circle")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-                        }
-                        .disabled(isSeedingGroups)
-
-                        Button {
-                            Task {
-                                await updateUserProperties()
-                            }
-                        } label: {
-                            HStack {
-                                Text("Update User Properties")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                if isUpdatingProperties {
-                                    ProgressView()
-                                } else {
-                                    Image(systemName: "person.crop.circle.badge.checkmark")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-                        }
-                        .disabled(isUpdatingProperties)
-
-                        Button {
-                            showAPIValidation = true
-                        } label: {
-                            HStack {
-                                Text("API Validation")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "checkmark.shield")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        // MARK: Flows & Previews
-                        Text("Flows & Previews")
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.5))
-
-                        Button {
-                            UserDefaults.standard.set(false, forKey: "hasSeenOnboardingTutorial")
-                            authViewModel.isOnboardingDebugPreview = true
-                            authViewModel.isNewUser = true
-                            authViewModel.showPostAuthFlow = true
-                        } label: {
-                            HStack {
-                                Text("Replay Onboarding (Dev)")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "arrow.counterclockwise")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        Button {
-                            UserDefaults.standard.set(false, forKey: "hasSeenOnboardingTutorial")
-                            authViewModel.isOnboardingDebugPreview = false
-                            authViewModel.isNewUser = true
-                            authViewModel.showPostAuthFlow = true
-                        } label: {
-                            HStack {
-                                Text("Replay Onboarding (Real)")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "arrow.counterclockwise")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        // The previous paywall design, kept for comparison. Nothing routes here.
-                        Button {
-                            showExperimentalUpsell = true
-                        } label: {
-                            HStack {
-                                Text("Legacy Upsell (R&D)")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "flask")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        // Standalone R&D mock — does NOT touch production onboarding.
-                        Button {
-                            showSessionIntentMock = true
-                        } label: {
-                            HStack {
-                                Text("Session Intent Screens (Mock)")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "bell.badge")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        Button {
-                            authViewModel.isNewUser = false
-                            authViewModel.showPostAuthFlow = true
-                        } label: {
-                            HStack {
-                                Text("Replay Welcome Back")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "hand.wave")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        Button {
-                            showUpsellPreview = true
-                        } label: {
-                            HStack {
-                                Text("Show Premium Upsell")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "crown")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        Button {
-                            showFirstWeekPaywall = true
-                        } label: {
-                            HStack {
-                                Text("Show First Week Paywall")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "calendar.badge.clock")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        Button {
-                            showAlertPreviews = true
-                        } label: {
-                            HStack {
-                                Text("Post Logged Set Alerts")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "bell.badge")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        Button {
-                            showExerciseIcons = true
-                        } label: {
-                            HStack {
-                                Text("Show Exercise Icons")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "photo.on.rectangle")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        Button {
-                            showTierJourneyIntro = true
-                        } label: {
-                            HStack {
-                                Text("Show Tier Journey Intro")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "trophy")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        // MARK: Entitlements
-                        Text("Entitlements")
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.5))
-
-                        HStack {
-                            Text("Override Premium")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Toggle("", isOn: Binding(
-                                get: { isPremiumEnabled },
-                                set: { isPremiumEnabled = $0 }
-                            ))
-                            .labelsHidden()
-                            .tint(Color.appAccent)
-                        }
-
-                        HStack {
-                            Text("Force Local Free")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Toggle("", isOn: Binding(
-                                get: { isFreeOverrideEnabled },
-                                set: { isFreeOverrideEnabled = $0 }
-                            ))
-                            .labelsHidden()
-                            .tint(.red)
-                        }
-
-                        HStack {
-                            Text("Showcase Session")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Toggle("", isOn: Binding(
-                                get: { isShowcaseSessionEnabled },
-                                set: { isShowcaseSessionEnabled = $0 }
-                            ))
-                            .labelsHidden()
-                            .tint(Color.appAccent)
-                        }
-
-                        HStack {
-                            Text("Legacy Check-In")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Toggle("", isOn: Binding(
-                                get: { isUITestModeEnabled },
-                                set: { isUITestModeEnabled = $0 }
-                            ))
-                            .labelsHidden()
-                            .tint(.purple)
-                        }
-
-                        Button {
-                            withAnimation {
-                                showEntitlementDetails.toggle()
-                            }
-                        } label: {
-                            HStack {
-                                Text("Entitlements Details")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: showEntitlementDetails ? "eye.fill" : "eye")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        if showEntitlementDetails {
-                            EntitlementDetailsView(grants: entitlementRecords)
-                        }
-
-                        Button {
-                            Task {
-                                isReplayingTransaction = true
-                                replayTransactionResult = nil
-                                do {
-                                    let response = try await EntitlementsService.shared.processTransactions(
-                                        originalTransactionIds: ["2000001123058480"]
-                                    )
-                                    EntitlementsService.shared.updateLocalEntitlements(
-                                        from: response,
-                                        context: modelContext
-                                    )
-                                    replayTransactionResult = "Success"
-                                } catch {
-                                    replayTransactionResult = "Error: \(error)"
-                                }
-                                isReplayingTransaction = false
-                            }
-                        } label: {
-                            HStack {
-                                Text("Replay Transaction")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                if isReplayingTransaction {
-                                    ProgressView()
-                                } else {
-                                    Image(systemName: "arrow.clockwise.circle")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-                        }
-                        .disabled(isReplayingTransaction)
-
-                        if let result = replayTransactionResult {
-                            Text(result)
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(result.hasPrefix("Error") ? .red.opacity(0.8) : .green.opacity(0.8))
-                        }
-
-                        // MARK: Debug
-                        Text("Debug")
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.5))
-
-                        Button {
-                            withAnimation {
-                                showExerciseIds.toggle()
-                            }
-                        } label: {
-                            HStack {
-                                Text("Show Exercise IDs")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: showExerciseIds ? "eye.fill" : "eye")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        if showExerciseIds {
-                            ForEach(exercises.sorted { $0.name < $1.name }, id: \.id) { exercise in
-                                HStack {
-                                    Text(exercise.name)
-                                        .foregroundStyle(.white.opacity(0.7))
-                                        .lineLimit(1)
-                                    Spacer()
-                                    Text(exercise.id.uuidString.prefix(8) + "...")
-                                        .foregroundStyle(.white.opacity(0.5))
-                                        .font(.system(.caption, design: .monospaced))
-                                        .textSelection(.enabled)
-                                }
-                            }
-                        }
-
-                        Button {
-                            withAnimation {
-                                showMemberSince.toggle()
-                            }
-                        } label: {
-                            HStack {
-                                Text("Show Member Since")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: showMemberSince ? "calendar.circle.fill" : "calendar.circle")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        if showMemberSince {
-                            HStack {
-                                Text("Member Since")
-                                    .foregroundStyle(.white.opacity(0.7))
-                                Spacer()
-                                Text(memberSinceDate)
-                                    .foregroundStyle(.white.opacity(0.5))
-                                    .font(.system(.caption, design: .monospaced))
-                            }
-                        }
-
-                        Button {
-                            withAnimation {
-                                showTokenExpiry.toggle()
-                            }
-                        } label: {
-                            HStack {
-                                Text("Token Expiry Info")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: showTokenExpiry ? "clock.fill" : "clock")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        if showTokenExpiry {
-                            TokenExpiryView()
-                        }
-
-                        Button {
-                            UserDefaults.standard.removeObject(forKey: "hasSeenLiftTutorialAfterTierUnlock")
-                            TutorialPresenter.shared.showLiftTutorial = false
-                        } label: {
-                            HStack {
-                                Text("Reset Lift Tutorial Popup")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "arrow.counterclockwise")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        Button {
-                            UserDefaults.standard.removeObject(forKey: "hasRequestedAppStoreReview")
-                        } label: {
-                            HStack {
-                                Text("Reset App Store Review Prompt")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "arrow.counterclockwise")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        Button {
-                            UserDefaults.standard.removeObject(forKey: "hasSeenFirstProgressCelebration")
-                        } label: {
-                            HStack {
-                                Text("Reset First Progress Celebration")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "arrow.counterclockwise")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        Button {
-                            showFirstProgressCelebration = true
-                        } label: {
-                            HStack {
-                                Text("Show First Progress Celebration")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "trophy")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        Button {
-                            requestReview()
-                        } label: {
-                            HStack {
-                                Text("Show Rating Prompt Now")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "star")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        Button {
-                            TutorialPresenter.shared.showResourcesHint = true
-                        } label: {
-                            HStack {
-                                Text("Show Resources Hint Popup")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "play.rectangle.on.rectangle")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        Text("User Samples")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.5))
-
-                        ForEach(UserSamples.Cohort.allCases, id: \.self) { cohort in
-                            Toggle(cohort.displayName, isOn: Binding(
-                                get: { UserSamples.shared.isInCohort(cohort) },
-                                set: { UserSamples.shared.setCohort(cohort, enabled: $0) }
-                            ))
-                            .font(.subheadline)
-                            .tint(.appAccent)
-                        }
-
-                        // MARK: Export Smart Sessions Card
-                        Button {
-                            exportSmartSessionsCard()
-                        } label: {
-                            HStack {
-                                Text("Export Smart Sessions Card")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                if isExportingSmartSessionsCard {
-                                    ProgressView()
-                                } else {
-                                    Image(systemName: "square.and.arrow.up")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-                        }
-                        if let result = smartSessionsCardExportResult {
-                            Text(result)
-                                .font(.caption)
-                                .foregroundStyle(.green)
-                        }
-
-                        // MARK: Export Strength Balance Card
-                        Button {
-                            exportStrengthBalanceCard()
-                        } label: {
-                            HStack {
-                                Text("Export Strength Balance Card")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                if isExportingBalanceCard {
-                                    ProgressView()
-                                } else {
-                                    Image(systemName: "square.and.arrow.up")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-                        }
-                        if let result = balanceCardExportResult {
-                            Text(result)
-                                .font(.caption)
-                                .foregroundStyle(.green)
-                        }
-
-                        // MARK: Export Analytics Card
-                        Button {
-                            exportAnalyticsCard()
-                        } label: {
-                            HStack {
-                                Text("Export Analytics Card")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                if isExportingAnalyticsCard {
-                                    ProgressView()
-                                } else {
-                                    Image(systemName: "square.and.arrow.up")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-                        }
-                        if let result = analyticsCardExportResult {
-                            Text(result)
-                                .font(.caption)
-                                .foregroundStyle(.green)
-                        }
-
-                        // MARK: Export Set Plan Catalog Card
-                        Button {
-                            exportSetPlanCatalogCard()
-                        } label: {
-                            HStack {
-                                Text("Export Set Plan Catalog Card")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                if isExportingSetPlanCard {
-                                    ProgressView()
-                                } else {
-                                    Image(systemName: "square.and.arrow.up")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-                        }
-                        if let result = setPlanCardExportResult {
-                            Text(result)
-                                .font(.caption)
-                                .foregroundStyle(.green)
-                        }
-
-                        // MARK: Export Display Progress Card
-                        Button {
-                            exportDisplayProgressCard()
-                        } label: {
-                            HStack {
-                                Text("Export Display Progress Card")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                if isExportingIdealCard {
-                                    ProgressView()
-                                } else {
-                                    Image(systemName: "square.and.arrow.up")
-                                        .foregroundStyle(Color.appAccent)
-                                }
-                            }
-                        }
-                        .disabled(isExportingIdealCard)
-
-                        if let idealCardExportResult {
-                            Text(idealCardExportResult)
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(idealCardExportResult.hasPrefix("Error") ? .red.opacity(0.8) : .green.opacity(0.8))
-                        }
-
-                        // MARK: Experimental
-                        Text("Experimental")
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.5))
-
-                        Picker(selection: $setsWidgetStyleRaw) {
-                            ForEach(SetsWidgetStyle.allCases) { style in
-                                Text(style.title).tag(style.rawValue)
-                            }
-                        } label: {
-                            Text("Sets Widget Style")
-                                .foregroundStyle(.primary)
-                        }
-                        .tint(Color.appAccent)
-
-                        Button {
-                            withAnimation {
-                                showPlateCalculator.toggle()
-                            }
-                        } label: {
-                            HStack {
-                                Text("Plate Calculator Preview")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: showPlateCalculator ? "eye.fill" : "eye")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        if showPlateCalculator {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Not currently used in the app")
-                                    .font(.caption)
-                                    .foregroundStyle(.white.opacity(0.4))
-
-                                HStack {
-                                    TextField("Total weight (\(userProperties.preferredWeightUnit.label))", text: $plateCalcInput)
-                                        .keyboardType(.decimalPad)
-                                        .textFieldStyle(.roundedBorder)
-                                        .frame(width: 150)
-
-                                    if let weight = Double(plateCalcInput),
-                                       let stack = PlateCalculator.calculateForSuggestion(
-                                        totalWeight: weight,
-                                        availablePlates: userProperties.availableChangePlates + [5, 10, 25, 35, 45]
-                                       ) {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text("Per side:")
-                                                .font(.caption2)
-                                                .foregroundStyle(.white.opacity(0.5))
-                                            Text(stack.plates.map { "\($0.formatted(.number.precision(.fractionLength(0...2))))" }.joined(separator: " + "))
-                                                .font(.system(.caption, design: .monospaced))
-                                                .foregroundStyle(.white.opacity(0.8))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // MARK: Training Snapshot Mockup
-                        Text("Training Snapshot Mockup")
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.5))
-
-                        Button {
-                            showTrainingSnapshotMock = true
-                        } label: {
-                            HStack {
-                                Text("Training — This Week")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "chart.bar.doc.horizontal")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        // MARK: Sync Logs
-                        Text("Sync Logs")
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.5))
-
-                        Button {
-                            isExportingLogs = true
-                            do {
-                                exportedLogText = try LogExporter.exportRecentLogs()
-                                showLogExportSheet = true
-                            } catch {
-                                exportedLogText = "Failed to export logs: \(error.localizedDescription)"
-                                showLogExportSheet = true
-                            }
-                            isExportingLogs = false
-                        } label: {
-                            HStack {
-                                Text("Export Sync Logs")
-                                Spacer()
-                                if isExportingLogs {
-                                    ProgressView()
-                                } else {
-                                    Image(systemName: "square.and.arrow.up")
-                                        .foregroundStyle(.blue)
-                                }
-                            }
-                        }
-
-                        // MARK: Sync State
-                        Text("Sync State")
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.5))
-
-                        Button {
-                            withAnimation {
-                                showSyncState.toggle()
-                            }
-                        } label: {
-                            HStack {
-                                Text("Show Sync State")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: showSyncState ? "eye.fill" : "eye")
-                                    .foregroundStyle(Color.appAccent)
-                            }
-                        }
-
-                        if showSyncState {
-                            let state = syncService.currentSyncState
-                            VStack(alignment: .leading, spacing: 6) {
-                                Label("Sync Complete", systemImage: state.syncComplete ? "checkmark.circle.fill" : "xmark.circle")
-                                    .foregroundStyle(state.syncComplete ? .green : .red.opacity(0.7))
-                                Label("User Properties", systemImage: state.userPropertiesComplete ? "checkmark.circle.fill" : "xmark.circle")
-                                    .foregroundStyle(state.userPropertiesComplete ? .green : .red.opacity(0.7))
-                                Label("Exercise", systemImage: state.exercisesComplete ? "checkmark.circle.fill" : "xmark.circle")
-                                    .foregroundStyle(state.exercisesComplete ? .green : .red.opacity(0.7))
-                                Label("Lift Sets", systemImage: state.liftSetsComplete ? "checkmark.circle.fill" : "xmark.circle")
-                                    .foregroundStyle(state.liftSetsComplete ? .green : .red.opacity(0.7))
-                                Label("Estimated 1RMs", systemImage: state.estimated1RMsComplete ? "checkmark.circle.fill" : "xmark.circle")
-                                    .foregroundStyle(state.estimated1RMsComplete ? .green : .red.opacity(0.7))
-
-                                Divider()
-
-                                HStack {
-                                    Text("Lift Set Page Token")
-                                        .foregroundStyle(.white.opacity(0.7))
-                                    Spacer()
-                                    Text(state.liftSetPageToken ?? "nil")
-                                        .font(.system(.caption, design: .monospaced))
-                                        .foregroundStyle(.white.opacity(0.5))
-                                        .lineLimit(1)
-                                }
-                                HStack {
-                                    Text("E1RM Page Token")
-                                        .foregroundStyle(.white.opacity(0.7))
-                                    Spacer()
-                                    Text(state.estimated1RMPageToken ?? "nil")
-                                        .font(.system(.caption, design: .monospaced))
-                                        .foregroundStyle(.white.opacity(0.5))
-                                        .lineLimit(1)
-                                }
-
-                                Divider()
-
-                                HStack {
-                                    Text("Lift Sets Fetched")
-                                        .foregroundStyle(.white.opacity(0.7))
-                                    Spacer()
-                                    Text("\(state.liftSetsFetched)")
-                                        .font(.system(.caption, design: .monospaced))
-                                        .foregroundStyle(.white.opacity(0.5))
-                                }
-                                HStack {
-                                    Text("E1RMs Fetched")
-                                        .foregroundStyle(.white.opacity(0.7))
-                                    Spacer()
-                                    Text("\(state.estimated1RMsFetched)")
-                                        .font(.system(.caption, design: .monospaced))
-                                        .foregroundStyle(.white.opacity(0.5))
-                                }
-                            }
-                            .font(.caption)
-                            .padding(.vertical, 4)
-                        }
-
-                        // MARK: Danger Zone
-                        Text("Danger Zone")
-                            .font(.subheadline)
-                            .foregroundStyle(.red.opacity(0.5))
-
-                        Button(role: .destructive) {
-                            showDeleteConfirmation = true
-                        } label: {
-                            HStack {
-                                Text("Delete All Workout Data")
-                                    .foregroundStyle(.red)
-                                Spacer()
-                                Image(systemName: "trash")
-                                    .foregroundStyle(.red)
-                            }
-                        }
-                    }
-                } footer: {
-                    if showDeveloper {
-                        Text("Generate      `s realistic training data for the past 28 days. Update user properties sends a test API call. Replay onboarding/welcome back shows the post-auth flows. Override Premium overrides entitlements to unlock premium features (staging only). Show Exercise IDs displays UUIDs for debugging. Delete all workout data removes all LiftSet and Estimated1RM entries.")
-                    }
-                }
-                }
+                developerSection
             }
             .navigationBarTitleDisplayMode(.inline)
             .fullScreenCover(isPresented: $showUpsellPreview) {
-                // `showUpsellPreview` is also set by a staging-only "Show Premium Upsell"
-                // dev button, so in staging this source covers both. In production the
-                // branding-header tap is the only path to it.
-                UpsellView(source: SubscriptionConfig.UpsellSource.moreTab) { _ in
+                //
+                // THE INTRO-OFFER SCREEN, NOT THE CAROUSEL, as of the repricing. The More tab
+                // header is the one entry point with no specific feature behind it — there is
+                // nothing to deep-link to, so the carousel's whole reason for being here (open
+                // on the page for the thing you just tapped) does not apply. Every OTHER
+                // touchpoint still opens the carousel, and those were left alone deliberately.
+                //
+                // No branch on offer state: the screen resolves promotional vs standard from
+                // the account's creation date and renders the right one.
+                IntroOfferPaywallView(source: SubscriptionConfig.UpsellSource.moreTab) { _ in
                     showUpsellPreview = false
+                }
+            }
+            // The carousel, for Developer-menu inspection of its four pricing states. Reports
+            // `.moreTab` because that is the nearest honest source — it is the entry point with
+            // no specific feature behind it — and staging-only traffic is excluded from the real
+            // funnel by environment anyway.
+            .sheet(isPresented: $showPricingDebug) {
+                PricingDebugView()
+            }
+            .fullScreenCover(isPresented: $showCarouselPreview) {
+                UpsellView(source: SubscriptionConfig.UpsellSource.moreTab) { _ in
+                    showCarouselPreview = false
                 }
             }
             // The card carries its own scrim, so it is presented over a transparent background
@@ -1550,6 +674,15 @@ struct MoreView: View {
             .fullScreenCover(isPresented: $showFirstWeekPaywall) {
                 FirstWeekPaywallView(source: SubscriptionConfig.UpsellSource.firstWeekDevPreview) { _ in
                     showFirstWeekPaywall = false
+                }
+            }
+            // Now a real paywall, not a study — it resolves prices from StoreKit and the
+            // offer window from the account's creation date, so a purchase here is a real
+            // purchase at whatever price the current state implies. This is the same screen
+            // post-onboarding and the More tab CTA present.
+            .fullScreenCover(isPresented: $showIntroOfferPaywall) {
+                IntroOfferPaywallView(source: SubscriptionConfig.UpsellSource.introOfferDevPreview) { _ in
+                    showIntroOfferPaywall = false
                 }
             }
             .fullScreenCover(isPresented: $showExperimentalUpsell) {
@@ -1750,6 +883,916 @@ struct MoreView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: copiedToast)
+    }
+
+    /// The staging-only Developer section, TYPE-ERASED behind `AnyView` — and that erasure is
+    /// load-bearing, not stylistic.
+    ///
+    /// WHAT WENT WRONG WITHOUT IT. Inlined, these ~880 lines were part of `moreFormContent`'s
+    /// single generic type. SwiftUI composes a body into one nested type per child, so a Form
+    /// this large produces a mangled type name with thousands of nested generic parameters, and
+    /// `swift_getTypeByMangledNameImpl` resolves those RECURSIVELY. Past a certain depth that
+    /// recursion exhausts the main thread's stack: the app died with EXC_BAD_ACCESS (code=2) and
+    /// a stack of ~30 identical demangler frames under `moreFormContent.getter`.
+    ///
+    /// WHY `AnyView` AND NOT JUST A CHILD VIEW. The depth is the problem, not the line count —
+    /// an earlier attempt moved 122 lines into child views and did not help, because the parent
+    /// still embedded each child's concrete type. `AnyView` erases the type, which truncates the
+    /// mangled name at this point and removes the whole subtree from the parent's.
+    ///
+    /// The usual objection to `AnyView` is that it defeats SwiftUI's structural diffing. That
+    /// cost is real and irrelevant here: this is a collapsed, staging-only section that renders
+    /// nothing in production and is closed by default even in staging.
+    ///
+    /// It stays a computed property on `MoreView` rather than a separate struct so the ~60
+    /// `@State` properties it reads remain in scope. Threading those as bindings would be a
+    /// large, risky refactor for no additional benefit — erasure alone fixes the crash.
+    private var developerSection: AnyView {
+        guard APIConfig.environment == "staging" else { return AnyView(EmptyView()) }
+        return AnyView(
+                    // Developer Section (Bottom, Expandable)
+                    Section {
+                        Button {
+                            withAnimation {
+                                showDeveloper.toggle()
+                            }
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "hammer")
+                                    .foregroundStyle(Color.appAccent)
+                                    .font(.system(size: 20))
+                                Text("Developer")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: showDeveloper ? "chevron.down" : "chevron.right")
+                                    .foregroundStyle(.white.opacity(0.3))
+                                    .font(.system(size: 14))
+                            }
+                            .padding(.horizontal, 4)
+                        }
+
+                        if showDeveloper {
+                            // MARK: Test Data
+                            Text("Test Data")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.5))
+
+                            Button {
+                                Task {
+                                    await populateSimulatedData()
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Populate 90 Days of Data")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    if isPopulating28Days {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "wand.and.stars")
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+                                }
+                            }
+                            .disabled(isPopulating28Days)
+
+                            Button {
+                                Task {
+                                    await populateTodayData()
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Populate Today Data")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    if isPopulatingToday {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "calendar.badge.plus")
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+                                }
+                            }
+                            .disabled(isPopulatingToday)
+
+                            Button {
+                                Task {
+                                    await populateYesterdayData()
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Populate Yesterday (Last Set Test)")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    if isPopulatingYesterday {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "arrow.counterclockwise")
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+                                }
+                            }
+                            .disabled(isPopulatingYesterday)
+
+                            Button {
+                                isSeedingMissing = true
+                                seedMissingCount = SeedService.seedExercises(context: modelContext).count
+                                isSeedingMissing = false
+                                showSeedMissingAlert = true
+                            } label: {
+                                HStack {
+                                    Text("Seed Missing Exercises")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    if isSeedingMissing {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "plus.circle")
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+                                }
+                            }
+                            .disabled(isSeedingMissing)
+
+
+                            Button {
+                                isSeedingSetPlans = true
+                                SeedService.seedSetPlans(context: modelContext)
+                                isSeedingSetPlans = false
+                                showSeedSetPlansAlert = true
+                            } label: {
+                                HStack {
+                                    Text("Seed Missing Set Plans")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    if isSeedingSetPlans {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "plus.circle")
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+                                }
+                            }
+                            .disabled(isSeedingSetPlans)
+
+                            Button {
+                                isSeedingGroups = true
+                                SeedService.seedGroups(context: modelContext)
+                                isSeedingGroups = false
+                                showSeedGroupsAlert = true
+                            } label: {
+                                HStack {
+                                    Text("Seed Missing Groups")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    if isSeedingGroups {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "plus.circle")
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+                                }
+                            }
+                            .disabled(isSeedingGroups)
+
+                            Button {
+                                Task {
+                                    await updateUserProperties()
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Update User Properties")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    if isUpdatingProperties {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "person.crop.circle.badge.checkmark")
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+                                }
+                            }
+                            .disabled(isUpdatingProperties)
+
+                            Button {
+                                showAPIValidation = true
+                            } label: {
+                                HStack {
+                                    Text("API Validation")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "checkmark.shield")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            // MARK: Flows & Previews
+                            Text("Flows & Previews")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.5))
+
+                            Button {
+                                UserDefaults.standard.set(false, forKey: "hasSeenOnboardingTutorial")
+                                authViewModel.isOnboardingDebugPreview = true
+                                authViewModel.isNewUser = true
+                                authViewModel.showPostAuthFlow = true
+                            } label: {
+                                HStack {
+                                    Text("Replay Onboarding (Dev)")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "arrow.counterclockwise")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            Button {
+                                UserDefaults.standard.set(false, forKey: "hasSeenOnboardingTutorial")
+                                authViewModel.isOnboardingDebugPreview = false
+                                authViewModel.isNewUser = true
+                                authViewModel.showPostAuthFlow = true
+                            } label: {
+                                HStack {
+                                    Text("Replay Onboarding (Real)")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "arrow.counterclockwise")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            // The previous paywall design, kept for comparison. Nothing routes here.
+                            Button {
+                                showExperimentalUpsell = true
+                            } label: {
+                                HStack {
+                                    Text("Legacy Upsell (R&D)")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "flask")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            // Standalone R&D mock — does NOT touch production onboarding.
+                            Button {
+                                showSessionIntentMock = true
+                            } label: {
+                                HStack {
+                                    Text("Session Intent Screens (Mock)")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "bell.badge")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            Button {
+                                authViewModel.isNewUser = false
+                                authViewModel.showPostAuthFlow = true
+                            } label: {
+                                HStack {
+                                    Text("Replay Welcome Back")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "hand.wave")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            PaywallPreviewDevRows(
+                                showCarouselPreview: $showCarouselPreview,
+                                showFirstWeekPaywall: $showFirstWeekPaywall,
+                                showIntroOfferPaywall: $showIntroOfferPaywall
+                            )
+
+                            Button {
+                                showAlertPreviews = true
+                            } label: {
+                                HStack {
+                                    Text("Post Logged Set Alerts")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "bell.badge")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            Button {
+                                showExerciseIcons = true
+                            } label: {
+                                HStack {
+                                    Text("Show Exercise Icons")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "photo.on.rectangle")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            Button {
+                                showTierJourneyIntro = true
+                            } label: {
+                                HStack {
+                                    Text("Show Tier Journey Intro")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "trophy")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            // MARK: Entitlements
+                            Text("Entitlements")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.5))
+
+                            HStack {
+                                Text("Override Premium")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Toggle("", isOn: Binding(
+                                    get: { isPremiumEnabled },
+                                    set: { isPremiumEnabled = $0 }
+                                ))
+                                .labelsHidden()
+                                .tint(Color.appAccent)
+                            }
+
+                            PricingOverrideDevRows(showPricingDebug: $showPricingDebug)
+
+                            HStack {
+                                Text("Force Local Free")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Toggle("", isOn: Binding(
+                                    get: { isFreeOverrideEnabled },
+                                    set: { isFreeOverrideEnabled = $0 }
+                                ))
+                                .labelsHidden()
+                                .tint(.red)
+                            }
+
+                            HStack {
+                                Text("Showcase Session")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Toggle("", isOn: Binding(
+                                    get: { isShowcaseSessionEnabled },
+                                    set: { isShowcaseSessionEnabled = $0 }
+                                ))
+                                .labelsHidden()
+                                .tint(Color.appAccent)
+                            }
+
+                            HStack {
+                                Text("Legacy Check-In")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Toggle("", isOn: Binding(
+                                    get: { isUITestModeEnabled },
+                                    set: { isUITestModeEnabled = $0 }
+                                ))
+                                .labelsHidden()
+                                .tint(.purple)
+                            }
+
+                            Button {
+                                withAnimation {
+                                    showEntitlementDetails.toggle()
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Entitlements Details")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: showEntitlementDetails ? "eye.fill" : "eye")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            if showEntitlementDetails {
+                                EntitlementDetailsView(grants: entitlementRecords)
+                            }
+
+                            Button {
+                                Task {
+                                    isReplayingTransaction = true
+                                    replayTransactionResult = nil
+                                    do {
+                                        let response = try await EntitlementsService.shared.processTransactions(
+                                            originalTransactionIds: ["2000001123058480"]
+                                        )
+                                        EntitlementsService.shared.updateLocalEntitlements(
+                                            from: response,
+                                            context: modelContext
+                                        )
+                                        replayTransactionResult = "Success"
+                                    } catch {
+                                        replayTransactionResult = "Error: \(error)"
+                                    }
+                                    isReplayingTransaction = false
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Replay Transaction")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    if isReplayingTransaction {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "arrow.clockwise.circle")
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+                                }
+                            }
+                            .disabled(isReplayingTransaction)
+
+                            if let result = replayTransactionResult {
+                                Text(result)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(result.hasPrefix("Error") ? .red.opacity(0.8) : .green.opacity(0.8))
+                            }
+
+                            // MARK: Debug
+                            Text("Debug")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.5))
+
+                            Button {
+                                withAnimation {
+                                    showExerciseIds.toggle()
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Show Exercise IDs")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: showExerciseIds ? "eye.fill" : "eye")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            if showExerciseIds {
+                                ForEach(exercises.sorted { $0.name < $1.name }, id: \.id) { exercise in
+                                    HStack {
+                                        Text(exercise.name)
+                                            .foregroundStyle(.white.opacity(0.7))
+                                            .lineLimit(1)
+                                        Spacer()
+                                        Text(exercise.id.uuidString.prefix(8) + "...")
+                                            .foregroundStyle(.white.opacity(0.5))
+                                            .font(.system(.caption, design: .monospaced))
+                                            .textSelection(.enabled)
+                                    }
+                                }
+                            }
+
+                            Button {
+                                withAnimation {
+                                    showMemberSince.toggle()
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Show Member Since")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: showMemberSince ? "calendar.circle.fill" : "calendar.circle")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            if showMemberSince {
+                                HStack {
+                                    Text("Member Since")
+                                        .foregroundStyle(.white.opacity(0.7))
+                                    Spacer()
+                                    Text(memberSinceDate)
+                                        .foregroundStyle(.white.opacity(0.5))
+                                        .font(.system(.caption, design: .monospaced))
+                                }
+                            }
+
+                            Button {
+                                withAnimation {
+                                    showTokenExpiry.toggle()
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Token Expiry Info")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: showTokenExpiry ? "clock.fill" : "clock")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            if showTokenExpiry {
+                                TokenExpiryView()
+                            }
+
+                            Button {
+                                UserDefaults.standard.removeObject(forKey: "hasSeenLiftTutorialAfterTierUnlock")
+                                TutorialPresenter.shared.showLiftTutorial = false
+                            } label: {
+                                HStack {
+                                    Text("Reset Lift Tutorial Popup")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "arrow.counterclockwise")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            Button {
+                                UserDefaults.standard.removeObject(forKey: "hasRequestedAppStoreReview")
+                            } label: {
+                                HStack {
+                                    Text("Reset App Store Review Prompt")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "arrow.counterclockwise")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            Button {
+                                UserDefaults.standard.removeObject(forKey: "hasSeenFirstProgressCelebration")
+                            } label: {
+                                HStack {
+                                    Text("Reset First Progress Celebration")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "arrow.counterclockwise")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            Button {
+                                showFirstProgressCelebration = true
+                            } label: {
+                                HStack {
+                                    Text("Show First Progress Celebration")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "trophy")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            Button {
+                                requestReview()
+                            } label: {
+                                HStack {
+                                    Text("Show Rating Prompt Now")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "star")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            Button {
+                                TutorialPresenter.shared.showResourcesHint = true
+                            } label: {
+                                HStack {
+                                    Text("Show Resources Hint Popup")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "play.rectangle.on.rectangle")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            Text("User Samples")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.5))
+
+                            ForEach(UserSamples.Cohort.allCases, id: \.self) { cohort in
+                                Toggle(cohort.displayName, isOn: Binding(
+                                    get: { UserSamples.shared.isInCohort(cohort) },
+                                    set: { UserSamples.shared.setCohort(cohort, enabled: $0) }
+                                ))
+                                .font(.subheadline)
+                                .tint(.appAccent)
+                            }
+
+                            // MARK: Export Smart Sessions Card
+                            Button {
+                                exportSmartSessionsCard()
+                            } label: {
+                                HStack {
+                                    Text("Export Smart Sessions Card")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    if isExportingSmartSessionsCard {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "square.and.arrow.up")
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+                                }
+                            }
+                            if let result = smartSessionsCardExportResult {
+                                Text(result)
+                                    .font(.caption)
+                                    .foregroundStyle(.green)
+                            }
+
+                            // MARK: Export Strength Balance Card
+                            Button {
+                                exportStrengthBalanceCard()
+                            } label: {
+                                HStack {
+                                    Text("Export Strength Balance Card")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    if isExportingBalanceCard {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "square.and.arrow.up")
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+                                }
+                            }
+                            if let result = balanceCardExportResult {
+                                Text(result)
+                                    .font(.caption)
+                                    .foregroundStyle(.green)
+                            }
+
+                            // MARK: Export Analytics Card
+                            Button {
+                                exportAnalyticsCard()
+                            } label: {
+                                HStack {
+                                    Text("Export Analytics Card")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    if isExportingAnalyticsCard {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "square.and.arrow.up")
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+                                }
+                            }
+                            if let result = analyticsCardExportResult {
+                                Text(result)
+                                    .font(.caption)
+                                    .foregroundStyle(.green)
+                            }
+
+                            // MARK: Export Set Plan Catalog Card
+                            Button {
+                                exportSetPlanCatalogCard()
+                            } label: {
+                                HStack {
+                                    Text("Export Set Plan Catalog Card")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    if isExportingSetPlanCard {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "square.and.arrow.up")
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+                                }
+                            }
+                            if let result = setPlanCardExportResult {
+                                Text(result)
+                                    .font(.caption)
+                                    .foregroundStyle(.green)
+                            }
+
+                            // MARK: Export Display Progress Card
+                            Button {
+                                exportDisplayProgressCard()
+                            } label: {
+                                HStack {
+                                    Text("Export Display Progress Card")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    if isExportingIdealCard {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "square.and.arrow.up")
+                                            .foregroundStyle(Color.appAccent)
+                                    }
+                                }
+                            }
+                            .disabled(isExportingIdealCard)
+
+                            if let idealCardExportResult {
+                                Text(idealCardExportResult)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(idealCardExportResult.hasPrefix("Error") ? .red.opacity(0.8) : .green.opacity(0.8))
+                            }
+
+                            // MARK: Experimental
+                            Text("Experimental")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.5))
+
+                            Picker(selection: $setsWidgetStyleRaw) {
+                                ForEach(SetsWidgetStyle.allCases) { style in
+                                    Text(style.title).tag(style.rawValue)
+                                }
+                            } label: {
+                                Text("Sets Widget Style")
+                                    .foregroundStyle(.primary)
+                            }
+                            .tint(Color.appAccent)
+
+                            Button {
+                                withAnimation {
+                                    showPlateCalculator.toggle()
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Plate Calculator Preview")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: showPlateCalculator ? "eye.fill" : "eye")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            if showPlateCalculator {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Not currently used in the app")
+                                        .font(.caption)
+                                        .foregroundStyle(.white.opacity(0.4))
+
+                                    HStack {
+                                        TextField("Total weight (\(userProperties.preferredWeightUnit.label))", text: $plateCalcInput)
+                                            .keyboardType(.decimalPad)
+                                            .textFieldStyle(.roundedBorder)
+                                            .frame(width: 150)
+
+                                        if let weight = Double(plateCalcInput),
+                                           let stack = PlateCalculator.calculateForSuggestion(
+                                            totalWeight: weight,
+                                            availablePlates: userProperties.availableChangePlates + [5, 10, 25, 35, 45]
+                                           ) {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text("Per side:")
+                                                    .font(.caption2)
+                                                    .foregroundStyle(.white.opacity(0.5))
+                                                Text(stack.plates.map { "\($0.formatted(.number.precision(.fractionLength(0...2))))" }.joined(separator: " + "))
+                                                    .font(.system(.caption, design: .monospaced))
+                                                    .foregroundStyle(.white.opacity(0.8))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // MARK: Training Snapshot Mockup
+                            Text("Training Snapshot Mockup")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.5))
+
+                            Button {
+                                showTrainingSnapshotMock = true
+                            } label: {
+                                HStack {
+                                    Text("Training — This Week")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "chart.bar.doc.horizontal")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            // MARK: Sync Logs
+                            Text("Sync Logs")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.5))
+
+                            Button {
+                                isExportingLogs = true
+                                do {
+                                    exportedLogText = try LogExporter.exportRecentLogs()
+                                    showLogExportSheet = true
+                                } catch {
+                                    exportedLogText = "Failed to export logs: \(error.localizedDescription)"
+                                    showLogExportSheet = true
+                                }
+                                isExportingLogs = false
+                            } label: {
+                                HStack {
+                                    Text("Export Sync Logs")
+                                    Spacer()
+                                    if isExportingLogs {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "square.and.arrow.up")
+                                            .foregroundStyle(.blue)
+                                    }
+                                }
+                            }
+
+                            // MARK: Sync State
+                            Text("Sync State")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.5))
+
+                            Button {
+                                withAnimation {
+                                    showSyncState.toggle()
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Show Sync State")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: showSyncState ? "eye.fill" : "eye")
+                                        .foregroundStyle(Color.appAccent)
+                                }
+                            }
+
+                            if showSyncState {
+                                let state = syncService.currentSyncState
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Label("Sync Complete", systemImage: state.syncComplete ? "checkmark.circle.fill" : "xmark.circle")
+                                        .foregroundStyle(state.syncComplete ? .green : .red.opacity(0.7))
+                                    Label("User Properties", systemImage: state.userPropertiesComplete ? "checkmark.circle.fill" : "xmark.circle")
+                                        .foregroundStyle(state.userPropertiesComplete ? .green : .red.opacity(0.7))
+                                    Label("Exercise", systemImage: state.exercisesComplete ? "checkmark.circle.fill" : "xmark.circle")
+                                        .foregroundStyle(state.exercisesComplete ? .green : .red.opacity(0.7))
+                                    Label("Lift Sets", systemImage: state.liftSetsComplete ? "checkmark.circle.fill" : "xmark.circle")
+                                        .foregroundStyle(state.liftSetsComplete ? .green : .red.opacity(0.7))
+                                    Label("Estimated 1RMs", systemImage: state.estimated1RMsComplete ? "checkmark.circle.fill" : "xmark.circle")
+                                        .foregroundStyle(state.estimated1RMsComplete ? .green : .red.opacity(0.7))
+
+                                    Divider()
+
+                                    HStack {
+                                        Text("Lift Set Page Token")
+                                            .foregroundStyle(.white.opacity(0.7))
+                                        Spacer()
+                                        Text(state.liftSetPageToken ?? "nil")
+                                            .font(.system(.caption, design: .monospaced))
+                                            .foregroundStyle(.white.opacity(0.5))
+                                            .lineLimit(1)
+                                    }
+                                    HStack {
+                                        Text("E1RM Page Token")
+                                            .foregroundStyle(.white.opacity(0.7))
+                                        Spacer()
+                                        Text(state.estimated1RMPageToken ?? "nil")
+                                            .font(.system(.caption, design: .monospaced))
+                                            .foregroundStyle(.white.opacity(0.5))
+                                            .lineLimit(1)
+                                    }
+
+                                    Divider()
+
+                                    HStack {
+                                        Text("Lift Sets Fetched")
+                                            .foregroundStyle(.white.opacity(0.7))
+                                        Spacer()
+                                        Text("\(state.liftSetsFetched)")
+                                            .font(.system(.caption, design: .monospaced))
+                                            .foregroundStyle(.white.opacity(0.5))
+                                    }
+                                    HStack {
+                                        Text("E1RMs Fetched")
+                                            .foregroundStyle(.white.opacity(0.7))
+                                        Spacer()
+                                        Text("\(state.estimated1RMsFetched)")
+                                            .font(.system(.caption, design: .monospaced))
+                                            .foregroundStyle(.white.opacity(0.5))
+                                    }
+                                }
+                                .font(.caption)
+                                .padding(.vertical, 4)
+                            }
+
+                            // MARK: Danger Zone
+                            Text("Danger Zone")
+                                .font(.subheadline)
+                                .foregroundStyle(.red.opacity(0.5))
+
+                            Button(role: .destructive) {
+                                showDeleteConfirmation = true
+                            } label: {
+                                HStack {
+                                    Text("Delete All Workout Data")
+                                        .foregroundStyle(.red)
+                                    Spacer()
+                                    Image(systemName: "trash")
+                                        .foregroundStyle(.red)
+                                }
+                            }
+                        }
+                    } footer: {
+                        if showDeveloper {
+                            Text("Generate      `s realistic training data for the past 28 days. Update user properties sends a test API call. Replay onboarding/welcome back shows the post-auth flows. Override Premium overrides entitlements to unlock premium features (staging only). Show Exercise IDs displays UUIDs for debugging. Delete all workout data removes all LiftSet and Estimated1RM entries.")
+                        }
+                    }
+        )
     }
 
     private func showCopiedToast(_ message: String) {

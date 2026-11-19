@@ -150,7 +150,7 @@ struct FirstWeekPaywallView: View {
                 scrollRegion
                     .frame(maxHeight: .infinity)
                     .task {
-                        // Not optional: without it `purchaseService.yearlyProduct` is nil and
+                        // Not optional: without it the yearly product is nil and
                         // every tap on the CTA fails with "Product not available".
                         await purchaseService.loadProducts()
                     }
@@ -373,13 +373,18 @@ struct FirstWeekPaywallView: View {
 
     /// Yearly price, from StoreKit when it has loaded.
     private var yearlyPriceText: String {
-        SubscriptionConfig.yearlyPrice(purchaseService.yearlyProduct)
+        // NOT offer-aware. Pinned to the STANDARD $89.99 SKU rather than the promo one: this
+        // screen draws no countdown and no strikethrough, so the promotional price on it would
+        // advertise a discount with nothing on screen to explain it. Kept compiling because this
+        // is the design every current conversion number was measured against and the only honest
+        // comparison if the intro-offer paywall underperforms.
+        SubscriptionConfig.yearlyPrice(purchaseService.yearlyStandardProduct)
     }
 
     /// Per-month equivalent of the yearly plan. Must match what the plan card shows — it is the
     /// same helper, so it cannot drift.
     private var perMonthText: String {
-        SubscriptionConfig.yearlyPerMonth(purchaseService.yearlyProduct)
+        SubscriptionConfig.yearlyPerMonth(purchaseService.yearlyStandardProduct)
     }
 
 
@@ -503,7 +508,7 @@ struct FirstWeekPaywallView: View {
 
     private func handlePurchase() async {
         let planName = selectedPlan == .yearly ? "yearly" : "monthly"
-        let product = selectedPlan == .yearly ? purchaseService.yearlyProduct : purchaseService.monthlyProduct
+        let product = selectedPlan == .yearly ? purchaseService.yearlyStandardProduct : purchaseService.monthlyProduct
         guard let product else {
             errorMessage = "Product not available. Please try again."
             AmplitudeService.shared.track(.purchaseAbandoned(

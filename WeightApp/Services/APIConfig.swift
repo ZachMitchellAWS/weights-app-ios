@@ -132,3 +132,75 @@ enum UITestMode {
         UserDefaults.standard.set(value, forKey: key)
     }
 }
+
+// MARK: - Pricing-state overrides
+//
+// Same hard staging guard as the five Bool overrides above, but three-valued rather than
+// two, because "don't override" is a distinct state from "force off". A Bool pair would make
+// `active == false` and `no opinion` indistinguishable, and the whole point of these is to
+// inspect a state the real clock is not currently in.
+//
+// WHY OVERRIDES RATHER THAN DEV-MENU BUTTONS PER STATE. Both pricing paywalls and all twelve
+// premium touchpoints read their state through `IntroOfferService`, which consults these first.
+// So setting one here changes what a locked widget shows, not just what a Developer-menu
+// preview shows — which is the only way to check that the real entry points behave. Eight
+// dedicated buttons would have covered only the previews.
+
+/// Forces the introductory window open or closed, ignoring the account's creation date.
+enum IntroOfferStateOverride {
+    private static let key = "intro_offer_state_override"
+
+    enum Value: String, CaseIterable, Identifiable {
+        case `default`, active, expired
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .default: return "Default"
+            case .active:  return "Active"
+            case .expired: return "Expired"
+            }
+        }
+    }
+
+    /// `.default` on production regardless of what is stored, matching `PremiumOverride`.
+    static var value: Value {
+        guard APIConfig.environment == "staging" else { return .default }
+        return UserDefaults.standard.string(forKey: key).flatMap(Value.init) ?? .default
+    }
+
+    static func set(_ value: Value) {
+        UserDefaults.standard.set(value.rawValue, forKey: key)
+    }
+}
+
+/// Forces free-trial eligibility, ignoring what StoreKit reports for the subscription group.
+///
+/// Needed because the real signal is close to untestable on demand: consuming a trial in sandbox
+/// is a purchase, and getting eligibility back means clearing the sandbox account's purchase
+/// history. This makes the trial-consumed copy inspectable in one tap.
+enum TrialStateOverride {
+    private static let key = "trial_state_override"
+
+    enum Value: String, CaseIterable, Identifiable {
+        case `default`, available, consumed
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .default:   return "Default"
+            case .available: return "Available"
+            case .consumed:  return "Used"
+            }
+        }
+    }
+
+    static var value: Value {
+        guard APIConfig.environment == "staging" else { return .default }
+        return UserDefaults.standard.string(forKey: key).flatMap(Value.init) ?? .default
+    }
+
+    static func set(_ value: Value) {
+        UserDefaults.standard.set(value.rawValue, forKey: key)
+    }
+}

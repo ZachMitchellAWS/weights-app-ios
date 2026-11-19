@@ -11,8 +11,42 @@ import StoreKit
 
 enum SubscriptionConfig {
     // MARK: - Product IDs (configure in App Store Connect)
-    static let monthlyProductId = "com.weightapp.premium.monthly.499"
-    static let yearlyProductId = "com.weightapp.premium.yearly.3999"
+    //
+    // THE PRICE IS IN THE IDENTIFIER. An established convention here, not an accident — the
+    // previous repricing went from `...premium.yearly` to `...premium.yearly.3999` rather than
+    // changing a price in place, which is what let existing subscribers keep paying the old rate
+    // forever with no Apple consent flow. Same approach again.
+    //
+    // TWO YEARLY SKUS, ONE SUBSCRIPTION GROUP. `.5999` is sold while the 72-hour window is open
+    // and `.8999` after it. They are separate products rather than one product with an
+    // introductory price because the $59.99 is meant to be a rate the subscriber KEEPS; an
+    // introductory offer would revert to the standard price at the first renewal. Consequence
+    // worth knowing: every grant in DynamoDB keeps its product id forever, so cohort analysis
+    // now spans three yearly strings.
+    static let yearlyPromoProductId = "com.weightapp.premium.yearly.5999"
+    static let yearlyStandardProductId = "com.weightapp.premium.yearly.8999"
+    static let monthlyProductId = "com.weightapp.premium.monthly.1299"
+
+    // LEGACY, STILL LIVE. Not displayed anywhere and not purchasable from any paywall, but they
+    // must stay loaded for two reasons:
+    //
+    //   1. Renewals. `PurchaseService.logPurchaseIfNew` resolves a transaction's price by
+    //      matching its product id against the loaded products. Drop these and every renewal
+    //      from the existing paid base reports `price: nil` to Amplitude — invisible until a
+    //      renewal fires, which is exactly how it would ship broken.
+    //   2. The fallback in `IntroOfferService.pricingContext`, for any day the new SKUs are not
+    //      yet approved in App Store Connect.
+    static let legacyMonthlyProductId = "com.weightapp.premium.monthly.499"
+    static let legacyYearlyProductId = "com.weightapp.premium.yearly.3999"
+
+    /// Everything `Product.products(for:)` should request, new and legacy.
+    static let allProductIds = [
+        yearlyPromoProductId,
+        yearlyStandardProductId,
+        monthlyProductId,
+        legacyMonthlyProductId,
+        legacyYearlyProductId,
+    ]
 
     // MARK: - Display Prices
     //
@@ -21,9 +55,11 @@ enum SubscriptionConfig {
     // the wrong number, and an App Store Connect price change silently desyncs every screen
     // from what StoreKit will actually charge. They exist for the window before
     // `loadProducts()` returns, and for the case where it fails.
-    static let monthlyDisplayPrice = "$4.99"
-    static let yearlyDisplayPrice = "$39.99"
-    static let yearlyPerMonthPrice = "$3.33"  // For "per month" display
+    static let monthlyDisplayPrice = "$12.99"
+    static let yearlyDisplayPrice = "$59.99"
+    static let yearlyStandardDisplayPrice = "$89.99"
+    /// $59.99 / 12 is $4.9991, and `yearlyPerMonth` rounds DOWN — so $4.99, not $5.00.
+    static let yearlyPerMonthPrice = "$4.99"
 
     /// Localized yearly price, falling back to the constant until StoreKit has loaded.
     static func yearlyPrice(_ product: Product?) -> String {
@@ -38,8 +74,8 @@ enum SubscriptionConfig {
     /// The yearly plan expressed per month, formatted in the product's own currency.
     ///
     /// ROUNDED DOWN, deliberately: this number sits next to the real yearly price, so rounding
-    /// up would advertise a monthly figure whose twelve-fold is more than we charge. $39.99/12
-    /// is $3.3325 — down gives $3.33, up would give $3.34.
+    /// up would advertise a monthly figure whose twelve-fold is more than we charge. $59.99/12
+    /// is $4.9991 — down gives $4.99, up would give $5.00 and imply $60.00/year.
     ///
     /// `priceFormatStyle` comes from the product, so currency symbol, separator and placement
     /// all follow the storefront rather than the device locale.
@@ -55,8 +91,18 @@ enum SubscriptionConfig {
     }
 
     // MARK: - Trial Configuration
+    //
+    // Both of these were dead constants until `IntroOfferService` — nothing read either, and
+    // "7 days free" was hardcoded in three paywalls independently.
     static let freeTrialDays = 7
-    static let trialEligibleProduct = yearlyProductId  // Only yearly has trial
+
+    /// Monthly carries no introductory offer in App Store Connect, so eligibility is read off a
+    /// yearly product and trial copy appears on the yearly row only.
+    ///
+    /// Note that Apple evaluates eligibility per SUBSCRIPTION GROUP, not per product: a trial
+    /// taken on the legacy `.3999` blocks it on both new yearly SKUs, and a full-price monthly
+    /// purchase does NOT consume it. See `IntroOfferService.trialState`.
+    static let trialEligibleProductIds = [yearlyPromoProductId, yearlyStandardProductId]
 
     // MARK: - URLs
     static var websiteBaseURL: String {
@@ -109,6 +155,14 @@ enum SubscriptionConfig {
         /// Opened from More -> Developer. Its own case so dev opens never land in the real
         /// funnel, the same reason `legacyDevPreview` exists.
         case firstWeekDevPreview = "first_week_dev_preview"
+        /// Opened from More -> Developer. Separate from `firstWeekDevPreview` so the intro-offer
+        /// study and the shipping first-week paywall never share rows.
+        case introOfferDevPreview = "intro_offer_dev_preview"
+        /// Auto-raised ten seconds after the starting strength tier unlocks, from wherever the
+        /// user happens to be. Its own case because it is the only unprompted presentation in
+        /// the app — every other source is a tap — so its conversion rate is not comparable to
+        /// any of them and must never be averaged in.
+        case tierUnlock = "tier_unlock"
     }
 
     /// Carousel page for a feature, by title.

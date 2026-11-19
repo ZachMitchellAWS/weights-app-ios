@@ -26,6 +26,11 @@ struct WeightAppApp: App {
     @AppStorage("hasSeenOnboardingTutorial") private var hasSeenOnboardingTutorial = false
     @AppStorage("hasSeenLiftTutorialAfterTierUnlock") private var hasSeenLiftTutorialAfterTierUnlock = false
     @ObservedObject private var tutorialPresenter = TutorialPresenter.shared
+    /// Raises the paywall ten seconds after the starting strength tier unlocks. Owned here
+    /// rather than by the Lift tab because the requirement is "wherever they are by then" —
+    /// the unlock is detected inside `CheckInView`, but the user may well have navigated away
+    /// in the intervening seconds.
+    @ObservedObject private var tierUnlockUpsell = TierUnlockUpsellPresenter.shared
     @State private var transactionListenerTask: Task<Void, Error>?
 
     let modelContainer: ModelContainer
@@ -165,7 +170,22 @@ struct WeightAppApp: App {
                                     // outlined button matching the CTA. Both paywalls carry
                                     // that change, so this is the design question on its own
                                     // rather than the design plus a missing exit.
-                                    FirstWeekPaywallView(source: SubscriptionConfig.UpsellSource.postOnboarding) { _ in
+                                    // `IntroOfferPaywallView`, replacing `FirstWeekPaywallView` as of the
+                        // repricing. This slot now carries the introductory offer, so the
+                        // 72-hour window opens on precisely the surface it was designed for —
+                        // the clock runs from account creation, so a reader arriving here
+                        // straight out of onboarding has almost all of it left.
+                        //
+                        // The screen decides promotional vs standard itself, so there is
+                        // nothing to branch on here. An existing user replaying onboarding from
+                        // the Developer menu will correctly see the standard price, because
+                        // their account creation date is months old.
+                        //
+                        // `FirstWeekPaywallView` is kept, unreferenced except for its own
+                        // Developer row: it is the design every conversion number before this
+                        // release was measured against, and the only honest comparison if the
+                        // new one underperforms.
+                        IntroOfferPaywallView(source: SubscriptionConfig.UpsellSource.postOnboarding) { _ in
                                         withAnimation(.easeInOut(duration: 0.4)) {
                                             authViewModel.completePostAuthFlow()
                                         }
@@ -251,6 +271,19 @@ struct WeightAppApp: App {
                     }
                     .transition(.opacity)
                     .zIndex(3)
+                }
+            }
+            // A COVER, NOT AN OVERLAY IN THE ZSTACK ABOVE. The two popups above are small cards
+            // over a scrim and sit happily in the stack; this is a full paywall that must cover
+            // the tab bar and the status-bar area, which an overlay inside the stack does not.
+            //
+            // Attached to the ZStack rather than to any branch inside it, so it is reachable
+            // from every tab and from the post-auth flow alike — "regardless of where they are
+            // in the app" is the requirement, and the unlock that schedules it happens on the
+            // Lift tab ten seconds earlier, by which time they may be anywhere.
+            .fullScreenCover(isPresented: $tierUnlockUpsell.isPresented) {
+                IntroOfferPaywallView(source: SubscriptionConfig.UpsellSource.tierUnlock) { _ in
+                    tierUnlockUpsell.dismiss()
                 }
             }
             .onAppear {
@@ -381,6 +414,23 @@ struct WeightAppApp: App {
                     // Periodic re-push of device metadata; change-detected, so it's a no-op network-wise
                     // unless the timezone/locale/language actually changed since last sync.
                     Task { await SyncService.shared.syncDeviceMetadataIfNeeded() }
+
+                    // WARM THE STOREKIT PRODUCT CACHE, and it is an analytics fix as much as a
+                    // latency one.
+                    //
+                    // `premiumUpsellShown` moved from `onAppear` into the `.task` that resolves
+                    // pricing, because an impression that cannot say which price was on screen
+                    // is useless for measuring a repricing. The cost of that move is a window:
+                    // on the FIRST paywall of a launch, products are cold, and a reader who
+                    // dismisses inside the round trip generates no impression at all — which
+                    // does not merely lose a row, it biases the conversion RATE upward by
+                    // shrinking its denominator precisely for the least interested readers.
+                    //
+                    // `Product.products(for:)` caches on `PurchaseService`, so doing it here
+                    // makes every paywall's resolution effectively instant and closes the
+                    // window. It also means the tier-unlock paywall, which appears unprompted
+                    // ten seconds after an unlock, never shows a price-less first frame.
+                    Task { await PurchaseService.shared.loadProducts() }
                 }
             }
             .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in

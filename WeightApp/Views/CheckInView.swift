@@ -6681,6 +6681,12 @@ struct CheckInView: View {
             ))
         }
         PushNotificationService.shared.cancelSessionReminder(reason: "tier_unlocked")
+
+        // Raises the paywall ten seconds from now, over whatever the user is looking at by
+        // then. Scheduled from HERE rather than from a view's `onAppear` because this is the
+        // app's only once-ever unlock choke point — the guard at the top of this method has no
+        // un-set path — so the trigger cannot fire twice or be missed by a tab change.
+        TierUnlockUpsellPresenter.shared.scheduleAfterUnlock(isPremium: isPremium)
         Task {
             let request = UserPropertiesRequest(hasMetStrengthTierConditions: true)
             _ = try? await APIService.shared.updateUserProperties(request)

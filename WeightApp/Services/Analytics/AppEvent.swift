@@ -164,24 +164,36 @@ enum AppEvent {
     // `paywallVariant` identifies the DESIGN, not the trigger — `source` already carries the
     // trigger. Nil for the two carousel paywalls, so a null in Amplitude means "the original",
     // and any variant added later is opt-in rather than retroactively mislabelling history.
+    //
+    // `pricing` is what makes a repricing measurable. Before it, the only event that knew a
+    // price was `purchaseCompleted` — which can only ever describe the people who BOUGHT, so
+    // "what is the conversion rate at $59.99 versus $89.99" had no denominator. Three yearly
+    // price points are live at once ($39.99 legacy, $59.99 promo, $89.99 standard), and this is
+    // the row that records which of them the reader was looking at.
     case premiumUpsellShown(source: String, initialPage: Int, initialFeature: String,
-                            paywallVariant: String? = nil)
+                            paywallVariant: String? = nil, pricing: PricingContext? = nil)
     /// Carousel swipe. Not fired by scrolling paywalls, which have no pages.
     case upsellPageViewed(source: String, feature: String, index: Int)
-    case upsellPlanSelected(source: String, plan: String)
+    case upsellPlanSelected(source: String, plan: String, pricing: PricingContext? = nil)
     case upsellDismissed(source: String, feature: String, secondsOnScreen: Double,
-                         paywallVariant: String? = nil, maxScrollDepthPct: Int? = nil)
+                         paywallVariant: String? = nil, maxScrollDepthPct: Int? = nil,
+                         pricing: PricingContext? = nil)
     /// A section of a scrolling paywall reached 50% visibility. Once per section per
     /// presentation — scrolling back up does not re-fire it.
     case upsellSectionViewed(source: String, section: String, paywallVariant: String)
-    case purchaseStarted(productId: String, plan: String, isFreeTrial: Bool)
+    /// `paywallVariant` was missing here while every other purchase-funnel event carried it,
+    /// which made the Started -> Completed drop impossible to split by design.
+    case purchaseStarted(productId: String, plan: String, isFreeTrial: Bool,
+                         paywallVariant: String? = nil, pricing: PricingContext? = nil)
     /// Started but not completed. `reason` is "cancelled" (user backed out of the StoreKit
     /// sheet), "failed" (StoreKit or the entitlements call threw) or "product_unavailable".
-    case purchaseAbandoned(productId: String, plan: String, reason: String)
+    case purchaseAbandoned(productId: String, plan: String, reason: String,
+                           paywallVariant: String? = nil, pricing: PricingContext? = nil)
     /// `paywallVariant` and `maxScrollDepthPct` are nil for renewals and foreground restores,
     /// which genuinely had no paywall on screen — see `PurchaseService.activePaywall`.
     case purchaseCompleted(productId: String, transactionId: String, isRenewal: Bool, isFreeTrial: Bool, price: Double?, currency: String,
-                           paywallVariant: String? = nil, maxScrollDepthPct: Int? = nil)
+                           paywallVariant: String? = nil, maxScrollDepthPct: Int? = nil,
+                           pricing: PricingContext? = nil)
 
     /// Amplitude event type (Title-Case "Object Action").
     var name: String {
@@ -392,7 +404,7 @@ enum AppEvent {
                 "watched_to_end": watchedToEnd,
             ]
 
-        case let .premiumUpsellShown(source, initialPage, initialFeature, paywallVariant):
+        case let .premiumUpsellShown(source, initialPage, initialFeature, paywallVariant, pricing):
             // `initial_page` is kept for continuity with existing charts, but it is an INDEX and
             // the carousel has been reordered — page 1 was Weekly Progress Narratives before it
             // was Strength Balance. Segment on `initial_feature` for anything spanning that
@@ -401,33 +413,44 @@ enum AppEvent {
                 "source": source, "initial_page": initialPage, "initial_feature": initialFeature,
             ]
             if let paywallVariant { props["paywall_variant"] = paywallVariant }
+            props.merge(Self.pricingProperties(pricing)) { current, _ in current }
             return props
 
         case let .upsellPageViewed(source, feature, index):
             return ["source": source, "feature": feature, "page_index": index]
 
-        case let .upsellPlanSelected(source, plan):
+        case let .upsellPlanSelected(source, plan, pricing):
             return ["source": source, "plan": plan]
+                .merging(Self.pricingProperties(pricing)) { current, _ in current }
 
-        case let .upsellDismissed(source, feature, secondsOnScreen, paywallVariant, maxScrollDepthPct):
+        case let .upsellDismissed(source, feature, secondsOnScreen, paywallVariant, maxScrollDepthPct, pricing):
             var props: [String: Any] = [
                 "source": source, "feature": feature, "seconds_on_screen": secondsOnScreen,
             ]
             if let paywallVariant { props["paywall_variant"] = paywallVariant }
             if let maxScrollDepthPct { props["max_scroll_depth_pct"] = maxScrollDepthPct }
+            props.merge(Self.pricingProperties(pricing)) { current, _ in current }
             return props
 
         case let .upsellSectionViewed(source, section, paywallVariant):
             return ["source": source, "section": section, "paywall_variant": paywallVariant]
 
-        case let .purchaseStarted(productId, plan, isFreeTrial):
-            return ["product_id": productId, "plan": plan, "is_free_trial": isFreeTrial]
+        case let .purchaseStarted(productId, plan, isFreeTrial, paywallVariant, pricing):
+            var props: [String: Any] = [
+                "product_id": productId, "plan": plan, "is_free_trial": isFreeTrial,
+            ]
+            if let paywallVariant { props["paywall_variant"] = paywallVariant }
+            props.merge(Self.pricingProperties(pricing)) { current, _ in current }
+            return props
 
-        case let .purchaseAbandoned(productId, plan, reason):
-            return ["product_id": productId, "plan": plan, "reason": reason]
+        case let .purchaseAbandoned(productId, plan, reason, paywallVariant, pricing):
+            var props: [String: Any] = ["product_id": productId, "plan": plan, "reason": reason]
+            if let paywallVariant { props["paywall_variant"] = paywallVariant }
+            props.merge(Self.pricingProperties(pricing)) { current, _ in current }
+            return props
 
         case let .purchaseCompleted(productId, transactionId, isRenewal, isFreeTrial, price, currency,
-                                    paywallVariant, maxScrollDepthPct):
+                                    paywallVariant, maxScrollDepthPct, pricing):
             var props: [String: Any] = [
                 "product_id": productId,
                 "transaction_id": transactionId,
@@ -438,8 +461,38 @@ enum AppEvent {
             if let price { props["price"] = price }
             if let paywallVariant { props["paywall_variant"] = paywallVariant }
             if let maxScrollDepthPct { props["max_scroll_depth_pct"] = maxScrollDepthPct }
+            // `price` above is what Apple CHARGED; this adds what was on screen. They agree on
+            // a normal purchase and diverge in the cases worth knowing about — a renewal at a
+            // grandfathered price, or a purchase completed after the window closed mid-session.
+            // The merge keeps the transaction's own `currency` when both supply one.
+            props.merge(Self.pricingProperties(pricing)) { current, _ in current }
             return props
         }
+    }
+
+    /// The prices and offer state that were on screen, as event properties.
+    ///
+    /// RAW NUMBERS, NOT A TIER LABEL. There is deliberately no `price_tier: "promo"` property:
+    /// a label is only meaningful relative to the price list in force when it was written, so
+    /// the next repricing would make every historical "standard" row ambiguous. `59.99` means
+    /// $59.99 forever, and a new price point needs no client release to become analysable.
+    ///
+    /// Empty when `pricing` is nil — which is every event fired before StoreKit resolves, plus
+    /// every renewal and restore, where there was no paywall and so no prices on screen. An
+    /// absent property is the honest answer there; a zero would pool with real data.
+    private static func pricingProperties(_ pricing: PricingContext?) -> [String: Any] {
+        guard let pricing else { return [:] }
+        var props: [String: Any] = [
+            "currency": pricing.currencyCode,
+            "offer_state": pricing.offer.analyticsValue,
+            "trial_available": pricing.trial.isAvailable,
+            // Distinguishes "the window is open" from "the window is open AND we have real
+            // products to sell", which diverge on any day the new SKUs are not yet approved.
+            "legacy_pricing_fallback": pricing.isLegacyFallback,
+        ]
+        if let yearly = pricing.yearlyPriceValue { props["yearly_price"] = yearly }
+        if let monthly = pricing.monthlyPriceValue { props["monthly_price"] = monthly }
+        return props
     }
 }
 

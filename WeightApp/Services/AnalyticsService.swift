@@ -73,8 +73,12 @@ enum AnalyticsService {
     /// path can still log even if the product object isn't readily available
     /// (price/currency will fall back to 0 / USD, which Google Ads can
     /// override with a default value if configured).
-    static func logPurchase(transaction: Transaction, product: Product?) {
+    static func logPurchase(transaction: Transaction, product: Product?,
+                            offerState: String? = nil) {
         guard isEnabled else { return }
+        // FROM THE PRODUCT, never a constant — which is what keeps Ads bidding correct across a
+        // repricing. It only resolves because `loadProducts()` requests the legacy SKUs too; drop
+        // those and a grandfathered renewal reports a value of 0.
         let value = product.map { NSDecimalNumber(decimal: $0.price).doubleValue } ?? 0.0
         let currency = product?.priceFormatStyle.currencyCode ?? "USD"
 
@@ -88,7 +92,7 @@ enum AnalyticsService {
             // without it there is no way to separate a trial start from a monthly purchase
             // after the fact. Both are intended conversions here; only their value differs.
             "is_free_trial": transaction.offer?.paymentMode == .freeTrial,
-        ])
+        ].merging(offerState.map { ["offer_state": $0] } ?? [:]) { current, _ in current })
     }
 
     /// User finished the 7-page onboarding flow. Custom event (not a Firebase
