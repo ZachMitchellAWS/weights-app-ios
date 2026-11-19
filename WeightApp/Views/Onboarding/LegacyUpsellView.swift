@@ -89,7 +89,7 @@ struct LegacyUpsellView: View {
 
                 // Plan-specific subtitle
                 Text(selectedPlan == .yearly
-                     ? "7-day free trial, then \(SubscriptionConfig.yearlyPrice(purchaseService.yearlyProduct))/year. Cancel anytime."
+                     ? "7-day free trial, then \(SubscriptionConfig.yearlyPrice(purchaseService.yearlyStandardProduct))/year. Cancel anytime."
                      : "\(SubscriptionConfig.monthlyPrice(purchaseService.monthlyProduct))/month. Cancel anytime.")
                     .font(.inter(size: 12))
                     .foregroundStyle(.white.opacity(0.5))
@@ -335,8 +335,10 @@ struct LegacyUpsellView: View {
                 PlanCard(
                     isSelected: selectedPlan == .yearly,
                     title: "Yearly",
-                    price: SubscriptionConfig.yearlyPrice(purchaseService.yearlyProduct),
-                    priceSubtitle: "(\(SubscriptionConfig.yearlyPerMonth(purchaseService.yearlyProduct))/mo)",
+                    // Standard SKU, not the promo one — see the note in `FirstWeekPaywallView`.
+                    // This design is Developer-menu only and draws no promotional chrome.
+                    price: SubscriptionConfig.yearlyPrice(purchaseService.yearlyStandardProduct),
+                    priceSubtitle: "(\(SubscriptionConfig.yearlyPerMonth(purchaseService.yearlyStandardProduct))/mo)",
                     badge: SubscriptionConfig.bestValueBadge,
                     onTap: { selectedPlan = .yearly }
                 )
@@ -396,7 +398,7 @@ struct LegacyUpsellView: View {
         case .monthly:
             product = purchaseService.monthlyProduct
         case .yearly:
-            product = purchaseService.yearlyProduct
+            product = purchaseService.yearlyStandardProduct
         }
 
         guard let product else {

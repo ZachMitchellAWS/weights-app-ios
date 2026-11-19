@@ -42,14 +42,31 @@ class PurchaseService: ObservableObject {
     private(set) var activePaywallVariant: String?
     private(set) var activePaywallScrollDepth: Int?
 
-    func setActivePaywall(variant: String?, scrollDepth: Int? = nil) {
+    /// The prices and offer state that were ON SCREEN when a purchase was started.
+    ///
+    /// Rides the same side channel as the variant, and for the same reason: `purchaseCompleted`
+    /// is fired from `logPurchaseIfNew`, which has a `Transaction` and nothing else. Without
+    /// this, the only price any event knows is the one that was actually charged — which cannot
+    /// answer "what was the conversion rate at $59.99 versus $89.99", because that question is
+    /// about the people who did NOT buy.
+    ///
+    /// It also keeps the five price properties off eleven `track(...)` call sites. The purchase
+    /// events read it from here; the two paywalls that fire `premiumUpsellShown` and
+    /// `upsellDismissed` already hold the context and pass it directly.
+    private(set) var activePaywallPricing: PricingContext?
+
+    func setActivePaywall(variant: String?, scrollDepth: Int? = nil, pricing: PricingContext? = nil) {
         activePaywallVariant = variant
         activePaywallScrollDepth = scrollDepth
+        // Only overwrite with a real context. `setActivePaywall` is called again on every scroll
+        // tick to update depth, and those calls do not re-resolve pricing.
+        if let pricing { activePaywallPricing = pricing }
     }
 
     func clearActivePaywall() {
         activePaywallVariant = nil
         activePaywallScrollDepth = nil
+        activePaywallPricing = nil
     }
 
     /// Log a purchase if we haven't already logged this transaction this session.
@@ -71,7 +88,15 @@ class PurchaseService: ObservableObject {
         guard loggedTransactionIds.insert(transaction.id).inserted else { return }
         let product = products.first(where: { $0.id == transaction.productID })
         if userInitiated {
-            AnalyticsService.logPurchase(transaction: transaction, product: product)
+            // `offerState` rides along for the BigQuery export. Ads cannot filter on it — same
+            // limitation `is_free_trial` is documented against — but with three yearly price
+            // points live, a purchase event that cannot say which offer was on screen is not
+            // analysable after the fact.
+            AnalyticsService.logPurchase(
+                transaction: transaction,
+                product: product,
+                offerState: activePaywallPricing?.offer.analyticsValue
+            )
         }
 
         // Mirror to Amplitude (single deduped choke point → covers foreground + renewal listener).
@@ -85,7 +110,8 @@ class PurchaseService: ObservableObject {
             price: price,
             currency: currency,
             paywallVariant: activePaywallVariant,
-            maxScrollDepthPct: activePaywallScrollDepth
+            maxScrollDepthPct: activePaywallScrollDepth,
+            pricing: activePaywallPricing
         ))
 
         // Attribution is single-use. Leaving it set would tag the next renewal with a paywall
@@ -98,10 +124,12 @@ class PurchaseService: ObservableObject {
     /// Load available products from the App Store
     func loadProducts() async {
         do {
-            let productIds = [
-                SubscriptionConfig.monthlyProductId,
-                SubscriptionConfig.yearlyProductId
-            ]
+            // ALL FIVE, new and legacy. The legacy pair is not displayed or sold anywhere, but
+            // `logPurchaseIfNew` resolves a transaction's price by matching its product id
+            // against this array — so omitting them makes every renewal from the existing paid
+            // base report a nil price to Amplitude. That is invisible until a renewal fires,
+            // which is precisely how it would ship broken.
+            let productIds = SubscriptionConfig.allProductIds
             print("[PurchaseService] Requesting product IDs: \(productIds)")
             products = try await Product.products(for: productIds)
             print("[PurchaseService] Loaded \(products.count) products: \(products.map { $0.id })")
@@ -119,9 +147,40 @@ class PurchaseService: ObservableObject {
         products.first { $0.id == SubscriptionConfig.monthlyProductId }
     }
 
-    /// Get the yearly subscription product
-    var yearlyProduct: Product? {
-        products.first { $0.id == SubscriptionConfig.yearlyProductId }
+    // MARK: Yearly — two SKUs, and which one applies is not this type's decision
+    //
+    // THERE IS DELIBERATELY NO `yearlyProduct`. It existed, every paywall called it, and it
+    // resolved to one hardcoded id — which was correct while there was one yearly price and is a
+    // silent revenue bug now that there are two. A call site that asks for "the yearly product"
+    // is asking a question with no answer; it has to ask for the promo one, the standard one, or
+    // go through `IntroOfferService.pricingContext()`, which is the only thing that knows which
+    // the current user should see.
+
+    /// $59.99. Sold only while the 72-hour window is open.
+    var yearlyPromoProduct: Product? {
+        products.first { $0.id == SubscriptionConfig.yearlyPromoProductId }
+    }
+
+    /// $89.99. The price after the window closes, and the struck-through comparison before it.
+    var yearlyStandardProduct: Product? {
+        products.first { $0.id == SubscriptionConfig.yearlyStandardProductId }
+    }
+
+    // MARK: Legacy — loaded, never sold
+    //
+    // Not purchasable from any paywall. Loaded so that (a) a renewal arriving on
+    // `Transaction.updates` can have its price resolved in `logPurchaseIfNew`, and (b)
+    // `IntroOfferService` has something to fall back to on any day the new SKUs are not yet
+    // approved in App Store Connect.
+
+    /// $39.99. Existing subscribers renew against this indefinitely.
+    var legacyYearlyProduct: Product? {
+        products.first { $0.id == SubscriptionConfig.legacyYearlyProductId }
+    }
+
+    /// $4.99.
+    var legacyMonthlyProduct: Product? {
+        products.first { $0.id == SubscriptionConfig.legacyMonthlyProductId }
     }
 
     // MARK: - Purchasing

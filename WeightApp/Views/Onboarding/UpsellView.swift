@@ -63,12 +63,62 @@ struct UpsellView: View {
     @State private var errorMessage: String?
     @State private var currentPage: Int
 
+    /// The resolved offer state, prices and trial eligibility for this presentation.
+    ///
+    /// THE CAROUSEL ABOVE IS UNTOUCHED BY THIS. Only the pricing block below it varies. That is
+    /// deliberate and it is what makes this change cheap: every one of the nine feature
+    /// touchpoints opens this view with an `initialPage`, and none of them needed to change,
+    /// because `premiumLocked` only flips a parent-owned Bool and the parent owns the cover that
+    /// picks the page. Deep-linking into a specific feature page and showing the right price are
+    /// orthogonal, and keeping them orthogonal is the whole design.
+    @State private var pricing: PricingContext?
+
+    private var yearlyPriceText: String {
+        pricing?.yearlyPriceText ?? SubscriptionConfig.yearlyDisplayPrice
+    }
+    private var perMonthText: String {
+        pricing?.yearlyPerMonthText ?? SubscriptionConfig.yearlyPerMonthPrice
+    }
+    private var monthlyPriceText: String {
+        pricing?.monthlyPriceText ?? SubscriptionConfig.monthlyDisplayPrice
+    }
+    /// Opacity for anything that states a PRICE, gated on resolution.
+    ///
+    /// WHY NOT JUST THE STAGGER'S OPACITY. The fallback literals in `SubscriptionConfig` can
+    /// only match one of the two presentations. Rendering them and then correcting produces a
+    /// visible price change: $59.99 flashing to $89.99 for a reader outside the window reads as
+    /// a bait and switch, and $59.99 flashing to $39.99 — which is what the unresolved-SKU
+    /// fallback does — reads as a bug. A price that moves after the reader has seen it is worse
+    /// than a price that arrives 200ms late.
+    ///
+    /// SAFE AGAINST A STOREKIT FAILURE. `loadProducts()` catches its own errors and returns
+    /// normally, so `pricing` is always assigned — offline included, where it resolves to a
+    /// context with nil products and the literals show. There is no path that leaves this at
+    /// zero forever.
+    ///
+    /// Deliberately NOT applied to "Not now" or the legal footer: neither states a price, and
+    /// gating the only way off the screen on a network round trip would be a worse bug than the
+    /// one this fixes.
+    private var priceBlockOpacity: Double { pricing == nil ? 0 : pricingOpacity }
+    private var priceCtaOpacity: Double { pricing == nil ? 0 : ctaOpacity }
+
+    private var showsPromotion: Bool { pricing?.showsPromotion ?? false }
+    private var trialAvailable: Bool { pricing?.trial.isAvailable ?? true }
+
     /// Identifies this paywall design on purchase and dismissal events.
     ///
     /// Without it, a purchase from here reports `paywallVariant: nil` — indistinguishable from
     /// a call site that simply forgot to tag itself. Naming it makes "the carousel" a thing
     /// that can be compared against any future design rather than the absence of one.
+    ///
+    /// SUFFIXED BY OFFER STATE. `carousel_v1` rows with no suffix are the pre-repricing history,
+    /// measured at $39.99 — which is the correct reading of them. From here the suffix separates
+    /// two presentations that are genuinely different offers, so their conversion rates are
+    /// never averaged into one number.
     static let variant = "carousel_v1"
+    private var variantId: String {
+        Self.variant + "_" + (showsPromotion ? "promo" : "standard")
+    }
 
     @State private var safariURL: URL?
 
@@ -104,30 +154,53 @@ struct UpsellView: View {
                 carousel
                     .frame(maxHeight: .infinity)
                     .task {
-                        // Not optional: without it `purchaseService.yearlyProduct` is nil and
-                        // every tap on the CTA fails with "Product not available".
+                        // ORDER MATTERS: `pricingContext()` reads the loaded products to pick
+                        // the sellable SKU and to ask StoreKit about trial eligibility, so
+                        // resolving before the load returns falls back to legacy prices.
                         await purchaseService.loadProducts()
+                        let resolved = await IntroOfferService.shared.pricingContext(
+                            purchaseService: purchaseService
+                        )
+                        pricing = resolved
+                        purchaseService.setActivePaywall(variant: variantId, pricing: resolved)
+                        AmplitudeService.shared.track(.premiumUpsellShown(
+                            source: source.rawValue,
+                            // `initialPage`, not `currentPage`. The property means "where this
+                            // presentation was asked to open", which is what the nine feature
+                            // touchpoints deep-link to; a reader who swiped during the StoreKit
+                            // load would otherwise silently rewrite their own entry point.
+                            initialPage: initialPage,
+                            initialFeature: featureTitle(at: initialPage),
+                            paywallVariant: variantId,
+                            pricing: resolved
+                        ))
                     }
                     .opacity(carouselOpacity)
 
                 pricingSection
                     .padding(.horizontal, 24)
-                    .opacity(pricingOpacity)
+                    .opacity(priceBlockOpacity)
 
                 Spacer().frame(height: 14)
 
                 subscribeButton
                     .padding(.horizontal, 24)
-                    .opacity(ctaOpacity)
+                    .opacity(priceCtaOpacity)
 
+                // TRIAL STATE IS LOAD-BEARING. This line promised a 7-day trial
+                // unconditionally, so a customer who had already used theirs was told about it
+                // again — and Apple evaluates eligibility per subscription group, so the store
+                // would have refused to honour it at the sheet.
                 Text(selectedPlan == .yearly
-                     ? "7-day free trial, then \(SubscriptionConfig.yearlyPrice(purchaseService.yearlyProduct))/year. Cancel anytime."
-                     : "\(SubscriptionConfig.monthlyPrice(purchaseService.monthlyProduct))/month. Cancel anytime.")
+                     ? (trialAvailable
+                        ? "7-day free trial, then \(yearlyPriceText)/year. Cancel anytime."
+                        : "\(yearlyPriceText)/year. Cancel anytime.")
+                     : "\(monthlyPriceText)/month. Cancel anytime.")
                     .font(.inter(size: 12))
                     .foregroundStyle(.white.opacity(0.5))
                     .multilineTextAlignment(.center)
                     .padding(.top, 8)
-                    .opacity(ctaOpacity)
+                    .opacity(priceCtaOpacity)
 
                 // Replaces the X, and carries the only way out of this screen — so it has to
                 // READ as a control, not as a caption.
@@ -177,13 +250,11 @@ struct UpsellView: View {
             // No scroll depth: this is a carousel, and `maxScrollDepthPct` describes a
             // vertical scroll. Left nil rather than mapped onto page index — the page events
             // already say where the user got to.
-            purchaseService.setActivePaywall(variant: Self.variant)
-            AmplitudeService.shared.track(.premiumUpsellShown(
-                source: source.rawValue,
-                initialPage: initialPage,
-                initialFeature: featureTitle(at: initialPage),
-                paywallVariant: Self.variant
-            ))
+            // `premiumUpsellShown` and `setActivePaywall` both moved into the `.task` above,
+            // which is where pricing resolves. Firing them here would describe the
+            // pre-resolution fallback — every row reading "standard" with no prices, including
+            // the promotional presentations — and this event is the denominator for any
+            // price-level conversion question.
 
             // 0.0s — the carousel. First here, where the legacy design ran a title and badge
             // ahead of it; this screen's headline lives inside the carousel, so it leads.
@@ -253,22 +324,39 @@ struct UpsellView: View {
         // and a badge, and none of them needed 14pt of air. ~20pt reclaimed, spent on "Not now".
         VStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("7 DAYS FREE")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
-                    .background(Color.appAccent)
-                    .clipShape(UnevenRoundedRectangle(topLeadingRadius: 6, topTrailingRadius: 6))
-                    .padding(.leading, 24)
+                // ONE SLOT, THREE OCCUPANTS, and this used to be an unconditional "7 DAYS FREE"
+                // literal. Same arrangement as `IntroOfferPaywallView`, deliberately, so the
+                // two screens cannot drift:
+                //
+                //   offer active              -> the countdown
+                //   expired + trial available -> "7 DAYS FREE"
+                //   expired + trial used      -> nothing
+                //
+                // Trial state never outranks the countdown: inside the window the reader is
+                // being sold a price, and two badges on one card is how you get neither read.
+                if showsPromotion, let deadline = pricing?.offer.deadline {
+                    OfferCountdownBadge(deadline: deadline)
+                        .padding(.leading, 24)
+                } else if trialAvailable {
+                    OfferTrialBadge()
+                        .padding(.leading, 24)
+                }
 
-                PlanCard(
+                // `OfferPlanCard`, not `PlanCard` — the shared row that can draw a cancelled
+                // comparison price. The monthly row below is still `PlanCard`, so the two are
+                // different components matched by hand; see the note in `OfferPlanCard`.
+                OfferPlanCard(
                     isSelected: selectedPlan == .yearly,
                     title: "Yearly",
-                    price: SubscriptionConfig.yearlyPrice(purchaseService.yearlyProduct),
-                    priceSubtitle: "(\(SubscriptionConfig.yearlyPerMonth(purchaseService.yearlyProduct))/mo)",
-                    badge: SubscriptionConfig.bestValueBadge,
-                    verticalPadding: 10,
+                    price: yearlyPriceText,
+                    // Nil outside the window, and nil whenever there is no genuinely higher
+                    // price to compare against — see `IntroOfferService.pricingContext`.
+                    strikePrice: pricing?.strikePrice,
+                    priceSubtitle: "(\(perMonthText)/mo)",
+                    // BEST VALUE is suppressed while a struck price is showing. Two badges
+                    // making the same "this is the good one" argument on one row reads as
+                    // sales pressure rather than information.
+                    badge: pricing?.strikePrice == nil ? SubscriptionConfig.bestValueBadge : nil,
                     onTap: { selectPlan(.yearly) }
                 )
             }
@@ -276,7 +364,7 @@ struct UpsellView: View {
             PlanCard(
                 isSelected: selectedPlan == .monthly,
                 title: "Monthly",
-                price: SubscriptionConfig.monthlyPrice(purchaseService.monthlyProduct),
+                price: monthlyPriceText,
                 priceSubtitle: nil,
                 badge: nil,
                 verticalPadding: 10,
@@ -292,7 +380,8 @@ struct UpsellView: View {
         selectedPlan = plan
         AmplitudeService.shared.track(.upsellPlanSelected(
             source: source.rawValue,
-            plan: plan == .yearly ? "yearly" : "monthly"
+            plan: plan == .yearly ? "yearly" : "monthly",
+            pricing: pricing
         ))
     }
 
@@ -305,7 +394,11 @@ struct UpsellView: View {
                     if isProcessing {
                         ProgressView().tint(.black)
                     } else {
-                        Text(selectedPlan == .yearly ? "Start Free Trial" : "Subscribe Now")
+                        // "Start Free Trial" only when there IS one. A customer whose trial is
+                        // spent gets "Subscribe Now", the same as monthly — for them the two
+                        // plans now differ only in price and duration.
+                        Text(selectedPlan == .yearly && trialAvailable
+                             ? "Start Free Trial" : "Subscribe Now")
                             .font(.system(size: 16, weight: .semibold))
                     }
                 }
@@ -356,7 +449,8 @@ struct UpsellView: View {
             source: source.rawValue,
             feature: featureTitle(at: currentPage),
             secondsOnScreen: Date().timeIntervalSince(shownAt),
-            paywallVariant: Self.variant
+            paywallVariant: variantId,
+            pricing: pricing
         ))
         // Leaving it armed would tag the next purchase — a renewal, or a buy from somewhere
         // else entirely — with a paywall this user walked away from.
@@ -368,18 +462,27 @@ struct UpsellView: View {
 
     private func handlePurchase() async {
         let planName = selectedPlan == .yearly ? "yearly" : "monthly"
-        let product = selectedPlan == .yearly ? purchaseService.yearlyProduct : purchaseService.monthlyProduct
+        // FROM THE RESOLVED CONTEXT. There is deliberately no `purchaseService.yearlyProduct`
+        // accessor any more: with two yearly SKUs live, "the yearly product" is a question only
+        // `IntroOfferService` can answer, and a call site that guessed would charge the wrong
+        // price while compiling perfectly.
+        let product = selectedPlan == .yearly ? pricing?.yearly : pricing?.monthly
         guard let product else {
             errorMessage = "Product not available. Please try again."
             AmplitudeService.shared.track(.purchaseAbandoned(
-                productId: "unknown", plan: planName, reason: "product_unavailable"
+                productId: "unknown", plan: planName, reason: "product_unavailable",
+                paywallVariant: variantId, pricing: pricing
             ))
             return
         }
         AmplitudeService.shared.track(.purchaseStarted(
             productId: product.id,
             plan: selectedPlan == .yearly ? "yearly" : "monthly",
-            isFreeTrial: selectedPlan == .yearly
+            // REAL ELIGIBILITY, not "is this the yearly plan". Those were the same thing only
+            // while the trial was unconditional.
+            isFreeTrial: selectedPlan == .yearly && trialAvailable,
+            paywallVariant: variantId,
+            pricing: pricing
         ))
 
         isProcessing = true
@@ -397,7 +500,8 @@ struct UpsellView: View {
                 // indistinguishable from closing the app.
                 isProcessing = false
                 AmplitudeService.shared.track(.purchaseAbandoned(
-                    productId: product.id, plan: planName, reason: "cancelled"
+                    productId: product.id, plan: planName, reason: "cancelled",
+                    paywallVariant: variantId, pricing: pricing
                 ))
                 return
             }
@@ -418,7 +522,8 @@ struct UpsellView: View {
                 errorMessage = error.localizedDescription
                 SentrySDK.capture(error: error)
                 AmplitudeService.shared.track(.purchaseAbandoned(
-                    productId: product.id, plan: planName, reason: "failed"
+                    productId: product.id, plan: planName, reason: "failed",
+                    paywallVariant: variantId, pricing: pricing
                 ))
             }
         }
